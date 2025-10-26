@@ -1,0 +1,350 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Alert,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { orderService } from '../../src/services/orderService';
+import { Order } from '../../src/type';
+import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
+
+type FilterStatus = 'ALL' | 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+
+export default function CommandesScreen() {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [filter, setFilter] = useState<FilterStatus>('ALL');
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  const loadOrders = async () => {
+    try {
+      const data = await orderService.getEpicerieOrders();
+      setOrders(data);
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de charger les commandes');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadOrders();
+  };
+
+  const handleUpdateStatus = async (orderId: number, newStatus: string) => {
+    try {
+      await orderService.updateOrderStatus(orderId, newStatus);
+      Alert.alert('✅', 'Statut mis à jour');
+      loadOrders();
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
+    }
+  };
+
+  const showStatusOptions = (order: Order) => {
+    const options: { text: string; status: string }[] = [];
+    
+    if (order.status === 'PENDING') {
+      options.push({ text: 'Accepter', status: 'ACCEPTED' });
+      options.push({ text: 'Refuser', status: 'CANCELLED' });
+    } else if (order.status === 'ACCEPTED') {
+      options.push({ text: 'En préparation', status: 'PREPARING' });
+    } else if (order.status === 'PREPARING') {
+      options.push({ text: 'Prête', status: 'READY' });
+    }
+
+    if (options.length === 0) return;
+
+    Alert.alert(
+      'Changer le statut',
+      'Choisissez le nouveau statut',
+      [
+        ...options.map(opt => ({
+          text: opt.text,
+          onPress: () => handleUpdateStatus(order.id, opt.status),
+        })),
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  };
+
+  const filteredOrders = filter === 'ALL' 
+    ? orders 
+    : orders.filter(order => order.status === filter);
+
+  const renderOrder = ({ item }: { item: Order }) => (
+    <TouchableOpacity 
+      style={styles.orderCard}
+      onPress={() => showStatusOptions(item)}
+    >
+      <View style={styles.orderHeader}>
+        <View style={styles.orderInfo}>
+          <Text style={styles.orderClient}>👤 {item.clientNom}</Text>
+          <Text style={styles.orderDate}>
+            {new Date(item.createdAt).toLocaleString('fr-FR')}
+          </Text>
+        </View>
+        <View style={styles.orderRight}>
+          <Text style={styles.orderTotal}>{formatPrice(item.total)}</Text>
+          <View 
+            style={[
+              styles.statusBadge,
+              { backgroundColor: getStatusColor(item.status) }
+            ]}
+          >
+            <Text style={styles.statusText}>
+              {getStatusLabel(item.status)}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.orderDetails}>
+        <Text style={styles.detailRow}>📦 {item.nombreItems} article(s)</Text>
+        <Text style={styles.detailRow}>📍 {item.adresseLivraison}</Text>
+        {item.telephoneLivraison && (
+          <Text style={styles.detailRow}>📞 {item.telephoneLivraison}</Text>
+        )}
+        {item.livreurNom && (
+          <Text style={styles.detailRow}>🚚 {item.livreurNom}</Text>
+        )}
+      </View>
+
+      {item.status === 'PENDING' && (
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={[styles.quickBtn, styles.acceptBtn]}
+            onPress={() => handleUpdateStatus(item.id, 'ACCEPTED')}
+          >
+            <Text style={styles.quickBtnText}>✅ Accepter</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.quickBtn, styles.rejectBtn]}
+            onPress={() => handleUpdateStatus(item.id, 'CANCELLED')}
+          >
+            <Text style={styles.quickBtnText}>❌ Refuser</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#2196F3" />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.filterContainer}>
+        <TouchableOpacity
+          style={[styles.filterBtn, filter === 'ALL' && styles.filterBtnActive]}
+          onPress={() => setFilter('ALL')}
+        >
+          <Text style={[styles.filterText, filter === 'ALL' && styles.filterTextActive]}>
+            Toutes ({orders.length})
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.filterBtn, filter === 'PENDING' && styles.filterBtnActive]}
+          onPress={() => setFilter('PENDING')}
+        >
+          <Text style={[styles.filterText, filter === 'PENDING' && styles.filterTextActive]}>
+            En attente ({orders.filter(o => o.status === 'PENDING').length})
+          </Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.filterBtn, filter === 'ACCEPTED' && styles.filterBtnActive]}
+          onPress={() => setFilter('ACCEPTED')}
+        >
+          <Text style={[styles.filterText, filter === 'ACCEPTED' && styles.filterTextActive]}>
+            Acceptées ({orders.filter(o => o.status === 'ACCEPTED').length})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      <FlatList
+        data={filteredOrders}
+        renderItem={renderOrder}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyEmoji}>📦</Text>
+            <Text style={styles.emptyText}>Aucune commande</Text>
+            <Text style={styles.emptySubtext}>
+              {filter === 'ALL' 
+                ? 'Aucune commande pour le moment'
+                : `Aucune commande ${getStatusLabel(filter).toLowerCase()}`
+              }
+            </Text>
+          </View>
+        }
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    padding: 10,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  filterBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+  },
+  filterBtnActive: {
+    backgroundColor: '#2196F3',
+  },
+  filterText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+  },
+  filterTextActive: {
+    color: '#fff',
+  },
+  list: {
+    padding: 15,
+  },
+  orderCard: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  orderInfo: {
+    flex: 1,
+  },
+  orderClient: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  orderDate: {
+    fontSize: 12,
+    color: '#999',
+  },
+  orderRight: {
+    alignItems: 'flex-end',
+  },
+  orderTotal: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
+    marginBottom: 6,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 11,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  orderDetails: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  detailRow: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 4,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  quickBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  acceptBtn: {
+    backgroundColor: '#4CAF50',
+  },
+  rejectBtn: {
+    backgroundColor: '#f44336',
+  },
+  quickBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    marginTop: 80,
+  },
+  emptyEmoji: {
+    fontSize: 80,
+    marginBottom: 20,
+  },
+  emptyText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+  },
+});
