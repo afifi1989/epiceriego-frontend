@@ -18,6 +18,7 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
+import { pushNotificationService } from '../../src/services/pushNotificationService';
 import { RegisterRequest } from '../../src/type';
 
 export default function RegisterScreen() {
@@ -92,6 +93,13 @@ export default function RegisterScreen() {
     setLoading(true);
 
     try {
+      // Récupérer le push token AVANT l'inscription
+      console.log('[RegisterScreen] 🔔 Récupération du push token...');
+      const fcmToken = await pushNotificationService.getTokenForLogin();
+      console.log('[RegisterScreen] Token obtenu:', fcmToken ? 'OUI ✅' : 'NON ❌');
+
+      console.log('[RegisterScreen] 📝 Préparation des données d\'inscription...');
+
       // Préparer les données
       const userData: RegisterRequest = {
         email,
@@ -110,8 +118,19 @@ export default function RegisterScreen() {
         userData.descriptionEpicerie = descriptionEpicerie;
       }
 
-      // Appel API
-      const response = await authService.register(userData);
+      console.log('[RegisterScreen] 🔐 Appel API d\'inscription...');
+
+      // Appel API avec le token
+      const response = await authService.register(userData, fcmToken);
+
+      console.log('[RegisterScreen] ✅ Inscription réussie');
+      console.log('[RegisterScreen] Rôle:', response.role);
+      console.log('[RegisterScreen] ⏳ Attente pour assurer la sauvegarde du JWT...');
+
+      // Attendre un peu pour s'assurer que le JWT est bien sauvegardé en AsyncStorage
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('[RegisterScreen] ✅ JWT sauvegardé, redirection en cours...');
 
       // Succès - Redirection selon le rôle
       Alert.alert(
@@ -122,10 +141,13 @@ export default function RegisterScreen() {
             text: 'OK',
             onPress: () => {
               if (response.role === 'CLIENT') {
+                console.log('[RegisterScreen] 📱 Redirection vers CLIENT...');
                 router.replace('/(client)');
               } else if (response.role === 'EPICIER') {
+                console.log('[RegisterScreen] 🏪 Redirection vers EPICIER...');
                 router.replace('../(epicier)/dashboard');
               } else if (response.role === 'LIVREUR') {
+                console.log('[RegisterScreen] 🚗 Redirection vers LIVREUR...');
                 router.replace('/(livreur)/deliveries');
               }
             },
@@ -133,6 +155,7 @@ export default function RegisterScreen() {
         ]
       );
     } catch (error) {
+      console.error('[RegisterScreen] ❌ Erreur lors de l\'inscription:', error);
       Alert.alert('Erreur', error as string);
     } finally {
       setLoading(false);

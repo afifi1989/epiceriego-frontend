@@ -2,23 +2,22 @@
 // app/(epicier)/dashboard.tsx
 // Dashboard complet pour l'épicier
 // ============================================
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
+  ActivityIndicator,
   Alert,
   RefreshControl,
-  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
-import { productService } from '../../src/services/productService';
 import { Epicerie, Order } from '../../src/type';
-import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
+import { formatPrice, getStatusColor, getStatusLabel } from '../../src/utils/helpers';
 
 export default function EpicierDashboardScreen() {
   const router = useRouter();
@@ -186,7 +185,7 @@ export default function EpicierDashboardScreen() {
         <View style={styles.actionsGrid}>
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => Alert.alert('Info', 'Gestion produits à venir')}
+            onPress={() => router.push('/(epicier)/produits')}
           >
             <Text style={styles.actionEmoji}>📦</Text>
             <Text style={styles.actionText}>Produits</Text>

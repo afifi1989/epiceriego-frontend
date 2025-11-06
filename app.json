@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité.",
+        "UIUserInterfaceStyle": "Automatic"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -20,7 +25,12 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": false
+      "package": "com.aitayach.epiceriegoapp",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "output": "static",
@@ -29,6 +39,19 @@
     "plugins": [
       "expo-router",
       "./app.plugin.js",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#4CAF50"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité."
+        }
+      ],
       [
         "expo-splash-screen",
         {

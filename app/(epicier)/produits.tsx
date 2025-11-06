@@ -1,15 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Picker } from '@react-native-picker/picker';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-  RefreshControl,
   ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { Category, categoryService, SubCategory } from '../../src/services/categoryService';
 import { productService } from '../../src/services/productService';
 import { Product } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
@@ -19,9 +23,19 @@ export default function ProduitsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+  
+  // Filtres
+  const [searchText, setSearchText] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
     loadProducts();
+    loadCategories();
   }, []);
 
   useFocusEffect(
@@ -34,6 +48,7 @@ export default function ProduitsScreen() {
     try {
       const data = await productService.getAllProducts();
       setProducts(data);
+      setFilteredProducts(data);
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de charger les produits');
     } finally {
@@ -41,6 +56,78 @@ export default function ProduitsScreen() {
       setRefreshing(false);
     }
   };
+
+  const loadCategories = async () => {
+    try {
+      const data = await categoryService.getActiveCategories();
+      setCategories(data);
+    } catch (error) {
+      console.error('Erreur chargement catégories:', error);
+    }
+  };
+
+  const loadSubCategories = async (categoryId: number) => {
+    try {
+      const data = await categoryService.getActiveSubCategories(categoryId);
+      setSubCategories(data);
+    } catch (error) {
+      console.error('Erreur chargement sous-catégories:', error);
+      setSubCategories([]);
+    }
+  };
+
+  // Appliquer les filtres
+  useEffect(() => {
+    applyFilters();
+  }, [searchText, selectedCategoryId, selectedSubCategoryId, products]);
+
+  // Charger les sous-catégories quand la catégorie change
+  useEffect(() => {
+    if (selectedCategoryId) {
+      loadSubCategories(parseInt(selectedCategoryId));
+    } else {
+      setSubCategories([]);
+      setSelectedSubCategoryId('');
+    }
+  }, [selectedCategoryId]);
+
+  const applyFilters = () => {
+    let filtered = [...products];
+
+    // Filtre par recherche texte
+    if (searchText.trim()) {2
+      const search = searchText.toLowerCase();
+      filtered = filtered.filter(product =>
+        product.nom.toLowerCase().includes(search) ||
+        product.description?.toLowerCase().includes(search)
+      );
+    }
+
+    // Filtre par catégorie
+    if (selectedCategoryId) {
+      filtered = filtered.filter(product =>
+        product.categoryId?.toString() === selectedCategoryId
+      );
+    }
+
+    // Filtre par sous-catégorie
+    if (selectedSubCategoryId) {
+      filtered = filtered.filter(product =>
+        product.subCategoryId?.toString() === selectedSubCategoryId
+      );
+    }
+
+    setFilteredProducts(filtered);
+  };
+
+  const resetFilters = () => {
+    setSearchText('');
+    setSelectedCategoryId('');
+    setSelectedSubCategoryId('');
+    setSubCategories([]);
+  };
+
+  const hasActiveFilters = searchText || selectedCategoryId || selectedSubCategoryId;
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -52,7 +139,7 @@ export default function ProduitsScreen() {
   };
 
   const handleEditProduct = (product: Product) => {
-    Alert.alert('À venir', `Édition du produit: ${product.nom}`);
+    router.push(`/(epicier)/modifier-produit?id=${product.id}`);
   };
 
   const handleToggleAvailability = async (product: Product) => {
@@ -72,7 +159,11 @@ export default function ProduitsScreen() {
     <View style={styles.productCard}>
       <View style={styles.productImageContainer}>
         {item.photoUrl ? (
-          <Text style={styles.productImagePlaceholder}>🖼️</Text>
+          <Image
+            source={{ uri: item.photoUrl }}
+            style={styles.productImage}
+            resizeMode="cover"
+          />
         ) : (
           <Text style={styles.productImagePlaceholder}>📦</Text>
         )}
@@ -150,25 +241,89 @@ export default function ProduitsScreen() {
     <View style={styles.container}>
       <View style={styles.headerStats}>
         <View style={styles.statBox}>
-          <Text style={styles.statValue}>{products.length}</Text>
-          <Text style={styles.statLabel}>Produits Total</Text>
+          <Text style={styles.statValue}>{filteredProducts.length}</Text>
+          <Text style={styles.statLabel}>Produits {hasActiveFilters ? 'Filtrés' : 'Total'}</Text>
         </View>
         <View style={styles.statBox}>
           <Text style={styles.statValue}>
-            {products.filter(p => p.isAvailable).length}
+            {filteredProducts.filter(p => p.isAvailable).length}
           </Text>
           <Text style={styles.statLabel}>Disponibles</Text>
         </View>
         <View style={styles.statBox}>
           <Text style={styles.statValue}>
-            {products.filter(p => p.stock < 10).length}
+            {filteredProducts.filter(p => p.stock < 10).length}
           </Text>
           <Text style={styles.statLabel}>Stock bas</Text>
         </View>
       </View>
 
+      {/* Barre de recherche */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="🔍 Rechercher un produit..."
+          placeholderTextColor="#999"
+          value={searchText}
+          onChangeText={setSearchText}
+        />
+        <TouchableOpacity
+          style={styles.filterToggleButton}
+          onPress={() => setShowFilters(!showFilters)}
+        >
+          <Text style={styles.filterToggleIcon}>
+            {showFilters ? '▲' : '▼'} Filtres
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Panneau de filtres */}
+      {showFilters && (
+        <View style={styles.filtersPanel}>
+          <View style={styles.filterRow}>
+            <Text style={styles.filterLabel}>Catégorie:</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={selectedCategoryId}
+                onValueChange={(value) => setSelectedCategoryId(value)}
+                style={styles.picker}
+              >
+                <Picker.Item label="Toutes les catégories" value="" />
+                {categories.map((cat) => (
+                  <Picker.Item key={cat.id} label={cat.name} value={cat.id.toString()} />
+                ))}
+              </Picker>
+            </View>
+          </View>
+
+          {selectedCategoryId && subCategories.length > 0 && (
+            <View style={styles.filterRow}>
+              <Text style={styles.filterLabel}>Sous-catégorie:</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={selectedSubCategoryId}
+                  onValueChange={(value) => setSelectedSubCategoryId(value)}
+                  style={styles.picker}
+                >
+                  <Picker.Item label="Toutes les sous-catégories" value="" />
+                  {subCategories.map((subCat) => (
+                    <Picker.Item key={subCat.id} label={subCat.name} value={subCat.id.toString()} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+          )}
+
+          {hasActiveFilters && (
+            <TouchableOpacity style={styles.resetButton} onPress={resetFilters}>
+              <Text style={styles.resetButtonText}>🔄 Réinitialiser les filtres</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       <FlatList
-        data={products}
+        data={filteredProducts}
         renderItem={renderProduct}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.list}
@@ -178,8 +333,12 @@ export default function ProduitsScreen() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyEmoji}>📦</Text>
-            <Text style={styles.emptyText}>Aucun produit</Text>
-            <Text style={styles.emptySubtext}>Ajoutez votre premier produit</Text>
+            <Text style={styles.emptyText}>
+              {hasActiveFilters ? 'Aucun produit trouvé' : 'Aucun produit'}
+            </Text>
+            <Text style={styles.emptySubtext}>
+              {hasActiveFilters ? 'Essayez de modifier vos filtres' : 'Ajoutez votre premier produit'}
+            </Text>
           </View>
         }
       />
@@ -254,6 +413,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
   },
   productImagePlaceholder: {
     fontSize: 48,
@@ -403,5 +567,70 @@ const styles = StyleSheet.create({
   fabIcon: {
     fontSize: 28,
     color: '#fff',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    padding: 15,
+    gap: 10,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 16,
+    color: '#333',
+  },
+  filterToggleButton: {
+    backgroundColor: '#2196F3',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterToggleIcon: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  filtersPanel: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  filterRow: {
+    marginBottom: 15,
+  },
+  filterLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  pickerContainer: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  picker: {
+    height: 50,
+  },
+  resetButton: {
+    backgroundColor: '#FF9800',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  resetButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

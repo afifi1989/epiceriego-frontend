@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
+import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -43,20 +44,40 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
-    
+
     try {
-      // Appel API
-      const userData = await authService.login(email, password);
-      
+      // Récupérer le push token AVANT la connexion
+      console.log('[LoginScreen] 🔔 Récupération du push token...');
+      const fcmToken = await pushNotificationService.getTokenForLogin();
+      console.log('[LoginScreen] Token obtenu:', fcmToken ? 'OUI ✅' : 'NON ❌');
+
+      // Appel API avec le token
+      console.log('[LoginScreen] 🔐 Tentative de connexion...');
+      const userData = await authService.login(email, password, fcmToken);
+
+      console.log('[LoginScreen] ✅ Connexion réussie');
+      console.log('[LoginScreen] Rôle:', userData.role);
+      console.log('[LoginScreen] ⏳ Attente pour assurer la sauvegarde du JWT...');
+
+      // Attendre un peu pour s'assurer que le JWT est bien sauvegardé en AsyncStorage
+      // avant de rediriger (certains appels dans les layouts vont avoir besoin du JWT)
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      console.log('[LoginScreen] ✅ JWT sauvegardé, redirection en cours...');
+
       // Succès - Navigation selon le rôle
       if (userData.role === 'CLIENT') {
+        console.log('[LoginScreen] 📱 Redirection vers CLIENT...');
         router.replace('/(client)');
       } else if (userData.role === 'EPICIER') {
+        console.log('[LoginScreen] 🏪 Redirection vers EPICIER...');
         router.replace('../(epicier)/dashboard');
       } else if (userData.role === 'LIVREUR') {
+        console.log('[LoginScreen] 🚗 Redirection vers LIVREUR...');
         router.replace('/(livreur)/deliveries');
       }
     } catch (error) {
+      console.error('[LoginScreen] ❌ Erreur de connexion:', error);
       Alert.alert('Erreur de connexion', error as string);
     } finally {
       setLoading(false);

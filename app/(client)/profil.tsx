@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
+  ActivityIndicator,
   Alert,
   ScrollView,
-  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { profileService } from '../../src/services/profileService';
 import { User } from '../../src/type';
+import { useLanguage } from '../../src/context/LanguageContext';
 
 export default function ProfilScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
@@ -24,12 +26,12 @@ export default function ProfilScreen() {
 
   const loadUserData = async () => {
     try {
-      const userData = await AsyncStorage.getItem('user');
-      if (userData) {
-        setUser(JSON.parse(userData));
-      }
+      // Charger le profil depuis l'API
+      const userData = await profileService.getMyProfile();
+      setUser(userData);
     } catch (error) {
       console.error('Erreur chargement profil:', error);
+      Alert.alert(t('common.error'), t('profile.loadError'));
     } finally {
       setLoading(false);
     }
@@ -37,12 +39,12 @@ export default function ProfilScreen() {
 
   const handleLogout = async () => {
     Alert.alert(
-      'Déconnexion',
-      'Voulez-vous vraiment vous déconnecter ?',
+      t('profile.logout'),
+      t('profile.confirmLogout'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Déconnexion',
+          text: t('profile.logout'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -50,7 +52,7 @@ export default function ProfilScreen() {
               router.replace('/(auth)/login');
             } catch (error) {
               console.error('Erreur déconnexion:', error);
-              Alert.alert('Erreur', 'Impossible de se déconnecter');
+              Alert.alert(t('common.error'), t('profile.logoutError'));
             }
           },
         },
@@ -72,69 +74,91 @@ export default function ProfilScreen() {
         <View style={styles.avatarContainer}>
           <Text style={styles.avatarEmoji}>👤</Text>
         </View>
-        <Text style={styles.userName}>{user?.nom || 'Utilisateur'}</Text>
-        <Text style={styles.userEmail}>{user?.email || ''}</Text>
+        <Text style={styles.userName}>{user?.nom || t('profile.user')}</Text>
+        <Text style={styles.userEmail}>{user?.email}</Text>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Informations personnelles</Text>
-        
+        <Text style={styles.sectionTitle}>{t('profile.personalInfo')}</Text>
+
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📧 Email</Text>
-            <Text style={styles.infoValue}>{user?.email || 'Non renseigné'}</Text>
+            <Text style={styles.infoLabel}>📧 {t('profile.email')}</Text>
+            <Text style={styles.infoValue}>{user?.email || t('profile.notProvided')}</Text>
           </View>
-          
+
           <View style={styles.divider} />
-          
+
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📱 Téléphone</Text>
-            <Text style={styles.infoValue}>{user?.telephone || 'Non renseigné'}</Text>
+            <Text style={styles.infoLabel}>📱 {t('profile.phone')}</Text>
+            <Text style={styles.infoValue}>
+              {user?.telephone && user.telephone.trim() !== '' ? user.telephone : t('profile.notProvided')}
+            </Text>
           </View>
-          
+
           <View style={styles.divider} />
-          
+
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>📍 Adresse</Text>
-            <Text style={styles.infoValue}>{user?.adresse || 'Non renseignée'}</Text>
+            <Text style={styles.infoLabel}>📍 {t('profile.address')}</Text>
+            <Text style={styles.infoValue}>
+              {user?.adresse && user.adresse.trim() !== '' ? user.adresse : t('profile.notProvided')}
+            </Text>
           </View>
         </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Actions</Text>
-        
-        <TouchableOpacity style={styles.actionButton}>
+        <Text style={styles.sectionTitle}>{t('profile.actions')}</Text>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(client)/(commandes)')}
+        >
           <Text style={styles.actionIcon}>🛍️</Text>
-          <Text style={styles.actionText}>Mes commandes</Text>
+          <Text style={styles.actionText}>{t('profile.myOrders')}</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.actionButton}>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(client)/favoris')}
+        >
           <Text style={styles.actionIcon}>❤️</Text>
-          <Text style={styles.actionText}>Mes favoris</Text>
+          <Text style={styles.actionText}>{t('profile.myFavorites')}</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.actionButton}>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(client)/notifications')}
+        >
+          <Text style={styles.actionIcon}>📢</Text>
+          <Text style={styles.actionText}>{t('profile.myNotifications')}</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(client)/settings' as any)}
+        >
           <Text style={styles.actionIcon}>⚙️</Text>
-          <Text style={styles.actionText}>Paramètres</Text>
+          <Text style={styles.actionText}>{t('profile.settings')}</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity style={styles.actionButton}>
           <Text style={styles.actionIcon}>❓</Text>
-          <Text style={styles.actionText}>Aide & Support</Text>
+          <Text style={styles.actionText}>{t('profile.helpSupport')}</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
       </View>
 
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>🚪 Déconnexion</Text>
+        <Text style={styles.logoutText}>🚪 {t('profile.logout')}</Text>
       </TouchableOpacity>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>EpicerieGo v1.0.0</Text>
+        <Text style={styles.footerText}>{t('app.version')}</Text>
       </View>
     </ScrollView>
   );

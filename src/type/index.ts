@@ -77,23 +77,46 @@ export interface OrderItem {
   quantite: number;
 }
 
+export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
+export type PaymentMethod = 'CASH' | 'CARD';
+
+export interface CardPaymentDetails {
+  cardNumber: string;
+  cardholderName: string;
+  expiryMonth: string;
+  expiryYear: string;
+  cvv: string;
+  saveForLater?: boolean;
+}
+
+export interface SavedPaymentMethod {
+  id: number;
+  lastFourDigits: string;
+  cardholderName: string;
+  expiryMonth: string;
+  expiryYear: string;
+  isDefault: boolean;
+}
+
 export interface CreateOrderRequest {
   epicerieId: number;
   items: OrderItem[];
+  deliveryType: DeliveryType;
   adresseLivraison: string;
   latitudeLivraison?: number;
   longitudeLivraison?: number;
-  telephoneLivraison: string;
-  paymentMethod?: string;
+  telephoneLivraison?: string;
+  paymentMethod: PaymentMethod;
 }
 
 export interface Order {
   id: number;
   total: number;
   status: string;
+  deliveryType: DeliveryType;
   adresseLivraison: string;
   telephoneLivraison?: string;
-  paymentMethod: string;
+  paymentMethod: PaymentMethod;
   createdAt: string;
   updatedAt: string;
   clientId: number;
@@ -128,4 +151,43 @@ export interface Delivery {
   epicerieNom: string;
   nombreItems: number;
   createdAt: string;
+}
+
+export interface DeliveryInfo {
+  adresseLivraison: string;
+  telephoneLivraison: string;
+  latitudeLivraison?: number;
+  longitudeLivraison?: number;
+}
+
+export interface UpdateDeliveryInfoRequest {
+  adresseLivraison: string;
+  telephoneLivraison: string;
+}
+
+// Settings Types
+export interface NotificationSettings {
+  pushNotifications: boolean;
+  emailNotifications: boolean;
+  orderNotifications: boolean;
+  promoNotifications: boolean;
+  deliveryNotifications: boolean;
+}
+
+export interface UserPreferences {
+  language: string;
+  darkMode: boolean;
+  currency: string;
+  timezone: string;
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface DeleteAccountRequest {
+  password: string;
+  confirmation: string;
 }

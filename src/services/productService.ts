@@ -1,5 +1,5 @@
-import api from './api';
 import { Product } from '../type';
+import api from './api';
 
 export const productService = {
   /**
@@ -53,6 +53,22 @@ export const productService = {
   },
 
   /**
+   * Ajoute un nouveau produit avec image (multipart/form-data)
+   */
+  addProductWithImage: async (formData: FormData): Promise<Product> => {
+    try {
+      const response = await api.post<Product>('/products', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors de l\'ajout du produit';
+    }
+  },
+
+  /**
    * Modifie un produit existant
    */
   updateProduct: async (id: number, productData: Partial<Product>): Promise<Product> => {
@@ -61,6 +77,22 @@ export const productService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors de la modification';
+    }
+  },
+
+  /**
+   * Modifie un produit avec image (multipart/form-data)
+   */
+  updateProductWithImage: async (id: number, formData: FormData): Promise<Product> => {
+    try {
+      const response = await api.put<Product>(`/products/${id}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors de la modification du produit';
     }
   },
 

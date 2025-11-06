@@ -2,22 +2,26 @@ import api from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants/config';
 import { RegisterRequest, LoginResponse } from '../type';
+import { cartService } from './cartService';
 
 export const authService = {
   /**
    * Inscription d'un nouvel utilisateur
    */
-  register: async (userData: RegisterRequest): Promise<LoginResponse> => {
+  register: async (userData: RegisterRequest, fcmToken: string | null = null): Promise<LoginResponse> => {
     try {
-      const response = await api.post<LoginResponse>('/auth/register', userData);
-      
+      // Ajouter le token FCM aux données si fourni
+      const dataWithToken = fcmToken ? { ...userData, fcmToken } : userData;
+
+      const response = await api.post<LoginResponse>('/auth/register', dataWithToken);
+
       // Sauvegarder le token et les infos user
       if (response.data.token) {
         await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.data.token);
         await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.data));
         await AsyncStorage.setItem(STORAGE_KEYS.ROLE, response.data.role);
       }
-      
+
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors de l\'inscription';
@@ -72,11 +76,17 @@ export const authService = {
    */
   logout: async (): Promise<void> => {
     try {
+      // Vider le panier lors de la déconnexion
+      await cartService.clearCart();
+
+      // Supprimer les données d'authentification
       await AsyncStorage.multiRemove([
         STORAGE_KEYS.TOKEN,
         STORAGE_KEYS.USER,
         STORAGE_KEYS.ROLE,
       ]);
+
+      console.log('[authService.logout] Déconnexion effectuée - Panier vidé');
     } catch (error) {
       console.error('Erreur lors de la déconnexion:', error);
     }

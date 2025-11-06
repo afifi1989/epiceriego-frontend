@@ -1,5 +1,5 @@
 import api from './api';
-import { CreateOrderRequest, Order } from '../type';
+import { CreateOrderRequest, Order, DeliveryInfo, UpdateDeliveryInfoRequest } from '../type';
 
 export const orderService = {
   /**
@@ -7,10 +7,28 @@ export const orderService = {
    */
   createOrder: async (orderData: CreateOrderRequest): Promise<Order> => {
     try {
+      console.log('[OrderService] Envoi de la commande au serveur...');
+      console.log('[OrderService] Données formatées:', JSON.stringify(orderData, null, 2));
+
       const response = await api.post<Order>('/orders', orderData);
+
+      console.log('[OrderService] Réponse reçue avec succès');
+      console.log('[OrderService] Réponse:', JSON.stringify(response.data, null, 2));
+
       return response.data;
     } catch (error: any) {
-      throw error.response?.data?.message || 'Erreur lors de la création de la commande';
+      console.error('[OrderService] Erreur lors de la création');
+      console.error('[OrderService] Status HTTP:', error.response?.status);
+      console.error('[OrderService] Message backend:', error.response?.data);
+      console.error('[OrderService] Config request:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        headers: error.config?.headers,
+        data: error.config?.data,
+      });
+
+      const errorMessage = error.response?.data?.message || error.message || 'Erreur lors de la création de la commande';
+      throw errorMessage;
     }
   },
 
@@ -72,6 +90,42 @@ export const orderService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Impossible d\'annuler cette commande';
+    }
+  },
+
+  /**
+   * Récupère les informations de livraison par défaut du client
+   */
+  getDefaultDeliveryInfo: async (): Promise<DeliveryInfo> => {
+    try {
+      const response = await api.get<DeliveryInfo>('/orders/delivery-info/default');
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors de la récupération des informations de livraison';
+    }
+  },
+
+  /**
+   * Récupère les informations de livraison d'une commande
+   */
+  getDeliveryInfo: async (orderId: number): Promise<DeliveryInfo> => {
+    try {
+      const response = await api.get<DeliveryInfo>(`/orders/${orderId}/delivery-info`);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors de la récupération des informations de livraison';
+    }
+  },
+
+  /**
+   * Met à jour les informations de livraison d'une commande
+   */
+  updateDeliveryInfo: async (orderId: number, data: UpdateDeliveryInfoRequest): Promise<DeliveryInfo> => {
+    try {
+      const response = await api.put<DeliveryInfo>(`/orders/${orderId}/delivery-info`, data);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors de la mise à jour des informations de livraison';
     }
   },
 };

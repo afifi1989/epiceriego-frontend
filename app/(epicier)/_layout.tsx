@@ -1,7 +1,66 @@
-import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Tabs, Redirect, useRouter } from 'expo-router';
+import { Text, ActivityIndicator, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pushNotificationService } from '../../src/services/pushNotificationService';
+import { STORAGE_KEYS } from '../../src/constants/config';
 
-export default function EpicierLayout() {
+// Composant interne pour gérer le layout authentifié
+function EpicierTabsContent() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  // ✅ Initialiser les push notifications pour les épiciers authentifiés
+  useEffect(() => {
+    console.log('[EpicierLayout] 🎯 EpicierLayout component mounted - Initializing notifications');
+
+    const setupNotifications = async () => {
+      try {
+        // Petit délai pour s'assurer que le composant est complètement monté
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        console.log('[EpicierLayout] 1️⃣ Setting foreground handler');
+        await pushNotificationService.setForegroundNotificationHandler();
+
+        console.log('[EpicierLayout] 2️⃣ Setup notification categories');
+        await pushNotificationService.setupNotificationCategories();
+
+        console.log('[EpicierLayout] 3️⃣ Register for push notifications');
+        const token = await pushNotificationService.registerForPushNotifications();
+        console.log('[EpicierLayout] Token received:', token);
+
+        if (token) {
+          console.log('[EpicierLayout] 4️⃣ Send token to server');
+          const success = await pushNotificationService.sendTokenToServer(token);
+          console.log('[EpicierLayout] Send result:', success);
+
+          if (!success) {
+            console.log('[EpicierLayout] ⚠️ Token saved locally, will retry later');
+          }
+
+          console.log('[EpicierLayout] 5️⃣ Retry pending tokens');
+          await pushNotificationService.retryPendingToken();
+        } else {
+          console.error('[EpicierLayout] ❌ No token received!');
+        }
+
+        console.log('[EpicierLayout] 6️⃣ Setup notification handlers');
+        pushNotificationService.setupNotificationHandlers(router);
+
+        console.log('[EpicierLayout] ✅ All notification setup complete');
+      } catch (error) {
+        console.error('[EpicierLayout] ❌ Error during notification setup:', error);
+        if (error instanceof Error) {
+          console.error('[EpicierLayout] Error message:', error.message);
+          console.error('[EpicierLayout] Stack:', error.stack);
+        }
+      }
+    };
+
+    setupNotifications();
+  }, [router]);
+
   return (
     <Tabs
       screenOptions={{
@@ -11,8 +70,8 @@ export default function EpicierLayout() {
           backgroundColor: '#fff',
           borderTopWidth: 1,
           borderTopColor: '#e0e0e0',
-          height: 60,
-          paddingBottom: 8,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom + 8,
           paddingTop: 8,
         },
         tabBarLabelStyle: {
@@ -28,7 +87,7 @@ export default function EpicierLayout() {
         name="dashboard"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>📊</Text>,
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>📊</Text>,
           headerTitle: '📊 Dashboard',
         }}
       />
@@ -36,7 +95,7 @@ export default function EpicierLayout() {
         name="commandes"
         options={{
           title: 'Commandes',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>🛍️</Text>,
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🛍️</Text>,
           headerTitle: '🛍️ Commandes',
         }}
       />
@@ -44,7 +103,7 @@ export default function EpicierLayout() {
         name="produits"
         options={{
           title: 'Produits',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>📦</Text>,
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>📦</Text>,
           headerTitle: '📦 Mes Produits',
         }}
       />
@@ -52,7 +111,7 @@ export default function EpicierLayout() {
         name="profil"
         options={{
           title: 'Profil',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 24 }}>👤</Text>,
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>👤</Text>,
           headerTitle: '👤 Mon Profil',
         }}
       />
@@ -86,6 +145,63 @@ export default function EpicierLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="modifier-produit"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
+}
+
+// Composant principal avec vérification d'authentification
+export default function EpicierLayout() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  // 🔐 Vérifier l'authentification AVANT d'afficher le layout
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+        const role = await AsyncStorage.getItem(STORAGE_KEYS.ROLE);
+
+        // Si pas de token ou pas le bon rôle → rediriger vers login
+        if (!token || role !== 'EPICIER') {
+          console.error('[EpicierLayout] ❌ ACCÈS NON AUTORISÉ - Token ou rôle invalide');
+          setIsAuthenticated(false);
+          setUserRole(role);
+          return;
+        }
+
+        console.log('[EpicierLayout] ✅ Authentification valide');
+        setIsAuthenticated(true);
+        setUserRole(role);
+      } catch (error) {
+        console.error('[EpicierLayout] ❌ Erreur vérification auth:', error);
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  // 🔄 Afficher un loader pendant la vérification
+  if (isAuthenticated === null) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#2196F3" />
+      </View>
+    );
+  }
+
+  // 🚫 Rediriger si non authentifié
+  if (!isAuthenticated || userRole !== 'EPICIER') {
+    console.log('[EpicierLayout] Redirection vers login - authentification manquante');
+    return <Redirect href="/(auth)/login" />;
+  }
+
+  // ✅ Afficher le contenu authentifié
+  return <EpicierTabsContent />;
 }

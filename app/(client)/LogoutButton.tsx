@@ -1,6 +1,7 @@
 import { Pressable, Platform, Text, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
+import { useLanguage } from '../../src/context/LanguageContext';
 
 export function showAlert(title: any, message: any, buttons: any) {
   if (Platform.OS === 'web') {
@@ -16,13 +17,14 @@ export function showAlert(title: any, message: any, buttons: any) {
 
 export default function LogoutButton() {
   const router = useRouter();
+  const { t } = useLanguage();
 
   const handleLogout = () => {
     console.log('handleLogout appelé');
-    showAlert('Déconnexion', 'Voulez-vous vraiment vous déconnecter ?', [
-      { text: 'Annuler', style: 'cancel' },
+    showAlert(t('settings.logout'), t('orders.confirmLogout'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Déconnexion',
+        text: t('settings.logout'),
         style: 'destructive',
         onPress: async () => {
           try {
@@ -48,7 +50,7 @@ export default function LogoutButton() {
   return (
     <Pressable onPress={handleLogout} style={{ marginRight: 15 }}>
       <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-        Déconnexion
+        {t('settings.logout')}
       </Text>
     </Pressable>
   );

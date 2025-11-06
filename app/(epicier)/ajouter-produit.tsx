@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import { Picker } from '@react-native-picker/picker';
+import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
   ActivityIndicator,
+  Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
-import { useRouter } from 'expo-router';
+import { Category, categoryService, SubCategory } from '../../src/services/categoryService';
 import { productService } from '../../src/services/productService';
-import { categoryService, Category, SubCategory } from '../../src/services/categoryService';
 
 export default function AjouterProduitScreen() {
   const router = useRouter();
@@ -22,12 +24,12 @@ export default function AjouterProduitScreen() {
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+  const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [formData, setFormData] = useState({
     nom: '',
     description: '',
     prix: '',
     stock: '',
-    photoUrl: '',
     categoryId: '',
     subCategoryId: '',
   });
@@ -67,6 +69,35 @@ export default function AjouterProduitScreen() {
     }
   };
 
+  const pickImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (!permissionResult.granted) {
+        Alert.alert('Permission requise', 'Vous devez autoriser l\'accès à la galerie pour ajouter une image');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setSelectedImage(result.assets[0]);
+      }
+    } catch (error) {
+      console.error('Erreur sélection image:', error);
+      Alert.alert('Erreur', 'Impossible de sélectionner l\'image');
+    }
+  };
+
+  const removeImage = () => {
+    setSelectedImage(null);
+  };
+
   const handleSave = async () => {
     // Validation
     if (!formData.nom.trim()) {
@@ -99,25 +130,54 @@ export default function AjouterProduitScreen() {
     try {
       setSaving(true);
 
-      const productData: any = {
-        nom: formData.nom.trim(),
-        description: formData.description.trim() || undefined,
-        prix: prix,
-        stock: stock,
-        photoUrl: formData.photoUrl.trim() || undefined,
-        categoryId: parseInt(formData.categoryId),
-      };
+      // Si une image est sélectionnée, utiliser FormData
+      if (selectedImage) {
+        const formDataToSend = new FormData();
+        formDataToSend.append('nom', formData.nom.trim());
+        if (formData.description.trim()) {
+          formDataToSend.append('description', formData.description.trim());
+        }
+        formDataToSend.append('prix', prix.toString());
+        formDataToSend.append('stock', stock.toString());
+        formDataToSend.append('categoryId', formData.categoryId);
+        if (formData.subCategoryId) {
+          formDataToSend.append('subCategoryId', formData.subCategoryId);
+        }
 
-      if (formData.subCategoryId) {
-        productData.subCategoryId = parseInt(formData.subCategoryId);
+        // Ajouter l'image
+        const imageUri = selectedImage.uri;
+        const imageName = imageUri.split('/').pop() || 'product.jpg';
+        const imageType = selectedImage.mimeType || 'image/jpeg';
+
+        // @ts-ignore - FormData supporte les fichiers sur React Native
+        formDataToSend.append('image', {
+          uri: imageUri,
+          name: imageName,
+          type: imageType,
+        });
+
+        await productService.addProductWithImage(formDataToSend);
+      } else {
+        // Sinon, utiliser l'ancienne méthode JSON
+        const productData: any = {
+          nom: formData.nom.trim(),
+          description: formData.description.trim() || undefined,
+          prix: prix,
+          stock: stock,
+          categoryId: parseInt(formData.categoryId),
+        };
+
+        if (formData.subCategoryId) {
+          productData.subCategoryId = parseInt(formData.subCategoryId);
+        }
+
+        await productService.addProduct(productData);
       }
-
-      await productService.addProduct(productData);
       
       Alert.alert('✅ Succès', 'Le produit a été ajouté avec succès', [
         {
           text: 'OK',
-          onPress: () => router.back(),
+          onPress: () => router.replace('/(epicier)/produits'),
         },
       ]);
     } catch (error) {
@@ -234,21 +294,22 @@ export default function AjouterProduitScreen() {
           )}
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Photo (URL)</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.photoUrl}
-              onChangeText={(text) => setFormData({ ...formData, photoUrl: text })}
-              placeholder="https://example.com/images/produit.jpg"
-              placeholderTextColor="#999"
-              keyboardType="url"
-              autoCapitalize="none"
-            />
-            {formData.photoUrl && (
-              <Text style={styles.hint}>
-                💡 L'image sera affichée aux clients
-              </Text>
+            <Text style={styles.label}>Photo du produit</Text>
+            {selectedImage ? (
+              <View style={styles.imagePreviewContainer}>
+                <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} />
+                <TouchableOpacity style={styles.removeImageButton} onPress={removeImage}>
+                  <Text style={styles.removeImageText}>✕ Supprimer l'image</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                <Text style={styles.uploadButtonText}>📷 Choisir une image</Text>
+              </TouchableOpacity>
             )}
+            <Text style={styles.hint}>
+              💡 L'image sera automatiquement téléchargée sur le serveur
+            </Text>
           </View>
 
           <View style={styles.requiredNote}>
@@ -263,6 +324,7 @@ export default function AjouterProduitScreen() {
               • Le produit sera automatiquement disponible après l'ajout{'\n'}
               • Le stock par défaut est 0 si non spécifié{'\n'}
               • La catégorie est obligatoire{'\n'}
+              • L'image est optionnelle mais recommandée{'\n'}
               • Vous pourrez modifier ces informations plus tard
             </Text>
           </View>
@@ -362,6 +424,45 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 50,
+  },
+  uploadButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: '#2196F3',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2196F3',
+  },
+  imagePreviewContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  imagePreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  removeImageButton: {
+    backgroundColor: '#f44336',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  removeImageText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
   hint: {
     fontSize: 12,
