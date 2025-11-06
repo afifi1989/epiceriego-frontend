@@ -204,6 +204,25 @@ export const translations = {
       uncategorized: 'Non catégorisé',
     },
 
+    // Favorites
+    favorites: {
+      myFavorites: 'Mes Favoris',
+      loadError: 'Impossible de charger les favoris',
+      removeFavorite: 'Supprimer des favoris',
+      confirmRemove: 'Êtes-vous sûr de vouloir supprimer',
+      fromFavorites: 'de vos favoris ?',
+      removed: 'Supprimé des favoris',
+      removeError: 'Erreur lors de la suppression',
+      errorOccurred: 'Une erreur s\'est produite',
+      remove: 'Supprimer',
+      loading: 'Chargement des favoris...',
+      noFavorites: 'Aucun favori',
+      addFavoritesHint: 'Découvrez et ajoutez vos épiceries préférées à vos favoris',
+      discoverEpiceries: 'Découvrir les épiceries',
+      epiceries: 'épiceries',
+      epicerie: 'épicerie',
+    },
+
     // Epiceries
     epiceries: {
       title: 'Épiceries',
@@ -315,6 +334,8 @@ export const translations = {
       sort: 'Trier',
       noResults: 'Aucun résultat',
       cancel: 'Annuler',
+      delete: 'Supprimer',
+      ok: 'OK',
     },
   },
 
@@ -521,6 +542,25 @@ export const translations = {
       uncategorized: 'غير مصنف',
     },
 
+    // Favorites
+    favorites: {
+      myFavorites: 'المفضلة لدي',
+      loadError: 'تعذر تحميل المفضلات',
+      removeFavorite: 'إزالة من المفضلة',
+      confirmRemove: 'هل أنت متأكد من رغبتك في إزالة',
+      fromFavorites: 'من المفضلة الخاصة بك؟',
+      removed: 'تم الحذف من المفضلة',
+      removeError: 'خطأ في الحذف',
+      errorOccurred: 'حدث خطأ ما',
+      remove: 'حذف',
+      loading: 'جاري تحميل المفضلات...',
+      noFavorites: 'لا توجد مفضلات',
+      addFavoritesHint: 'اكتشف وأضف متاجرك المفضلة إلى المفضلة',
+      discoverEpiceries: 'اكتشف المتاجر',
+      epiceries: 'متاجر',
+      epicerie: 'متجر',
+    },
+
     // Epiceries
     epiceries: {
       title: 'المتاجر',
@@ -632,6 +672,8 @@ export const translations = {
       sort: 'ترتيب',
       noResults: 'لا توجد نتائج',
       cancel: 'إلغاء',
+      delete: 'حذف',
+      ok: 'حسناً',
     },
   },
 
@@ -838,6 +880,25 @@ export const translations = {
       uncategorized: 'Uncategorized',
     },
 
+    // Favorites
+    favorites: {
+      myFavorites: 'My Favorites',
+      loadError: 'Unable to load favorites',
+      removeFavorite: 'Remove from Favorites',
+      confirmRemove: 'Are you sure you want to remove',
+      fromFavorites: 'from your favorites?',
+      removed: 'Removed from favorites',
+      removeError: 'Error removing favorite',
+      errorOccurred: 'An error occurred',
+      remove: 'Remove',
+      loading: 'Loading favorites...',
+      noFavorites: 'No Favorites',
+      addFavoritesHint: 'Discover and add your favorite stores to your favorites',
+      discoverEpiceries: 'Discover Stores',
+      epiceries: 'stores',
+      epicerie: 'store',
+    },
+
     // Epiceries
     epiceries: {
       title: 'Stores',
@@ -949,6 +1010,8 @@ export const translations = {
       sort: 'Sort',
       noResults: 'No results found',
       cancel: 'Cancel',
+      delete: 'Delete',
+      ok: 'OK',
     },
   },
 };
