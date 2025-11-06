@@ -165,6 +165,45 @@ export const translations = {
       open: 'Ouvert',
       closed: 'Fermé',
       browse: 'Parcourir les épiceries',
+      // Search modes
+      proximity: 'Par Proximité',
+      name: 'Par Nom',
+      zone: 'Par Zone',
+      combined: 'Recherche Avancée',
+      // Geolocation
+      geolocation: 'Géolocalisation',
+      detectPosition: 'Détecter ma position',
+      positionDetected: 'Position détectée',
+      lat: 'Lat',
+      lon: 'Lon',
+      locationDisabled: 'Localisation désactivée',
+      enableLocationMessage: 'Activez la localisation pour utiliser cette fonctionnalité',
+      permissionDenied: 'Permission refusée',
+      permissionMessage: 'Nous avons besoin de votre permission pour accéder à votre localisation',
+      permissionRequestError: 'Erreur lors de la demande de permission',
+      gpsError: 'Erreur GPS. Veuillez réessayer.',
+      // Search form
+      epicerieName: 'Nom de l\'épicerie',
+      namePlaceholder: 'Recherchez une épicerie...',
+      addressOrZone: 'Adresse ou Zone',
+      addressPlaceholder: 'Entrez une adresse ou zone...',
+      searchRadius: 'Rayon de recherche (km)',
+      // Buttons
+      search: 'Rechercher',
+      searchEpiceries: 'Chercher des épiceries',
+      // Validation
+      enterCoordinates: 'Veuillez entrer les coordonnées',
+      enterName: 'Veuillez entrer le nom de l\'épicerie',
+      enterAddress: 'Veuillez entrer une adresse',
+      fillAllFields: 'Veuillez remplir tous les champs',
+      // Results
+      noResults: 'Aucun résultat',
+      noResultsMessage: 'Aucune épicerie trouvée. Essayez avec d\'autres critères.',
+      noEpiceriesFound: 'Aucune épicerie trouvée',
+      epiceriesFound: 'épiceries trouvées',
+      startSearchMessage: 'Configurez votre recherche et appuyez sur Chercher',
+      findIdealShop: 'Trouvez votre épicerie idéale',
+      favoritesError: 'Erreur lors du chargement des favoris',
     },
 
     // Auth
@@ -382,6 +421,45 @@ export const translations = {
       open: 'مفتوح',
       closed: 'مغلق',
       browse: 'تصفح المتاجر',
+      // Search modes
+      proximity: 'بحث بالقرب',
+      name: 'بحث بالاسم',
+      zone: 'بحث بالمنطقة',
+      combined: 'بحث متقدم',
+      // Geolocation
+      geolocation: 'تحديد الموقع الجغرافي',
+      detectPosition: 'كشف موقعي',
+      positionDetected: 'تم كشف الموقع',
+      lat: 'خط العرض',
+      lon: 'خط الطول',
+      locationDisabled: 'الموقع معطل',
+      enableLocationMessage: 'فعّل الموقع لاستخدام هذه الميزة',
+      permissionDenied: 'تم رفض الإذن',
+      permissionMessage: 'نحتاج إلى إذنك للوصول إلى موقعك',
+      permissionRequestError: 'خطأ في طلب الإذن',
+      gpsError: 'خطأ في نظام تحديد المواقع. يرجى المحاولة مرة أخرى.',
+      // Search form
+      epicerieName: 'اسم المتجر',
+      namePlaceholder: 'ابحث عن متجر...',
+      addressOrZone: 'العنوان أو المنطقة',
+      addressPlaceholder: 'أدخل عنوانًا أو منطقة...',
+      searchRadius: 'نطاق البحث (كم)',
+      // Buttons
+      search: 'بحث',
+      searchEpiceries: 'البحث عن المتاجر',
+      // Validation
+      enterCoordinates: 'يرجى إدخال الإحداثيات',
+      enterName: 'يرجى إدخال اسم المتجر',
+      enterAddress: 'يرجى إدخال عنوانًا',
+      fillAllFields: 'يرجى ملء جميع الحقول',
+      // Results
+      noResults: 'لا توجد نتائج',
+      noResultsMessage: 'لم يتم العثور على أي متاجر. حاول بمعايير أخرى.',
+      noEpiceriesFound: 'لم يتم العثور على أي متاجر',
+      epiceriesFound: 'متاجر موجودة',
+      startSearchMessage: 'قم بتكوين البحث واضغط على البحث',
+      findIdealShop: 'ابحث عن متجرك المثالي',
+      favoritesError: 'خطأ في تحميل المفضلات',
     },
 
     // Auth
@@ -599,6 +677,45 @@ export const translations = {
       open: 'Open',
       closed: 'Closed',
       browse: 'Browse stores',
+      // Search modes
+      proximity: 'By Proximity',
+      name: 'By Name',
+      zone: 'By Zone',
+      combined: 'Advanced Search',
+      // Geolocation
+      geolocation: 'Geolocation',
+      detectPosition: 'Detect My Position',
+      positionDetected: 'Position Detected',
+      lat: 'Lat',
+      lon: 'Lon',
+      locationDisabled: 'Location Disabled',
+      enableLocationMessage: 'Enable location to use this feature',
+      permissionDenied: 'Permission Denied',
+      permissionMessage: 'We need your permission to access your location',
+      permissionRequestError: 'Error requesting permission',
+      gpsError: 'GPS Error. Please try again.',
+      // Search form
+      epicerieName: 'Store Name',
+      namePlaceholder: 'Search for a store...',
+      addressOrZone: 'Address or Zone',
+      addressPlaceholder: 'Enter an address or zone...',
+      searchRadius: 'Search Radius (km)',
+      // Buttons
+      search: 'Search',
+      searchEpiceries: 'Search for Stores',
+      // Validation
+      enterCoordinates: 'Please enter coordinates',
+      enterName: 'Please enter store name',
+      enterAddress: 'Please enter an address',
+      fillAllFields: 'Please fill all fields',
+      // Results
+      noResults: 'No Results',
+      noResultsMessage: 'No stores found. Try with different criteria.',
+      noEpiceriesFound: 'No Stores Found',
+      epiceriesFound: 'stores found',
+      startSearchMessage: 'Configure your search and press Search',
+      findIdealShop: 'Find Your Ideal Store',
+      favoritesError: 'Error loading favorites',
     },
 
     // Auth
