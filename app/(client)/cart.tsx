@@ -180,7 +180,8 @@ export default function CartScreen() {
       const baseOrderData = {
         epicerieId: parseInt(epicerieIdStr as string),
         items: cart.map(item => ({
-          productId: item.id,
+          productId: item.productId,
+          unitId: item.unitId,
           quantite: item.quantity,
         })),
         deliveryType: deliveryType,
