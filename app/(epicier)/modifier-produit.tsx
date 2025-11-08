@@ -15,14 +15,18 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { ProductUnitList } from '../../components/epicier/ProductUnitList';
 import { Category, categoryService, SubCategory } from '../../src/services/categoryService';
 import { productService } from '../../src/services/productService';
+import { Product } from '../../src/type';
 
 export default function ModifierProduitScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<'info' | 'units'>('info');
+  const [product, setProduct] = useState<Product | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -55,20 +59,21 @@ export default function ModifierProduitScreen() {
 
   const loadProduct = async () => {
     try {
-      const product = await productService.getProductById(parseInt(id as string));
+      const productData = await productService.getProductById(parseInt(id as string));
+      setProduct(productData);
       
       // Réinitialiser les états d'image
       setSelectedImage(null);
       setImageChanged(false);
-      setCurrentImageUrl(product.photoUrl || null);
+      setCurrentImageUrl(productData.photoUrl || null);
       
       setFormData({
-        nom: product.nom,
-        description: product.description || '',
-        prix: product.prix.toString(),
-        stock: product.stock.toString(),
-        categoryId: product.categoryId?.toString() || '',
-        subCategoryId: product.subCategoryId?.toString() || '',
+        nom: productData.nom,
+        description: productData.description || '',
+        prix: productData.prix.toString(),
+        stock: productData.stock.toString(),
+        categoryId: productData.categoryId?.toString() || '',
+        subCategoryId: productData.subCategoryId?.toString() || '',
       });
     } catch (error) {
       console.error('Erreur chargement produit:', error);
@@ -219,7 +224,28 @@ export default function ModifierProduitScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView style={styles.scrollView}>
+      {/* Tabs */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'info' && styles.activeTab]}
+          onPress={() => setActiveTab('info')}
+        >
+          <Text style={[styles.tabText, activeTab === 'info' && styles.activeTabText]}>
+            📝 Informations Produit
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'units' && styles.activeTab]}
+          onPress={() => setActiveTab('units')}
+        >
+          <Text style={[styles.tabText, activeTab === 'units' && styles.activeTabText]}>
+            📦 Unités ({product?.units?.length || 0})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'info' ? (
+        <ScrollView style={styles.scrollView}>
         <View style={styles.form}>
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
@@ -361,8 +387,20 @@ export default function ModifierProduitScreen() {
             </Text>
           </View>
         </View>
-      </ScrollView>
+        </ScrollView>
+      ) : (
+        <View style={styles.unitsContainer}>
+          {product && (
+            <ProductUnitList
+              productId={product.id}
+              units={product.units || []}
+              onRefresh={loadProduct}
+            />
+          )}
+        </View>
+      )}
 
+      {activeTab === 'info' && (
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.cancelButton}
@@ -384,6 +422,7 @@ export default function ModifierProduitScreen() {
           )}
         </TouchableOpacity>
       </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -392,6 +431,34 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: '#4CAF50',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+  },
+  activeTabText: {
+    color: '#4CAF50',
+    fontWeight: '700',
+  },
+  unitsContainer: {
+    flex: 1,
   },
   centerContainer: {
     flex: 1,

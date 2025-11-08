@@ -166,7 +166,10 @@ export default function AjouterProduitScreen() {
 
         console.log('[AjouterProduit] FormData prêt, envoi en cours...');
         const response: any = await productService.addProductWithImage(formDataToSend);
-        
+
+        console.log('[AjouterProduit] Réponse du serveur:', response);
+        console.log('[AjouterProduit] Clés disponibles:', Object.keys(response || {}));
+
         // Proposer d'ajouter des unités
         Alert.alert(
           '✅ Succès',
@@ -181,10 +184,16 @@ export default function AjouterProduitScreen() {
               text: 'Ajouter unités',
               onPress: () => {
                 // Extraire l'ID du produit de la réponse
-                const productId = response?.productId || response?.id;
+                // Essayer plusieurs clés possibles pour l'ID
+                const productId = response?.productId || response?.id || response?.idProduit;
+                console.log('[AjouterProduit] ID du produit extrait:', productId);
+
                 if (productId) {
+                  console.log('[AjouterProduit] Redirection vers modifier-produit avec id:', productId);
                   router.replace(`/(epicier)/modifier-produit?id=${productId}`);
                 } else {
+                  console.error('[AjouterProduit] Impossible d\'extraire l\'ID du produit');
+                  Alert.alert('Erreur', 'Impossible de récupérer l\'ID du produit. Veuillez le modifier manuellement depuis la liste des produits.');
                   router.replace('/(epicier)/produits');
                 }
               },
@@ -206,7 +215,10 @@ export default function AjouterProduitScreen() {
         }
 
         const response: any = await productService.addProduct(productData);
-        
+
+        console.log('[AjouterProduit] Réponse du serveur:', response);
+        console.log('[AjouterProduit] Clés disponibles:', Object.keys(response || {}));
+
         // Proposer d'ajouter des unités
         Alert.alert(
           '✅ Succès',
@@ -221,10 +233,16 @@ export default function AjouterProduitScreen() {
               text: 'Ajouter unités',
               onPress: () => {
                 // Extraire l'ID du produit de la réponse
-                const productId = response?.productId || response?.id;
+                // Essayer plusieurs clés possibles pour l'ID
+                const productId = response?.productId || response?.id || response?.idProduit;
+                console.log('[AjouterProduit] ID du produit extrait:', productId);
+
                 if (productId) {
+                  console.log('[AjouterProduit] Redirection vers modifier-produit avec id:', productId);
                   router.replace(`/(epicier)/modifier-produit?id=${productId}`);
                 } else {
+                  console.error('[AjouterProduit] Impossible d\'extraire l\'ID du produit');
+                  Alert.alert('Erreur', 'Impossible de récupérer l\'ID du produit. Veuillez le modifier manuellement depuis la liste des produits.');
                   router.replace('/(epicier)/produits');
                 }
               },

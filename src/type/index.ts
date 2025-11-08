@@ -51,12 +51,46 @@ export interface Epicerie {
   nombreProducts: number;
 }
 
+// Product Units Types
+export enum UnitType {
+  PIECE = 'PIECE',
+  WEIGHT = 'WEIGHT',
+  VOLUME = 'VOLUME',
+  LENGTH = 'LENGTH'
+}
+
+export interface ProductUnit {
+  id: number;
+  unitType: UnitType;
+  quantity: number;        // 1 for piece, 0.5 for 500g, etc.
+  label: string;           // "À l'unité", "500g", "1kg"
+  prix: number;
+  stock: number;
+  isAvailable: boolean;
+  displayOrder: number;
+  formattedQuantity: string;  // "500g", "1 pcs", "1.0 L"
+  formattedPrice: string;     // "€1.20 / 500g"
+  baseUnit: string;           // "kg", "pcs", "L"
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductUnitRequest {
+  unitType: UnitType;
+  quantity: number;
+  label: string;
+  prix: number;
+  stock: number;
+  isAvailable?: boolean;
+  displayOrder?: number;
+}
+
 export interface Product {
   id: number;
   nom: string;
   description?: string;
-  prix: number;
-  stock: number;
+  prix: number;              // Legacy - ignore si units
+  stock: number;             // Legacy - ignore si units
   photoUrl?: string;
   categorie?: string; // Deprecated: use categoryId and subCategoryId
   categoryId?: number;
@@ -66,15 +100,30 @@ export interface Product {
   isAvailable: boolean;
   epicerieId: number;
   epicerieNom: string;
+  
+  // NEW - Product Units
+  units?: ProductUnit[];      // Array of available units
+  totalStock?: number;        // Total across all units
+  inStock?: boolean;          // Has any unit with stock?
 }
 
-export interface CartItem extends Product {
-  quantity: number;
+export interface CartItem {
+  productId: number;
+  productNom: string;
+  unitId?: number;
+  unitLabel?: string;
+  quantity: number;              // Quantité pièces
+  requestedQuantity?: number;    // Quantité weight (1.0kg, etc.)
+  pricePerUnit: number;
+  totalPrice: number;
+  photoUrl?: string;
 }
 
 export interface OrderItem {
   productId: number;
   quantite: number;
+  unitId?: number;                // ID of selected unit
+  requestedQuantity?: number;     // Pour weight-based (1.0kg, 0.5L)
 }
 
 export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
@@ -136,6 +185,12 @@ export interface OrderItemDetail {
   quantite: number;
   prixUnitaire: number;
   total: number;
+  
+  // NEW - Unit information
+  unitId?: number;
+  unitLabel?: string;
+  unitType?: string;
+  productUnit?: ProductUnit;
 }
 
 export interface Delivery {

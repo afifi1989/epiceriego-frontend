@@ -74,7 +74,22 @@ api.interceptors.response.use(
     console.error('[API] Status HTTP:', error.response?.status);
     console.error('[API] Status Text:', error.response?.statusText);
     console.error('[API] Données réponse:', error.response?.data);
+    console.error('[API] Request headers:', error.config?.headers);
     console.error('========================================');
+
+    // Diagnostic pour ERR_NETWORK
+    if (error.code === 'ERR_NETWORK') {
+      console.error('========================================');
+      console.error('[API] 🔴 ERREUR RÉSEAU DÉTECTÉE');
+      console.error('[API] Cela peut être dû à:');
+      console.error('[API] 1. La connexion réseau est indisponible');
+      console.error('[API] 2. Le serveur backend n\'est pas accessible');
+      console.error('[API] 3. Un problème de certificat SSL/HTTPS');
+      console.error('[API] 4. Un problème de DNS');
+      console.error('[API] URL tentée:', API_CONFIG.BASE_URL);
+      console.error('[API] Assurez-vous que le backend est en ligne et accessible');
+      console.error('========================================');
+    }
 
     if (error.response?.status === 401) {
       // Token expiré ou invalide - Déconnecter l'utilisateur
