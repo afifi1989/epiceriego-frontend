@@ -1,7 +1,6 @@
 import { Product } from '../type';
 import api from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
 
 export const productService = {
@@ -57,7 +56,7 @@ export const productService = {
 
   /**
    * Ajoute un nouveau produit avec image (multipart/form-data)
-   * Utilise une instance axios séparée pour éviter les problèmes avec les intercepteurs
+   * Utilise fetch API pour contourner les problèmes HTTPS avec FormData
    */
   addProductWithImage: async (formData: FormData): Promise<Product> => {
     try {
@@ -66,33 +65,39 @@ export const productService = {
       // Récupérer le token
       const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
 
-      // Créer une instance axios séparée pour FormData
-      // Cela évite les problèmes avec les intercepteurs et les en-têtes
-      const formDataResponse = await axios.post<Product>(
-        `${API_CONFIG.BASE_URL}/products`,
-        formData,
-        {
-          timeout: 30000,
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
-          headers: {
-            // Laisser axios gérer le Content-Type automatiquement
-            // Les en-têtes vont être définis correctement par axios/FormData
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-          },
-        }
-      );
+      // Utiliser fetch API directement pour FormData
+      // Cela contourne les problèmes HTTPS/SSL avec axios et React Native
+      const headers: any = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
-      console.log('[ProductService] Produit créé avec succès:', formDataResponse.data);
-      return formDataResponse.data;
+      console.log('[ProductService] Envoi avec fetch...');
+      const response = await fetch(`${API_CONFIG.BASE_URL}/products`, {
+        method: 'POST',
+        headers: headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('[ProductService] Erreur réponse:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorData,
+        });
+        throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('[ProductService] Produit créé avec succès:', responseData);
+      return responseData;
     } catch (error: any) {
       console.error('[ProductService] Erreur création produit:', {
         message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        data: error.response?.data,
+        stack: error.stack,
       });
-      throw error.response?.data?.message || error.message || 'Erreur lors de l\'ajout du produit';
+      throw error.message || 'Erreur lors de l\'ajout du produit';
     }
   },
 
@@ -110,7 +115,7 @@ export const productService = {
 
   /**
    * Modifie un produit avec image (multipart/form-data)
-   * Utilise une instance axios séparée pour éviter les problèmes avec les intercepteurs
+   * Utilise fetch API pour contourner les problèmes HTTPS avec FormData
    */
   updateProductWithImage: async (id: number, formData: FormData): Promise<Product> => {
     try {
@@ -119,33 +124,39 @@ export const productService = {
       // Récupérer le token
       const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
 
-      // Créer une instance axios séparée pour FormData
-      // Cela évite les problèmes avec les intercepteurs et les en-têtes
-      const formDataResponse = await axios.put<Product>(
-        `${API_CONFIG.BASE_URL}/products/${id}`,
-        formData,
-        {
-          timeout: 30000,
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
-          headers: {
-            // Laisser axios gérer le Content-Type automatiquement
-            // Les en-têtes vont être définis correctement par axios/FormData
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-          },
-        }
-      );
+      // Utiliser fetch API directement pour FormData
+      // Cela contourne les problèmes HTTPS/SSL avec axios et React Native
+      const headers: any = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
-      console.log('[ProductService] Produit modifié avec succès:', formDataResponse.data);
-      return formDataResponse.data;
+      console.log('[ProductService] Envoi avec fetch...');
+      const response = await fetch(`${API_CONFIG.BASE_URL}/products/${id}`, {
+        method: 'PUT',
+        headers: headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('[ProductService] Erreur réponse:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorData,
+        });
+        throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('[ProductService] Produit modifié avec succès:', responseData);
+      return responseData;
     } catch (error: any) {
       console.error('[ProductService] Erreur modification produit:', {
         message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        data: error.response?.data,
+        stack: error.stack,
       });
-      throw error.response?.data?.message || error.message || 'Erreur lors de la modification du produit';
+      throw error.message || 'Erreur lors de la modification du produit';
     }
   },
 
