@@ -1,5 +1,8 @@
 import { Product } from '../type';
 import api from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
+import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
 
 export const productService = {
   /**
@@ -54,21 +57,34 @@ export const productService = {
 
   /**
    * Ajoute un nouveau produit avec image (multipart/form-data)
+   * Utilise une instance axios séparée pour éviter les problèmes avec les intercepteurs
    */
   addProductWithImage: async (formData: FormData): Promise<Product> => {
     try {
       console.log('[ProductService] Envoi du produit avec image...');
-      const response = await api.post<Product>('/products', formData, {
-        headers: {
-          // Ne pas définir Content-Type manuellement - laisser axios le gérer
-          // Cela permet à axios de générer correctement la boundary pour le multipart
-        },
-        timeout: 30000, // Augmenter le timeout pour les uploads d'image
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-      });
-      console.log('[ProductService] Produit créé avec succès:', response.data);
-      return response.data;
+
+      // Récupérer le token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      // Créer une instance axios séparée pour FormData
+      // Cela évite les problèmes avec les intercepteurs et les en-têtes
+      const formDataResponse = await axios.post<Product>(
+        `${API_CONFIG.BASE_URL}/products`,
+        formData,
+        {
+          timeout: 30000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+          headers: {
+            // Laisser axios gérer le Content-Type automatiquement
+            // Les en-têtes vont être définis correctement par axios/FormData
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      console.log('[ProductService] Produit créé avec succès:', formDataResponse.data);
+      return formDataResponse.data;
     } catch (error: any) {
       console.error('[ProductService] Erreur création produit:', {
         message: error.message,
@@ -94,19 +110,42 @@ export const productService = {
 
   /**
    * Modifie un produit avec image (multipart/form-data)
+   * Utilise une instance axios séparée pour éviter les problèmes avec les intercepteurs
    */
   updateProductWithImage: async (id: number, formData: FormData): Promise<Product> => {
     try {
-      const response = await api.put<Product>(`/products/${id}`, formData, {
-        headers: {
-          // Ne pas définir Content-Type manuellement - laisser axios le gérer
-          // Cela permet à axios de générer correctement la boundary pour le multipart
-        },
-        timeout: 30000, // Augmenter le timeout pour les uploads d'image
-      });
-      return response.data;
+      console.log('[ProductService] Modification du produit avec image...');
+
+      // Récupérer le token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      // Créer une instance axios séparée pour FormData
+      // Cela évite les problèmes avec les intercepteurs et les en-têtes
+      const formDataResponse = await axios.put<Product>(
+        `${API_CONFIG.BASE_URL}/products/${id}`,
+        formData,
+        {
+          timeout: 30000,
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+          headers: {
+            // Laisser axios gérer le Content-Type automatiquement
+            // Les en-têtes vont être définis correctement par axios/FormData
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      console.log('[ProductService] Produit modifié avec succès:', formDataResponse.data);
+      return formDataResponse.data;
     } catch (error: any) {
-      throw error.response?.data?.message || 'Erreur lors de la modification du produit';
+      console.error('[ProductService] Erreur modification produit:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+      throw error.response?.data?.message || error.message || 'Erreur lors de la modification du produit';
     }
   },
 
