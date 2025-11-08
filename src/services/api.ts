@@ -31,6 +31,7 @@ api.interceptors.request.use(
       method: config.method,
       hasToken: !!token,
       isFormData: isFormData,
+      hasData: !!config.data,
       headers: config.headers
     });
 
@@ -38,9 +39,11 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // Si c'est FormData, supprimer le Content-Type pour laisser axios le gérer
-    if (isFormData && config.headers && 'Content-Type' in config.headers) {
+    // Si c'est FormData, supprimer le Content-Type par défaut pour laisser axios le gérer
+    // Cela permet à axios de générer le bon boundary pour multipart/form-data
+    if (isFormData) {
       delete (config.headers as any)['Content-Type'];
+      console.log('[API] FormData détecté - Content-Type supprimé pour axios');
     }
 
     return config;

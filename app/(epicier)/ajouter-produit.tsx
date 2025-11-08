@@ -132,6 +132,7 @@ export default function AjouterProduitScreen() {
 
       // Si une image est sélectionnée, utiliser FormData
       if (selectedImage) {
+        console.log('[AjouterProduit] Création du FormData avec image...');
         const formDataToSend = new FormData();
         formDataToSend.append('nom', formData.nom.trim());
         if (formData.description.trim()) {
@@ -149,6 +150,13 @@ export default function AjouterProduitScreen() {
         const imageName = imageUri.split('/').pop() || 'product.jpg';
         const imageType = selectedImage.mimeType || 'image/jpeg';
 
+        console.log('[AjouterProduit] Détails image:', {
+          uri: imageUri,
+          name: imageName,
+          type: imageType,
+          size: selectedImage.fileSize,
+        });
+
         // @ts-ignore - FormData supporte les fichiers sur React Native
         formDataToSend.append('image', {
           uri: imageUri,
@@ -156,7 +164,33 @@ export default function AjouterProduitScreen() {
           type: imageType,
         });
 
-        await productService.addProductWithImage(formDataToSend);
+        console.log('[AjouterProduit] FormData prêt, envoi en cours...');
+        const response: any = await productService.addProductWithImage(formDataToSend);
+        
+        // Proposer d'ajouter des unités
+        Alert.alert(
+          '✅ Succès',
+          'Le produit a été ajouté avec succès !\n\nVoulez-vous ajouter des unités de vente (formats, poids, etc.) maintenant ?',
+          [
+            {
+              text: 'Plus tard',
+              style: 'cancel',
+              onPress: () => router.replace('/(epicier)/produits'),
+            },
+            {
+              text: 'Ajouter unités',
+              onPress: () => {
+                // Extraire l'ID du produit de la réponse
+                const productId = response?.productId || response?.id;
+                if (productId) {
+                  router.replace(`/(epicier)/modifier-produit?id=${productId}`);
+                } else {
+                  router.replace('/(epicier)/produits');
+                }
+              },
+            },
+          ]
+        );
       } else {
         // Sinon, utiliser l'ancienne méthode JSON
         const productData: any = {
@@ -171,15 +205,33 @@ export default function AjouterProduitScreen() {
           productData.subCategoryId = parseInt(formData.subCategoryId);
         }
 
-        await productService.addProduct(productData);
+        const response: any = await productService.addProduct(productData);
+        
+        // Proposer d'ajouter des unités
+        Alert.alert(
+          '✅ Succès',
+          'Le produit a été ajouté avec succès !\n\nVoulez-vous ajouter des unités de vente (formats, poids, etc.) maintenant ?',
+          [
+            {
+              text: 'Plus tard',
+              style: 'cancel',
+              onPress: () => router.replace('/(epicier)/produits'),
+            },
+            {
+              text: 'Ajouter unités',
+              onPress: () => {
+                // Extraire l'ID du produit de la réponse
+                const productId = response?.productId || response?.id;
+                if (productId) {
+                  router.replace(`/(epicier)/modifier-produit?id=${productId}`);
+                } else {
+                  router.replace('/(epicier)/produits');
+                }
+              },
+            },
+          ]
+        );
       }
-      
-      Alert.alert('✅ Succès', 'Le produit a été ajouté avec succès', [
-        {
-          text: 'OK',
-          onPress: () => router.replace('/(epicier)/produits'),
-        },
-      ]);
     } catch (error) {
       Alert.alert('Erreur', String(error));
     } finally {
@@ -327,7 +379,17 @@ export default function AjouterProduitScreen() {
               • Le stock par défaut est 0 si non spécifié{'\n'}
               • La catégorie est obligatoire{'\n'}
               • L'image est optionnelle mais recommandée{'\n'}
-              • Vous pourrez modifier ces informations plus tard
+              • Après création, vous pourrez ajouter des unités de vente (ex: 500g, 1kg, lot de 6)
+            </Text>
+          </View>
+          
+          <View style={styles.unitsInfoBox}>
+            <Text style={styles.unitsInfoTitle}>📦 Unités de vente</Text>
+            <Text style={styles.unitsInfoText}>
+              Après avoir créé le produit, vous pourrez définir différents formats :{'\n'}
+              • À l'unité, par lot, par poids (500g, 1kg...){'\n'}
+              • Prix et stock indépendants par format{'\n'}
+              • Les clients pourront choisir le format souhaité
             </Text>
           </View>
         </View>
@@ -506,6 +568,25 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 14,
     color: '#0d47a1',
+    lineHeight: 22,
+  },
+  unitsInfoBox: {
+    backgroundColor: '#f1f8e9',
+    borderRadius: 12,
+    padding: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+    marginTop: 15,
+  },
+  unitsInfoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#33691e',
+    marginBottom: 8,
+  },
+  unitsInfoText: {
+    fontSize: 14,
+    color: '#558b2f',
     lineHeight: 22,
   },
   footer: {

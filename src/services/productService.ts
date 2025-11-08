@@ -57,16 +57,26 @@ export const productService = {
    */
   addProductWithImage: async (formData: FormData): Promise<Product> => {
     try {
+      console.log('[ProductService] Envoi du produit avec image...');
       const response = await api.post<Product>('/products', formData, {
         headers: {
           // Ne pas définir Content-Type manuellement - laisser axios le gérer
           // Cela permet à axios de générer correctement la boundary pour le multipart
         },
         timeout: 30000, // Augmenter le timeout pour les uploads d'image
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
       });
+      console.log('[ProductService] Produit créé avec succès:', response.data);
       return response.data;
     } catch (error: any) {
-      throw error.response?.data?.message || 'Erreur lors de l\'ajout du produit';
+      console.error('[ProductService] Erreur création produit:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+      throw error.response?.data?.message || error.message || 'Erreur lors de l\'ajout du produit';
     }
   },
 
