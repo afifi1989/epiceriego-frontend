@@ -59,8 +59,10 @@ export const productService = {
     try {
       const response = await api.post<Product>('/products', formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          // Ne pas définir Content-Type manuellement - laisser axios le gérer
+          // Cela permet à axios de générer correctement la boundary pour le multipart
         },
+        timeout: 30000, // Augmenter le timeout pour les uploads d'image
       });
       return response.data;
     } catch (error: any) {
@@ -87,8 +89,10 @@ export const productService = {
     try {
       const response = await api.put<Product>(`/products/${id}`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          // Ne pas définir Content-Type manuellement - laisser axios le gérer
+          // Cela permet à axios de générer correctement la boundary pour le multipart
         },
+        timeout: 30000, // Augmenter le timeout pour les uploads d'image
       });
       return response.data;
     } catch (error: any) {

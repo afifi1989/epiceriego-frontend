@@ -15,20 +15,34 @@ const api: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  maxContentLength: Infinity,
+  maxBodyLength: Infinity,
 });
 
 // Intercepteur de requête - Ajoute le token JWT automatiquement
 api.interceptors.request.use(
   async (config) => {
     const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+    // Ne pas modifier Content-Type si c'est FormData (multipart)
+    const isFormData = config.data instanceof FormData;
+
     console.log('[API] Requête vers:', config.url, {
       method: config.method,
       hasToken: !!token,
+      isFormData: isFormData,
       headers: config.headers
     });
+
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    // Si c'est FormData, supprimer le Content-Type pour laisser axios le gérer
+    if (isFormData && config.headers && 'Content-Type' in config.headers) {
+      delete (config.headers as any)['Content-Type'];
+    }
+
     return config;
   },
   (error: AxiosError) => {
