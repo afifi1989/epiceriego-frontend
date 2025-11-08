@@ -243,6 +243,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 16,
     backgroundColor: '#f9f9f9',
+    color: '#333',
+    placeholderTextColor: '#999',
   },
   button: {
     backgroundColor: '#4CAF50',

@@ -402,6 +402,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     fontSize: 16,
     backgroundColor: '#fff',
+    color: '#333',
+    placeholderTextColor: '#999',
   },
   textArea: {
     height: 80,
