@@ -64,6 +64,7 @@ export default function ProductDetailScreen() {
       const cartItem = {
         productId: product.id,
         productNom: product.nom,
+        epicerieId: product.epicerieId,
         unitId: unitId,
         unitLabel: unit.label,
         quantity: quantity,

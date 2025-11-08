@@ -110,6 +110,7 @@ export interface Product {
 export interface CartItem {
   productId: number;
   productNom: string;
+  epicerieId: number;            // Store épicerie ID from product
   unitId?: number;
   unitLabel?: string;
   quantity: number;              // Quantité pièces

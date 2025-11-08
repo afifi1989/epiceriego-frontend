@@ -192,6 +192,7 @@ export default function EpicerieDetailScreen() {
       const cartItem: CartItem = {
         productId: product.id,
         productNom: product.nom,
+        epicerieId: product.epicerieId,
         quantity: 1,
         pricePerUnit: product.prix,
         totalPrice: product.prix,
@@ -222,6 +223,7 @@ export default function EpicerieDetailScreen() {
       const cartItem: CartItem = {
         productId: selectedProductForCart.id,
         productNom: selectedProductForCart.nom,
+        epicerieId: selectedProductForCart.epicerieId,
         unitId: unitId,
         unitLabel: unit.label,
         quantity: quantity,
@@ -249,13 +251,8 @@ export default function EpicerieDetailScreen() {
 
   const goToCart = () => {
     // Le panier est maintenant sauvegardé dans AsyncStorage
-    // Pas besoin de passer les params
-    router.push({
-      pathname: '/(client)/cart',
-      params: {
-        epicerieId: id,
-      }
-    });
+    // L'epicerieId est stocké dans chaque CartItem
+    router.push('/(client)/cart');
   };
 
   const getCategoryIcon = (categoryName: string) => {

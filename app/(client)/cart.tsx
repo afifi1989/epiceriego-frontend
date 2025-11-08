@@ -20,7 +20,6 @@ import { formatPrice } from '../../src/utils/helpers';
 import { useLanguage } from '../../src/context/LanguageContext';
 
 export default function CartScreen() {
-  const { cart: cartParam, epicerieId } = useLocalSearchParams();
   const router = useRouter();
   const { t } = useLanguage();
 
@@ -175,10 +174,20 @@ export default function CartScreen() {
     setLoading(true);
 
     try {
-      const epicerieIdStr = Array.isArray(epicerieId) ? epicerieId[0] : epicerieId;
+      // Get epicerieId from cart items (all items are from same épicerie)
+      if (cart.length === 0) {
+        Alert.alert(t('common.error'), t('cart.cartEmpty'));
+        return;
+      }
+
+      const epicerieIdFromCart = cart[0].epicerieId;
+      if (!epicerieIdFromCart) {
+        Alert.alert(t('common.error'), 'Informations d\'épicerie manquantes');
+        return;
+      }
 
       const baseOrderData = {
-        epicerieId: parseInt(epicerieIdStr as string),
+        epicerieId: epicerieIdFromCart,
         items: cart.map(item => ({
           productId: item.productId,
           unitId: item.unitId,
@@ -722,7 +731,7 @@ export default function CartScreen() {
       <FlatList
         data={cart}
         renderItem={renderCartItem}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => `${item.productId}-${item.unitId || 'no-unit'}`}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
