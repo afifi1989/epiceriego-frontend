@@ -191,6 +191,7 @@ export default function OrderDetailsScreen() {
               <TextInput
                 style={styles.input}
                 placeholder={t('orders.enterAddress')}
+                placeholderTextColor="#999"
                 value={adresse}
                 onChangeText={setAdresse}
                 multiline={true}
@@ -201,6 +202,7 @@ export default function OrderDetailsScreen() {
               <TextInput
                 style={styles.input}
                 placeholder={t('orders.enterPhone')}
+                placeholderTextColor="#999"
                 value={telephone}
                 onChangeText={setTelephone}
                 keyboardType="phone-pad"

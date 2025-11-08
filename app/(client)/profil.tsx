@@ -1,24 +1,29 @@
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { authService } from '../../src/services/authService';
 import { profileService } from '../../src/services/profileService';
 import { User } from '../../src/type';
-import { useLanguage } from '../../src/context/LanguageContext';
 
 export default function ProfilScreen() {
   const router = useRouter();
   const { t } = useLanguage();
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
 
   useEffect(() => {
     loadUserData();
@@ -26,15 +31,168 @@ export default function ProfilScreen() {
 
   const loadUserData = async () => {
     try {
-      // Charger le profil depuis l'API
       const userData = await profileService.getMyProfile();
       setUser(userData);
+      // TODO: Charger l'URL de la photo de profil si disponible
+      // setProfilePhotoUrl(userData.photoUrl);
     } catch (error) {
       console.error('Erreur chargement profil:', error);
       Alert.alert(t('common.error'), t('profile.loadError'));
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangePhoto = () => {
+    Alert.alert(
+      t('profile.changePhoto'),
+      '',
+      [
+        {
+          text: t('profile.takePhoto'),
+          onPress: () => takePictureWithCamera(),
+        },
+        {
+          text: t('profile.chooseFromGallery'),
+          onPress: () => pickImageFromGallery(),
+        },
+        ...(profilePhotoUrl ? [{
+          text: t('profile.removePhoto'),
+          style: 'destructive' as const,
+          onPress: () => handleDeletePhoto(),
+        }] : []),
+        {
+          text: t('common.cancel'),
+          style: 'cancel' as const,
+        },
+      ]
+    );
+  };
+
+  const takePictureWithCamera = async () => {
+    try {
+      // Demander la permission
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          t('profile.permissionRequired'),
+          t('profile.cameraPermission')
+        );
+        return;
+      }
+
+      // Lancer l'appareil photo
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await processImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Erreur caméra:', error);
+      Alert.alert(t('common.error'), t('profile.photoError'));
+    }
+  };
+
+  const pickImageFromGallery = async () => {
+    try {
+      // Demander la permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          t('profile.permissionRequired'),
+          t('profile.galleryPermission')
+        );
+        return;
+      }
+
+      // Ouvrir la galerie
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await processImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Erreur galerie:', error);
+      Alert.alert(t('common.error'), t('profile.photoError'));
+    }
+  };
+
+  const processImage = async (uri: string) => {
+    try {
+      setUploading(true);
+
+      // Redimensionner et recadrer l'image pour un format carré optimal (400x400)
+      const manipulatedImage = await ImageManipulator.manipulateAsync(
+        uri,
+        [
+          { resize: { width: 400, height: 400 } },
+        ],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+        }
+      );
+
+      console.log('[Profile] Image traitée:', manipulatedImage.uri);
+
+      // Upload de l'image
+      const response = await profileService.uploadProfilePhoto(manipulatedImage.uri);
+      
+      console.log('[Profile] Upload réussi:', response);
+
+      // Mettre à jour l'affichage local
+      setProfilePhotoUrl(response.photoUrl);
+
+      Alert.alert(t('common.success'), t('profile.photoUpdated'));
+
+      // Recharger le profil pour obtenir la nouvelle URL
+      await loadUserData();
+    } catch (error) {
+      console.error('Erreur traitement image:', error);
+      Alert.alert(t('common.error'), t('profile.photoError'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeletePhoto = () => {
+    Alert.alert(
+      t('profile.removePhoto'),
+      t('profile.confirmDeletePhoto'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setUploading(true);
+              await profileService.deleteProfilePhoto();
+              setProfilePhotoUrl(null);
+              Alert.alert(t('common.success'), t('profile.photoDeleted'));
+              await loadUserData();
+            } catch (error) {
+              console.error('Erreur suppression photo:', error);
+              Alert.alert(t('common.error'), t('profile.photoError'));
+            } finally {
+              setUploading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleLogout = async () => {
@@ -71,9 +229,35 @@ export default function ProfilScreen() {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.avatarContainer}>
-          <Text style={styles.avatarEmoji}>👤</Text>
-        </View>
+        <TouchableOpacity 
+          style={styles.avatarContainer}
+          onPress={handleChangePhoto}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <View style={styles.avatarPlaceholder}>
+              <ActivityIndicator size="large" color="#4CAF50" />
+              <Text style={styles.uploadingText}>{t('profile.uploadingPhoto')}</Text>
+            </View>
+          ) : profilePhotoUrl ? (
+            <>
+              <Image 
+                source={{ uri: profilePhotoUrl }} 
+                style={styles.avatarImage}
+              />
+              <View style={styles.editBadge}>
+                <Text style={styles.editBadgeText}>✏️</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.avatarEmoji}>👤</Text>
+              <View style={styles.editBadge}>
+                <Text style={styles.editBadgeText}>📷</Text>
+              </View>
+            </>
+          )}
+        </TouchableOpacity>
         <Text style={styles.userName}>{user?.nom || t('profile.user')}</Text>
         <Text style={styles.userEmail}>{user?.email}</Text>
       </View>
@@ -182,16 +366,53 @@ const styles = StyleSheet.create({
     paddingTop: 40,
   },
   avatarContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 15,
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  avatarImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  avatarPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarEmoji: {
     fontSize: 50,
+  },
+  uploadingText: {
+    fontSize: 10,
+    color: '#666',
+    marginTop: 5,
+    textAlign: 'center',
+  },
+  editBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
+  },
+  editBadgeText: {
+    fontSize: 16,
   },
   userName: {
     fontSize: 24,

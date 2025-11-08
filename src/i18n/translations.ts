@@ -202,6 +202,19 @@ export const translations = {
       noProductAvailable: 'Aucun produit disponible',
       categories: 'Catégories',
       uncategorized: 'Non catégorisé',
+      // Product Details
+      productDetails: 'Détails du produit',
+      unitPrice: 'Prix unitaire',
+      available: 'Disponible',
+      unavailable: 'Indisponible',
+      category: 'Catégorie',
+      subCategory: 'Sous-catégorie',
+      epicerie: 'Épicerie',
+      noDescription: 'Aucune description disponible',
+      quantityToAdd: 'Quantité à ajouter',
+      addQuantity: 'Ajouter',
+      seeMore: 'Voir le détail',
+      backToProducts: 'Retour aux produits',
     },
 
     // Favorites
@@ -310,11 +323,41 @@ export const translations = {
       helpSupport: 'Aide et Support',
       logoutError: 'Erreur lors de la déconnexion',
       notProvided: 'Non renseigné',
+      // Photo de profil
+      changePhoto: 'Changer la photo',
+      takePhoto: 'Prendre une photo',
+      chooseFromGallery: 'Choisir depuis la galerie',
+      removePhoto: 'Supprimer la photo',
+      uploadingPhoto: 'Upload en cours...',
+      photoUpdated: 'Photo mise à jour avec succès',
+      photoDeleted: 'Photo supprimée',
+      photoError: 'Erreur lors de la mise à jour de la photo',
+      permissionRequired: 'Permission requise',
+      cameraPermission: 'Nous avons besoin d\'accéder à votre appareil photo',
+      galleryPermission: 'Nous avons besoin d\'accéder à votre galerie',
+      confirmDeletePhoto: 'Voulez-vous supprimer votre photo de profil ?',
     },
 
     // App
     app: {
       version: 'EpicerieGo v1.0.0',
+    },
+
+    // Notifications
+    notifications: {
+      myNotifications: 'Mes Notifications',
+      notifications: 'notifications',
+      notification: 'notification',
+      loading: 'Chargement des notifications...',
+      loadError: 'Impossible de charger les notifications',
+      noNotifications: 'Aucune notification',
+      historyMessage: 'Vous recevrez ici les notifications sur vos commandes, livraisons et promotions',
+      deleteNotification: 'Supprimer la notification',
+      confirmDelete: 'Voulez-vous supprimer',
+      delete: 'Supprimer',
+      deleted: 'Notification supprimée',
+      deleteError: 'Erreur lors de la suppression',
+      errorOccurred: 'Une erreur s\'est produite',
     },
 
     // Common
@@ -540,6 +583,19 @@ export const translations = {
       noProductAvailable: 'لا توجد منتجات متاحة',
       categories: 'الفئات',
       uncategorized: 'غير مصنف',
+      // Product Details
+      productDetails: 'تفاصيل المنتج',
+      unitPrice: 'السعر للوحدة',
+      available: 'متوفر',
+      unavailable: 'غير متوفر',
+      category: 'الفئة',
+      subCategory: 'الفئة الفرعية',
+      epicerie: 'المتجر',
+      noDescription: 'لا يوجد وصف متاح',
+      quantityToAdd: 'الكمية المراد إضافتها',
+      addQuantity: 'أضف',
+      seeMore: 'عرض التفاصيل',
+      backToProducts: 'العودة إلى المنتجات',
     },
 
     // Favorites
@@ -648,11 +704,41 @@ export const translations = {
       helpSupport: 'المساعدة والدعم',
       logoutError: 'خطأ في تسجيل الخروج',
       notProvided: 'غير محدد',
+      // Photo de profil
+      changePhoto: 'تغيير الصورة',
+      takePhoto: 'التقاط صورة',
+      chooseFromGallery: 'اختر من المعرض',
+      removePhoto: 'حذف الصورة',
+      uploadingPhoto: 'جاري الرفع...',
+      photoUpdated: 'تم تحديث الصورة بنجاح',
+      photoDeleted: 'تم حذف الصورة',
+      photoError: 'خطأ في تحديث الصورة',
+      permissionRequired: 'الإذن مطلوب',
+      cameraPermission: 'نحتاج إلى الوصول إلى الكاميرا',
+      galleryPermission: 'نحتاج إلى الوصول إلى المعرض',
+      confirmDeletePhoto: 'هل تريد حذف صورة ملفك الشخصي؟',
     },
 
     // App
     app: {
       version: 'EpicerieGo v1.0.0',
+    },
+
+    // Notifications
+    notifications: {
+      myNotifications: 'إخطاراتي',
+      notifications: 'إخطارات',
+      notification: 'إخطار',
+      loading: 'جاري تحميل الإخطارات...',
+      loadError: 'تعذر تحميل الإخطارات',
+      noNotifications: 'لا توجد إخطارات',
+      historyMessage: 'ستتلقى هنا إخطارات حول طلباتك وتسليماتك والعروض الترويجية',
+      deleteNotification: 'حذف الإخطار',
+      confirmDelete: 'هل تريد حذف',
+      delete: 'حذف',
+      deleted: 'تم حذف الإخطار',
+      deleteError: 'خطأ في الحذف',
+      errorOccurred: 'حدث خطأ ما',
     },
 
     // Common
@@ -878,6 +964,19 @@ export const translations = {
       noProductAvailable: 'No products available',
       categories: 'Categories',
       uncategorized: 'Uncategorized',
+      // Product Details
+      productDetails: 'Product Details',
+      unitPrice: 'Unit Price',
+      available: 'Available',
+      unavailable: 'Unavailable',
+      category: 'Category',
+      subCategory: 'Subcategory',
+      epicerie: 'Store',
+      noDescription: 'No description available',
+      quantityToAdd: 'Quantity to add',
+      addQuantity: 'Add',
+      seeMore: 'See details',
+      backToProducts: 'Back to products',
     },
 
     // Favorites
@@ -986,11 +1085,41 @@ export const translations = {
       helpSupport: 'Help & Support',
       logoutError: 'Error during logout',
       notProvided: 'Not provided',
+      // Profile photo
+      changePhoto: 'Change Photo',
+      takePhoto: 'Take Photo',
+      chooseFromGallery: 'Choose from Gallery',
+      removePhoto: 'Remove Photo',
+      uploadingPhoto: 'Uploading...',
+      photoUpdated: 'Photo updated successfully',
+      photoDeleted: 'Photo deleted',
+      photoError: 'Error updating photo',
+      permissionRequired: 'Permission Required',
+      cameraPermission: 'We need access to your camera',
+      galleryPermission: 'We need access to your gallery',
+      confirmDeletePhoto: 'Do you want to delete your profile photo?',
     },
 
     // App
     app: {
       version: 'EpicerieGo v1.0.0',
+    },
+
+    // Notifications
+    notifications: {
+      myNotifications: 'My Notifications',
+      notifications: 'notifications',
+      notification: 'notification',
+      loading: 'Loading notifications...',
+      loadError: 'Unable to load notifications',
+      noNotifications: 'No notifications',
+      historyMessage: 'You will receive notifications here about your orders, deliveries and promotions',
+      deleteNotification: 'Delete Notification',
+      confirmDelete: 'Do you want to delete',
+      delete: 'Delete',
+      deleted: 'Notification deleted',
+      deleteError: 'Error deleting notification',
+      errorOccurred: 'An error occurred',
     },
 
     // Common

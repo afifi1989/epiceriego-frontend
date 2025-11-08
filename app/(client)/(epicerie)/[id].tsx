@@ -1,5 +1,5 @@
-import { Stack, useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,13 +10,13 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useLanguage } from '../../../src/context/LanguageContext';
+import { cartService } from '../../../src/services/cartService';
 import { Category, categoryService, SubCategory } from '../../../src/services/categoryService';
 import { epicerieService } from '../../../src/services/epicerieService';
 import { productService } from '../../../src/services/productService';
-import { cartService } from '../../../src/services/cartService';
 import { CartItem, Epicerie, Product } from '../../../src/type';
 import { formatPrice } from '../../../src/utils/helpers';
-import { useLanguage } from '../../../src/context/LanguageContext';
 
 type ViewMode = 'categories' | 'subcategories' | 'products';
 type SearchMode = 'categories' | 'search';
@@ -259,23 +259,35 @@ export default function EpicerieDetailScreen() {
     </TouchableOpacity>
   );
 
+  const goToProductDetail = (product: Product) => {
+    router.push(`/(client)/(epicerie)/product/${product.id}?epicerieId=${id}`);
+  };
+
   const renderProduct = ({ item }: { item: Product }) => (
-    <View style={styles.productCard}>
+    <TouchableOpacity
+      style={styles.productCard}
+      onPress={() => goToProductDetail(item)}
+      activeOpacity={0.9}
+    >
       <Text style={styles.productEmoji}>📦</Text>
       <View style={styles.productInfo}>
         <Text style={styles.productName}>{item.nom}</Text>
         <Text style={styles.productCategory}>{item.subCategoryName || item.categorie || t('products.uncategorized')}</Text>
         <Text style={styles.productPrice}>{formatPrice(item.prix)}</Text>
         <Text style={styles.productStock}>{t('products.stock')}: {item.stock}</Text>
+        <Text style={styles.seeMoreText}>👉 {t('products.seeMore')}</Text>
       </View>
       <TouchableOpacity
         style={styles.addButton}
-        onPress={() => addToCart(item)}
+        onPress={(e) => {
+          e.stopPropagation();
+          addToCart(item);
+        }}
         activeOpacity={0.7}
       >
         <Text style={styles.addButtonText}>+</Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 
   if (loading) {
@@ -726,6 +738,13 @@ const styles = StyleSheet.create({
   productStock: {
     fontSize: 12,
     color: '#999',
+    marginBottom: 5,
+  },
+  seeMoreText: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '600',
+    marginTop: 5,
   },
   addButton: {
     backgroundColor: '#4CAF50',

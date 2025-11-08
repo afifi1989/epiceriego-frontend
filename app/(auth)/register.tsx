@@ -204,6 +204,7 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Nom complet *"
+            placeholderTextColor="#999"
             value={nom}
             onChangeText={setNom}
             autoCapitalize="words"
@@ -212,6 +213,7 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Email *"
+            placeholderTextColor="#999"
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -222,6 +224,7 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Téléphone (06XXXXXXXX) *"
+            placeholderTextColor="#999"
             value={telephone}
             onChangeText={setTelephone}
             keyboardType="phone-pad"
@@ -231,6 +234,7 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Adresse *"
+            placeholderTextColor="#999"
             value={adresse}
             onChangeText={setAdresse}
           />
@@ -238,6 +242,7 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Mot de passe (min 6 caractères) *"
+            placeholderTextColor="#999"
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -247,6 +252,7 @@ export default function RegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Confirmer le mot de passe *"
+            placeholderTextColor="#999"
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             secureTextEntry
@@ -263,6 +269,7 @@ export default function RegisterScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Nom de l'épicerie *"
+                placeholderTextColor="#999"
                 value={nomEpicerie}
                 onChangeText={setNomEpicerie}
               />
@@ -270,6 +277,7 @@ export default function RegisterScreen() {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Description de votre épicerie *"
+                placeholderTextColor="#999"
                 value={descriptionEpicerie}
                 onChangeText={setDescriptionEpicerie}
                 multiline
@@ -403,7 +411,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: '#fff',
     color: '#333',
-    placeholderTextColor: '#999',
   },
   textArea: {
     height: 80,

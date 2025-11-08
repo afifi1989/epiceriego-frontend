@@ -3,9 +3,10 @@ import { Redirect, Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { NotificationBadge } from '../../components/NotificationBadge';
 import { STORAGE_KEYS } from '../../src/constants/config';
-import { pushNotificationService } from '../../src/services/pushNotificationService';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 // Composant interne pour gérer le layout authentifié
 function ClientTabsContent() {
@@ -91,6 +92,7 @@ function ClientTabsContent() {
           title: t('client.tabs.epiceries'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏪</Text>,
           headerTitle: t('client.headers.epiceries'),
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -99,6 +101,7 @@ function ClientTabsContent() {
           title: t('client.tabs.favorites'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>❤️</Text>,
           headerTitle: t('client.headers.favorites'),
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -107,6 +110,7 @@ function ClientTabsContent() {
           title: t('client.tabs.cart'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🛒</Text>,
           headerTitle: t('client.headers.cart'),
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -115,6 +119,7 @@ function ClientTabsContent() {
           title: t('client.tabs.orders'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>📦</Text>,
           headerTitle: t('client.headers.orders'),
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -123,6 +128,7 @@ function ClientTabsContent() {
           title: t('client.tabs.profile'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>👤</Text>,
           headerTitle: t('client.headers.profile'),
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen

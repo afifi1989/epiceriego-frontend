@@ -784,6 +784,7 @@ export default function CartScreen() {
                   <TextInput
                     style={styles.input}
                     placeholder={deliveryType === 'HOME_DELIVERY' ? t('cart.deliveryAddress') : t('cart.storeAddress')}
+                    placeholderTextColor="#999"
                     value={adresse}
                     onChangeText={setAdresse}
                   />
@@ -791,6 +792,7 @@ export default function CartScreen() {
                     <TextInput
                       style={styles.input}
                       placeholder={t('cart.phoneNumber')}
+                      placeholderTextColor="#999"
                       value={telephone}
                       onChangeText={setTelephone}
                       keyboardType="phone-pad"
@@ -930,6 +932,7 @@ export default function CartScreen() {
                           <TextInput
                             style={styles.input}
                             placeholder={t('cart.cardNumberPlaceholder')}
+                            placeholderTextColor="#999"
                             value={cardDetails.cardNumber}
                             onChangeText={(text) =>
                               setCardDetails({
@@ -943,6 +946,7 @@ export default function CartScreen() {
                           <TextInput
                             style={styles.input}
                             placeholder={t('cart.cardholderName')}
+                            placeholderTextColor="#999"
                             value={cardDetails.cardholderName}
                             onChangeText={(text) =>
                               setCardDetails({
@@ -955,6 +959,7 @@ export default function CartScreen() {
                             <TextInput
                               style={[styles.input, styles.expiryInput]}
                               placeholder="MM"
+                              placeholderTextColor="#999"
                               value={cardDetails.expiryMonth}
                               onChangeText={(text) =>
                                 setCardDetails({
@@ -969,6 +974,7 @@ export default function CartScreen() {
                             <TextInput
                               style={[styles.input, styles.expiryInput]}
                               placeholder="YY"
+                              placeholderTextColor="#999"
                               value={cardDetails.expiryYear}
                               onChangeText={(text) =>
                                 setCardDetails({
@@ -982,6 +988,7 @@ export default function CartScreen() {
                             <TextInput
                               style={[styles.input, styles.cvvInput]}
                               placeholder="CVV"
+                              placeholderTextColor="#999"
                               value={cardDetails.cvv}
                               onChangeText={(text) =>
                                 setCardDetails({

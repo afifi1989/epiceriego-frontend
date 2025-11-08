@@ -520,6 +520,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.currentPassword')}
+              placeholderTextColor="#999"
               secureTextEntry
               value={passwordForm.currentPassword}
               onChangeText={(text) =>
@@ -531,6 +532,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.newPassword')}
+              placeholderTextColor="#999"
               secureTextEntry
               value={passwordForm.newPassword}
               onChangeText={(text) =>
@@ -542,6 +544,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.confirmPassword')}
+              placeholderTextColor="#999"
               secureTextEntry
               value={passwordForm.confirmPassword}
               onChangeText={(text) =>
@@ -583,6 +586,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.yourPassword')}
+              placeholderTextColor="#999"
               secureTextEntry
               value={deleteForm.password}
               onChangeText={(text) => setDeleteForm({ ...deleteForm, password: text })}
@@ -592,6 +596,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.typeDeleteConfirmation')}
+              placeholderTextColor="#999"
               value={deleteForm.confirmation}
               onChangeText={(text) =>
                 setDeleteForm({ ...deleteForm, confirmation: text })
