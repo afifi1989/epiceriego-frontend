@@ -50,13 +50,19 @@ export const cartService = {
   addToCart: async (product: CartItem): Promise<CartItem[]> => {
     try {
       const cart = await cartService.getCart();
-      const existingIndex = cart.findIndex(item => item.id === product.id);
+
+      // Chercher si le produit existe déjà avec la même unité
+      const existingIndex = cart.findIndex(item =>
+        item.productId === product.productId &&
+        item.unitId === product.unitId
+      );
 
       if (existingIndex >= 0) {
-        // Produit existe déjà, augmenter la quantité
+        // Produit existe déjà avec la même unité, augmenter la quantité
         cart[existingIndex].quantity += product.quantity;
+        cart[existingIndex].totalPrice = cart[existingIndex].pricePerUnit * cart[existingIndex].quantity;
       } else {
-        // Nouveau produit
+        // Nouveau produit ou nouvelle unité
         cart.push(product);
       }
 
@@ -70,14 +76,25 @@ export const cartService = {
 
   /**
    * Met à jour la quantité d'un produit
+   * Utilise productId et optionnellement unitId pour identifier le produit
    */
-  updateQuantity: async (productId: number, delta: number): Promise<CartItem[]> => {
+  updateQuantity: async (productId: number, delta: number, unitId?: number): Promise<CartItem[]> => {
     try {
       const cart = await cartService.getCart();
       const updatedCart = cart.map(item => {
-        if (item.id === productId) {
+        const isSameProduct = item.productId === productId &&
+          (unitId === undefined || item.unitId === unitId);
+
+        if (isSameProduct) {
           const newQuantity = item.quantity + delta;
-          return newQuantity > 0 ? { ...item, quantity: newQuantity } : null;
+          if (newQuantity > 0) {
+            return {
+              ...item,
+              quantity: newQuantity,
+              totalPrice: item.pricePerUnit * newQuantity
+            };
+          }
+          return null;
         }
         return item;
       }).filter((item): item is CartItem => item !== null);
@@ -104,11 +121,16 @@ export const cartService = {
 
   /**
    * Supprime un produit spécifique du panier
+   * Utilise productId et optionnellement unitId pour identifier le produit
    */
-  removeFromCart: async (productId: number): Promise<CartItem[]> => {
+  removeFromCart: async (productId: number, unitId?: number): Promise<CartItem[]> => {
     try {
       const cart = await cartService.getCart();
-      const updatedCart = cart.filter(item => item.id !== productId);
+      const updatedCart = cart.filter(item => {
+        const isSameProduct = item.productId === productId &&
+          (unitId === undefined || item.unitId === unitId);
+        return !isSameProduct;
+      });
       await cartService.saveCart(updatedCart);
       return updatedCart;
     } catch (error) {
@@ -136,7 +158,7 @@ export const cartService = {
   getCartTotal: async (): Promise<number> => {
     try {
       const cart = await cartService.getCart();
-      return cart.reduce((sum, item) => sum + (item.prix * item.quantity), 0);
+      return cart.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
     } catch (error) {
       console.error('[CartService] Erreur calcul total:', error);
       return 0;

@@ -95,10 +95,10 @@ export default function CartScreen() {
     }
   };
 
-  const updateQuantity = async (productId: number, delta: number) => {
+  const updateQuantity = async (productId: number, delta: number, unitId?: number) => {
     try {
-      console.log('[updateQuantity] Mise à jour produit ID:', productId, 'delta:', delta);
-      const updatedCart = await cartService.updateQuantity(productId, delta);
+      console.log('[updateQuantity] Mise à jour produit ID:', productId, 'unitId:', unitId, 'delta:', delta);
+      const updatedCart = await cartService.updateQuantity(productId, delta, unitId);
       console.log('[updateQuantity] ✅ Panier mis à jour:', updatedCart.length, 'articles');
       setCart(updatedCart);
     } catch (error) {
@@ -107,7 +107,7 @@ export default function CartScreen() {
   };
 
   const getTotal = () => {
-    return cart.reduce((sum, item) => sum + (item.prix * item.quantity), 0);
+    return cart.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
   };
 
   const validateCardDetails = (): boolean => {
@@ -263,26 +263,38 @@ export default function CartScreen() {
   const renderCartItem = ({ item }: { item: CartItem }) => (
     <View style={styles.cartItem}>
       <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{item.nom}</Text>
-        <Text style={styles.itemPrice}>{formatPrice(item.prix)}</Text>
+        <Text style={styles.itemName}>{item.productNom}</Text>
+        {item.unitLabel && (
+          <Text style={styles.itemUnit}>{item.unitLabel}</Text>
+        )}
+        <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit)}</Text>
       </View>
       <View style={styles.quantityControl}>
         <TouchableOpacity
           style={styles.quantityButton}
-          onPress={() => updateQuantity(item.id, -1)}
+          onPress={() => updateQuantity(item.productId, -1, item.unitId)}
         >
-          <Text style={styles.quantityButtonText}>-</Text>
+          <Text style={styles.quantityButtonText}>−</Text>
         </TouchableOpacity>
         <Text style={styles.quantity}>{item.quantity}</Text>
         <TouchableOpacity
           style={styles.quantityButton}
-          onPress={() => updateQuantity(item.id, 1)}
+          onPress={() => updateQuantity(item.productId, 1, item.unitId)}
         >
           <Text style={styles.quantityButtonText}>+</Text>
         </TouchableOpacity>
       </View>
+      <TouchableOpacity
+        style={styles.removeButton}
+        onPress={() => {
+          cartService.removeFromCart(item.productId, item.unitId);
+          setCart(cart.filter(ci => ci.productId !== item.productId || ci.unitId !== item.unitId));
+        }}
+      >
+        <Text style={styles.removeButtonText}>✕</Text>
+      </TouchableOpacity>
       <Text style={styles.itemTotal}>
-        {formatPrice(item.prix * item.quantity)}
+        {formatPrice(item.totalPrice || 0)}
       </Text>
     </View>
   );
@@ -314,9 +326,16 @@ export default function CartScreen() {
       color: '#333',
       marginBottom: 4,
     },
+    itemUnit: {
+      fontSize: 12,
+      color: '#999',
+      fontStyle: 'italic',
+      marginBottom: 4,
+    },
     itemPrice: {
       fontSize: 14,
-      color: '#666',
+      color: '#4CAF50',
+      fontWeight: '600',
     },
     quantityControl: {
       flexDirection: 'row',
@@ -350,6 +369,20 @@ export default function CartScreen() {
       color: '#4CAF50',
       minWidth: 70,
       textAlign: 'right',
+    },
+    removeButton: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: '#ffebee',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 8,
+    },
+    removeButtonText: {
+      color: '#c62828',
+      fontSize: 18,
+      fontWeight: 'bold',
     },
     footer: {
       position: 'absolute',

@@ -6,14 +6,14 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
+import { ProductUnitDisplay } from '../../../../components/client/ProductUnitDisplay';
 import { useLanguage } from '../../../../src/context/LanguageContext';
 import { cartService } from '../../../../src/services/cartService';
 import { productService } from '../../../../src/services/productService';
-import { Product } from '../../../../src/type';
+import { Product, ProductUnit } from '../../../../src/type';
 import { formatPrice } from '../../../../src/utils/helpers';
 
 export default function ProductDetailScreen() {
@@ -23,7 +23,6 @@ export default function ProductDetailScreen() {
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [quantity, setQuantity] = useState(1);
   const [addingToCart, setAddingToCart] = useState(false);
 
   useEffect(() => {
@@ -55,40 +54,28 @@ export default function ProductDetailScreen() {
     }
   };
 
-  const handleQuantityChange = (value: string) => {
-    const num = parseInt(value, 10);
-    if (!isNaN(num) && num > 0 && num <= (product?.stock || 0)) {
-      setQuantity(num);
-    }
-  };
-
-  const incrementQuantity = () => {
-    if (quantity < (product?.stock || 0)) {
-      setQuantity(quantity + 1);
-    }
-  };
-
-  const decrementQuantity = () => {
-    if (quantity > 1) {
-      setQuantity(quantity - 1);
-    }
-  };
-
-  const addToCart = async () => {
+  const handleAddToCart = async (unitId: number, quantity: number, totalPrice: number, unit: ProductUnit) => {
     if (!product) return;
 
     try {
       setAddingToCart(true);
-      
-      // Ajouter le produit avec la quantité sélectionnée
-      for (let i = 0; i < quantity; i++) {
-        await cartService.addToCart({
-          ...product,
-          quantity: 1,
-        });
-      }
 
-      Alert.alert('✅', `${quantity} x ${product.nom} ${t('products.addedToCart')}`);
+      // Créer l'item du panier avec les informations d'unité
+      const cartItem = {
+        productId: product.id,
+        productNom: product.nom,
+        unitId: unitId,
+        unitLabel: unit.label,
+        quantity: quantity,
+        requestedQuantity: quantity,
+        pricePerUnit: unit.prix,
+        totalPrice: totalPrice,
+        photoUrl: product.photoUrl,
+      };
+
+      await cartService.addToCart(cartItem);
+
+      Alert.alert('✅', `${product.nom} (${unit.label}) ${t('products.addedToCart')}`);
       // Retourner à la page précédente
       router.back();
     } catch (error) {
@@ -194,69 +181,18 @@ export default function ProductDetailScreen() {
             </View>
           </View>
 
-          {/* Quantity Selector */}
+          {/* Unit Selector and Add to Cart */}
           {isAvailable && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>🔢 {t('products.quantityToAdd')}</Text>
-              <View style={styles.quantityContainer}>
-                <TouchableOpacity 
-                  style={[styles.quantityButton, quantity <= 1 && styles.quantityButtonDisabled]}
-                  onPress={decrementQuantity}
-                  disabled={quantity <= 1}
-                >
-                  <Text style={styles.quantityButtonText}>−</Text>
-                </TouchableOpacity>
-                
-                <TextInput
-                  style={styles.quantityInput}
-                  value={quantity.toString()}
-                  onChangeText={handleQuantityChange}
-                  keyboardType="number-pad"
-                  textAlign="center"
-                />
-                
-                <TouchableOpacity 
-                  style={[styles.quantityButton, quantity >= product.stock && styles.quantityButtonDisabled]}
-                  onPress={incrementQuantity}
-                  disabled={quantity >= product.stock}
-                >
-                  <Text style={styles.quantityButtonText}>+</Text>
-                </TouchableOpacity>
-              </View>
-              
-              {/* Total Price */}
-              <View style={styles.totalContainer}>
-                <Text style={styles.totalLabel}>{t('cart.total')}</Text>
-                <Text style={styles.totalPrice}>{formatPrice(product.prix * quantity)}</Text>
-              </View>
+              <ProductUnitDisplay
+                product={product}
+                onAddToCart={handleAddToCart}
+              />
             </View>
           )}
 
           <View style={styles.spacer} />
         </ScrollView>
-
-        {/* Add to Cart Button - Fixed at bottom */}
-        {isAvailable && (
-          <View style={styles.footer}>
-            <TouchableOpacity
-              style={[styles.addButton, addingToCart && styles.addButtonDisabled]}
-              onPress={addToCart}
-              disabled={addingToCart}
-              activeOpacity={0.8}
-            >
-              {addingToCart ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.addButtonText}>
-                    🛒 {t('products.addQuantity')} ({quantity})
-                  </Text>
-                  <Text style={styles.addButtonPrice}>{formatPrice(product.prix * quantity)}</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* Out of Stock Message */}
         {!isAvailable && (
@@ -429,63 +365,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#555',
     lineHeight: 22,
-  },
-  quantityContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 15,
-  },
-  quantityButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#4CAF50',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  quantityButtonDisabled: {
-    backgroundColor: '#ccc',
-  },
-  quantityButtonText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  quantityInput: {
-    width: 80,
-    height: 50,
-    marginHorizontal: 20,
-    fontSize: 20,
-    fontWeight: 'bold',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#4CAF50',
-    color: '#333',
-  },
-  totalContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 15,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-  },
-  totalLabel: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#666',
-  },
-  totalPrice: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#4CAF50',
   },
   spacer: {
     height: 100,

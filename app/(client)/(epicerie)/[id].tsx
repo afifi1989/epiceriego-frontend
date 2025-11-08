@@ -4,18 +4,20 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
+import { ProductUnitDisplay } from '../../../components/client/ProductUnitDisplay';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { cartService } from '../../../src/services/cartService';
 import { Category, categoryService, SubCategory } from '../../../src/services/categoryService';
 import { epicerieService } from '../../../src/services/epicerieService';
 import { productService } from '../../../src/services/productService';
-import { CartItem, Epicerie, Product } from '../../../src/type';
+import { CartItem, Epicerie, Product, ProductUnit } from '../../../src/type';
 import { formatPrice } from '../../../src/utils/helpers';
 
 type ViewMode = 'categories' | 'subcategories' | 'products';
@@ -39,6 +41,8 @@ export default function EpicerieDetailScreen() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
+  const [showUnitSelector, setShowUnitSelector] = useState(false);
+  const [selectedProductForCart, setSelectedProductForCart] = useState<Product | null>(null);
 
   // Charger les données au montage
   useEffect(() => {
@@ -169,35 +173,78 @@ export default function EpicerieDetailScreen() {
     setProducts([]);
   };
 
-  const addToCart = async (product: Product) => {
+  const handleAddToCart = (product: Product) => {
+    // Si le produit a des unités, ouvrir le sélecteur
+    // Sinon, ajouter directement au panier
+    if (product.units && product.units.length > 0) {
+      setSelectedProductForCart(product);
+      setShowUnitSelector(true);
+    } else {
+      addToCartDirect(product);
+    }
+  };
+
+  const addToCartDirect = async (product: Product) => {
     try {
-      console.log('[addToCart] Ajout du produit:', product.nom, 'avec ID:', product.id);
+      console.log('[addToCartDirect] Ajout du produit:', product.nom, 'avec ID:', product.id);
 
       // Créer un CartItem à partir du Product
       const cartItem: CartItem = {
-        ...product,
+        productId: product.id,
+        productNom: product.nom,
         quantity: 1,
+        pricePerUnit: product.prix,
+        totalPrice: product.prix,
+        photoUrl: product.photoUrl,
       };
 
-      console.log('[addToCart] CartItem créé:', cartItem);
+      console.log('[addToCartDirect] CartItem créé:', cartItem);
 
       // Ajouter au panier via le service
       const updatedCart = await cartService.addToCart(cartItem);
 
-      console.log('[addToCart] ✅ Panier mis à jour:', updatedCart.length, 'articles');
+      console.log('[addToCartDirect] ✅ Panier mis à jour:', updatedCart.length, 'articles');
 
       // Mettre à jour le state local
       setCart(updatedCart);
 
       Alert.alert('✅', t('products.addedToCart'));
     } catch (error) {
-      console.error('[addToCart] ❌ Erreur ajout panier:', error);
+      console.error('[addToCartDirect] ❌ Erreur ajout panier:', error);
+      Alert.alert(t('common.error'), t('products.errorAdding'));
+    }
+  };
+
+  const handleAddToCartWithUnit = async (unitId: number, quantity: number, totalPrice: number, unit: ProductUnit) => {
+    if (!selectedProductForCart) return;
+
+    try {
+      const cartItem: CartItem = {
+        productId: selectedProductForCart.id,
+        productNom: selectedProductForCart.nom,
+        unitId: unitId,
+        unitLabel: unit.label,
+        quantity: quantity,
+        requestedQuantity: quantity,
+        pricePerUnit: unit.prix,
+        totalPrice: totalPrice,
+        photoUrl: selectedProductForCart.photoUrl,
+      };
+
+      const updatedCart = await cartService.addToCart(cartItem);
+      setCart(updatedCart);
+
+      Alert.alert('✅', `${selectedProductForCart.nom} (${unit.label}) ${t('products.addedToCart')}`);
+      setShowUnitSelector(false);
+      setSelectedProductForCart(null);
+    } catch (error) {
+      console.error('Erreur ajout panier:', error);
       Alert.alert(t('common.error'), t('products.errorAdding'));
     }
   };
 
   const getCartTotal = () => {
-    return cart.reduce((sum, item) => sum + (item.prix * item.quantity), 0);
+    return cart.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
   };
 
   const goToCart = () => {
@@ -281,7 +328,7 @@ export default function EpicerieDetailScreen() {
         style={styles.addButton}
         onPress={(e) => {
           e.stopPropagation();
-          addToCart(item);
+          handleAddToCart(item);
         }}
         activeOpacity={0.7}
       >
@@ -480,6 +527,37 @@ export default function EpicerieDetailScreen() {
         </View>
       )}
       </View>
+
+      {/* Unit Selector Modal */}
+      {selectedProductForCart && (
+        <Modal
+          visible={showUnitSelector}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => {
+            setShowUnitSelector(false);
+            setSelectedProductForCart(null);
+          }}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{selectedProductForCart.nom}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowUnitSelector(false);
+                  setSelectedProductForCart(null);
+                }}
+              >
+                <Text style={styles.modalCloseButton}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ProductUnitDisplay
+              product={selectedProductForCart}
+              onAddToCart={handleAddToCartWithUnit}
+            />
+          </View>
+        </Modal>
+      )}
     </>
   );
 }
@@ -810,5 +888,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
+  },
+  /* === MODAL STYLES === */
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+  },
+  modalCloseButton: {
+    fontSize: 28,
+    color: '#666',
   },
 });
