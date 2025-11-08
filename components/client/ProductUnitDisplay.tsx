@@ -68,6 +68,13 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
     }
 
     const totalPrice = getTotalPrice();
+    console.log('[ProductUnitDisplay] Ajout au panier:', {
+      unitId: selectedUnit.id,
+      quantity: qty,
+      totalPrice,
+      pricePerUnit: selectedUnit.prix,
+      label: selectedUnit.label
+    });
     onAddToCart(selectedUnit.id, qty, totalPrice, selectedUnit);
   };
 

@@ -107,7 +107,15 @@ export default function CartScreen() {
   };
 
   const getTotal = () => {
-    return cart.reduce((sum, item) => sum + (item.totalPrice || 0), 0);
+    try {
+      return cart.reduce((sum, item) => {
+        const itemTotal = item.totalPrice || (item.pricePerUnit * item.quantity) || 0;
+        return sum + itemTotal;
+      }, 0);
+    } catch (error) {
+      console.error('[CartScreen] Erreur calcul total:', error);
+      return 0;
+    }
   };
 
   const validateCardDetails = (): boolean => {
@@ -267,7 +275,7 @@ export default function CartScreen() {
         {item.unitLabel && (
           <Text style={styles.itemUnit}>{item.unitLabel}</Text>
         )}
-        <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit)}</Text>
+        <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit || 0)}</Text>
       </View>
       <View style={styles.quantityControl}>
         <TouchableOpacity
