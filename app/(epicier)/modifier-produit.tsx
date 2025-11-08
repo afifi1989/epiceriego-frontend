@@ -285,6 +285,7 @@ export default function ModifierProduitScreen() {
                 selectedValue={formData.categoryId}
                 onValueChange={(value) => setFormData({ ...formData, categoryId: value })}
                 style={styles.picker}
+                itemStyle={styles.pickerItem}
               >
                 <Picker.Item label="-- Sélectionnez une catégorie --" value="" />
                 {categories.map((cat) => (
@@ -302,6 +303,7 @@ export default function ModifierProduitScreen() {
                   selectedValue={formData.subCategoryId}
                   onValueChange={(value) => setFormData({ ...formData, subCategoryId: value })}
                   style={styles.picker}
+                  itemStyle={styles.pickerItem}
                 >
                   <Picker.Item label="-- Sélectionnez une sous-catégorie --" value="" />
                   {subCategories.map((subCat) => (
@@ -454,6 +456,11 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 50,
+    color: '#333',
+  },
+  pickerItem: {
+    fontSize: 16,
+    color: '#333',
   },
   uploadButton: {
     backgroundColor: '#fff',

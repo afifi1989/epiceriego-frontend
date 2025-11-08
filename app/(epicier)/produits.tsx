@@ -287,6 +287,7 @@ export default function ProduitsScreen() {
                 selectedValue={selectedCategoryId}
                 onValueChange={(value) => setSelectedCategoryId(value)}
                 style={styles.picker}
+                itemStyle={styles.pickerItem}
               >
                 <Picker.Item label="Toutes les catégories" value="" />
                 {categories.map((cat) => (
@@ -304,6 +305,7 @@ export default function ProduitsScreen() {
                   selectedValue={selectedSubCategoryId}
                   onValueChange={(value) => setSelectedSubCategoryId(value)}
                   style={styles.picker}
+                  itemStyle={styles.pickerItem}
                 >
                   <Picker.Item label="Toutes les sous-catégories" value="" />
                   {subCategories.map((subCat) => (
@@ -620,6 +622,11 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 50,
+    color: '#333',
+  },
+  pickerItem: {
+    fontSize: 16,
+    color: '#333',
   },
   resetButton: {
     backgroundColor: '#FF9800',

@@ -192,6 +192,7 @@ export default function RegisterScreen() {
               selectedValue={role}
               onValueChange={(value) => setRole(value)}
               style={styles.picker}
+              itemStyle={styles.pickerItem}
             >
               <Picker.Item label="🛒 Client" value="CLIENT" />
               <Picker.Item label="🏪 Épicier" value="EPICIER" />
@@ -387,6 +388,11 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 50,
+    color: '#333',
+  },
+  pickerItem: {
+    fontSize: 16,
+    color: '#333',
   },
   input: {
     borderWidth: 1,
