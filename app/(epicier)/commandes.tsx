@@ -9,6 +9,8 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 import { orderService } from '../../src/services/orderService';
 import { Order } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
@@ -16,6 +18,7 @@ import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/hel
 type FilterStatus = 'ALL' | 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
 
 export default function CommandesScreen() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -84,60 +87,71 @@ export default function CommandesScreen() {
     : orders.filter(order => order.status === filter);
 
   const renderOrder = ({ item }: { item: Order }) => (
-    <TouchableOpacity 
-      style={styles.orderCard}
-      onPress={() => showStatusOptions(item)}
-    >
-      <View style={styles.orderHeader}>
-        <View style={styles.orderInfo}>
-          <Text style={styles.orderClient}>👤 {item.clientNom}</Text>
-          <Text style={styles.orderDate}>
-            {new Date(item.createdAt).toLocaleString('fr-FR')}
-          </Text>
-        </View>
-        <View style={styles.orderRight}>
-          <Text style={styles.orderTotal}>{formatPrice(item.total)}</Text>
-          <View 
-            style={[
-              styles.statusBadge,
-              { backgroundColor: getStatusColor(item.status) }
-            ]}
-          >
-            <Text style={styles.statusText}>
-              {getStatusLabel(item.status)}
+    <View style={styles.orderCard}>
+      <TouchableOpacity
+        onPress={() => router.push(`/details-commande?orderId=${item.id}`)}
+        style={styles.orderContent}
+      >
+        <View style={styles.orderHeader}>
+          <View style={styles.orderInfo}>
+            <Text style={styles.orderClient}>👤 {item.clientNom}</Text>
+            <Text style={styles.orderDate}>
+              {new Date(item.createdAt).toLocaleString('fr-FR')}
             </Text>
           </View>
+          <View style={styles.orderRight}>
+            <Text style={styles.orderTotal}>{formatPrice(item.total)}</Text>
+            <View
+              style={[
+                styles.statusBadge,
+                { backgroundColor: getStatusColor(item.status) }
+              ]}
+            >
+              <Text style={styles.statusText}>
+                {getStatusLabel(item.status)}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.orderDetails}>
-        <Text style={styles.detailRow}>📦 {item.nombreItems} article(s)</Text>
-        <Text style={styles.detailRow}>📍 {item.adresseLivraison}</Text>
-        {item.telephoneLivraison && (
-          <Text style={styles.detailRow}>📞 {item.telephoneLivraison}</Text>
-        )}
-        {item.livreurNom && (
-          <Text style={styles.detailRow}>🚚 {item.livreurNom}</Text>
-        )}
-      </View>
-
-      {item.status === 'PENDING' && (
-        <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={[styles.quickBtn, styles.acceptBtn]}
-            onPress={() => handleUpdateStatus(item.id, 'ACCEPTED')}
-          >
-            <Text style={styles.quickBtnText}>✅ Accepter</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.quickBtn, styles.rejectBtn]}
-            onPress={() => handleUpdateStatus(item.id, 'CANCELLED')}
-          >
-            <Text style={styles.quickBtnText}>❌ Refuser</Text>
-          </TouchableOpacity>
+        <View style={styles.orderDetails}>
+          <Text style={styles.detailRow}>📦 {item.nombreItems} article(s)</Text>
+          <Text style={styles.detailRow}>📍 {item.adresseLivraison}</Text>
+          {item.telephoneLivraison && (
+            <Text style={styles.detailRow}>📞 {item.telephoneLivraison}</Text>
+          )}
+          {item.livreurNom && (
+            <Text style={styles.detailRow}>🚚 {item.livreurNom}</Text>
+          )}
         </View>
-      )}
-    </TouchableOpacity>
+      </TouchableOpacity>
+
+      <View style={styles.cardFooter}>
+        {item.status === 'PENDING' && (
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.quickBtn, styles.acceptBtn]}
+              onPress={() => handleUpdateStatus(item.id, 'ACCEPTED')}
+            >
+              <Text style={styles.quickBtnText}>✅ Accepter</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.quickBtn, styles.rejectBtn]}
+              onPress={() => handleUpdateStatus(item.id, 'CANCELLED')}
+            >
+              <Text style={styles.quickBtnText}>❌ Refuser</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <TouchableOpacity
+          style={styles.detailsBtn}
+          onPress={() => router.push(`/details-commande?orderId=${item.id}`)}
+        >
+          <MaterialIcons name="arrow-forward" size={18} color="#2196F3" />
+          <Text style={styles.detailsBtnText}>Détails</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 
   if (loading) {
@@ -251,13 +265,16 @@ const styles = StyleSheet.create({
   orderCard: {
     backgroundColor: '#fff',
     borderRadius: 15,
-    padding: 15,
+    overflow: 'hidden',
     marginBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  orderContent: {
+    padding: 15,
   },
   orderHeader: {
     flexDirection: 'row',
@@ -307,9 +324,16 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
+  cardFooter: {
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+  },
   quickActions: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 10,
   },
   quickBtn: {
     flex: 1,
@@ -327,6 +351,22 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  detailsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  detailsBtnText: {
+    color: '#2196F3',
+    fontWeight: '600',
+    fontSize: 14,
   },
   emptyContainer: {
     alignItems: 'center',
