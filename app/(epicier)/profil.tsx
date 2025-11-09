@@ -12,6 +12,7 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { epicerieService } from '../../src/services/epicerieService';
+import { orderService } from '../../src/services/orderService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, Epicerie } from '../../src/type';
 
@@ -20,6 +21,11 @@ export default function EpicierProfilScreen() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
+  const [stats, setStats] = useState({
+    totalOrders: 0,
+    pendingOrders: 0,
+    todayRevenue: 0,
+  });
 
   useEffect(() => {
     loadData();
@@ -50,6 +56,26 @@ export default function EpicierProfilScreen() {
 
       const epicerieData = await epicerieService.getMyEpicerie();
       setEpicerie(epicerieData);
+
+      // Charger les statistiques des commandes
+      try {
+        const ordersData = await orderService.getEpicerieOrders();
+        const pendingCount = ordersData.filter(o => o.status === 'PENDING').length;
+        const todayOrders = ordersData.filter(o => {
+          const orderDate = new Date(o.createdAt);
+          const today = new Date();
+          return orderDate.toDateString() === today.toDateString();
+        });
+        const todayRev = todayOrders.reduce((sum, o) => sum + o.total, 0);
+
+        setStats({
+          totalOrders: ordersData.length,
+          pendingOrders: pendingCount,
+          todayRevenue: todayRev,
+        });
+      } catch (orderError) {
+        console.warn('Impossible de charger les commandes:', orderError);
+      }
     } catch (error) {
       console.error('Erreur chargement profil:', error);
     } finally {
@@ -106,6 +132,38 @@ export default function EpicierProfilScreen() {
         </View>
         <Text style={styles.userName}>{epicerie?.nomEpicerie || 'Mon Épicerie'}</Text>
         <Text style={styles.userEmail}>{user?.email || ''}</Text>
+      </View>
+
+      {/* Statistiques rapides */}
+      <View style={styles.statsContainer}>
+        <TouchableOpacity
+          style={styles.statCard}
+          onPress={() => router.push('/(epicier)/dashboard')}
+        >
+          <Text style={styles.statIcon}>📦</Text>
+          <Text style={styles.statLabel}>Commandes</Text>
+          <Text style={styles.statValue}>{stats.totalOrders}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.statCard}
+          onPress={() => router.push('/(epicier)/commandes')}
+        >
+          <Text style={styles.statIcon}>⏳</Text>
+          <Text style={styles.statLabel}>En attente</Text>
+          <Text style={[styles.statValue, stats.pendingOrders > 0 && styles.statValueWarning]}>
+            {stats.pendingOrders}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.statCard}
+          onPress={() => router.push('/(epicier)/dashboard')}
+        >
+          <Text style={styles.statIcon}>💰</Text>
+          <Text style={styles.statLabel}>Chiffre du jour</Text>
+          <Text style={styles.statValue}>€{stats.todayRevenue.toFixed(2)}</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.section}>
@@ -358,6 +416,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#f44336',
     fontWeight: 'bold',
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    paddingVertical: 20,
+    gap: 10,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  statIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
+  },
+  statValueWarning: {
+    color: '#f44336',
   },
   footer: {
     padding: 20,
