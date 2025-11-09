@@ -96,7 +96,7 @@ function EpicierTabsContent() {
         options={{
           title: 'Commandes',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🛍️</Text>,
-          headerShown: false,
+          headerTitle: '🛍️ Commandes',
         }}
       />
       <Tabs.Screen
@@ -159,6 +159,12 @@ function EpicierTabsContent() {
       />
       <Tabs.Screen
         name="zones-livraison"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="details-commande"
         options={{
           href: null,
         }}

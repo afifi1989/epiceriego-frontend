@@ -89,7 +89,7 @@ export default function CommandesScreen() {
   const renderOrder = ({ item }: { item: Order }) => (
     <View style={styles.orderCard}>
       <TouchableOpacity
-        onPress={() => router.push(`/details-commande?orderId=${item.id}`)}
+        onPress={() => router.push(`/details-commande?orderId=${item.id}` as any)}
         style={styles.orderContent}
       >
         <View style={styles.orderHeader}>
@@ -145,7 +145,7 @@ export default function CommandesScreen() {
         )}
         <TouchableOpacity
           style={styles.detailsBtn}
-          onPress={() => router.push(`/details-commande?orderId=${item.id}`)}
+          onPress={() => router.push(`/details-commande?orderId=${item.id}` as any)}
         >
           <MaterialIcons name="arrow-forward" size={18} color="#2196F3" />
           <Text style={styles.detailsBtnText}>Détails</Text>
