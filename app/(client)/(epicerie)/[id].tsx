@@ -44,6 +44,53 @@ export default function EpicerieDetailScreen() {
   const [showUnitSelector, setShowUnitSelector] = useState(false);
   const [selectedProductForCart, setSelectedProductForCart] = useState<Product | null>(null);
 
+  // Définir les fonctions de chargement
+  const loadEpicerieInfo = useCallback(async () => {
+    try {
+      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+      const data = await epicerieService.getEpicerieById(epicerieId);
+      setEpicerie(data);
+    } catch (error) {
+      console.error('Erreur lors du chargement de l\'épicerie:', error);
+    }
+  }, [id]);
+
+  const loadAllProducts = useCallback(async () => {
+    try {
+      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+      const data = await productService.getProductsByEpicerie(epicerieId);
+      setAllProducts(data);
+      setFilteredProducts(data);
+    } catch (error) {
+      console.error('Erreur lors du chargement des produits:', error);
+    }
+  }, [id]);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      setLoading(true);
+      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+      const data = await categoryService.getActiveCategoriesByEpicerie(epicerieId);
+      setCategories(data);
+    } catch (error) {
+      Alert.alert(t('common.error'), String(error));
+    } finally {
+      setLoading(false);
+    }
+  }, [id, t]);
+
+  const filterProducts = useCallback((query: string) => {
+    if (!query.trim()) {
+      setFilteredProducts(allProducts);
+      return;
+    }
+
+    const filtered = allProducts.filter(product =>
+      product.nom.toLowerCase().includes(query.toLowerCase())
+    );
+    setFilteredProducts(filtered);
+  }, [allProducts]);
+
   // Charger les données au montage ET quand l'ID de l'épicerie change
   useEffect(() => {
     if (id) {
@@ -61,7 +108,7 @@ export default function EpicerieDetailScreen() {
       loadCategories();
       loadAllProducts();
     }
-  }, [id]);
+  }, [id, loadEpicerieInfo, loadCategories, loadAllProducts]);
 
   // Recharger le panier CHAQUE FOIS qu'on revient à cette page
   useFocusEffect(
@@ -84,53 +131,7 @@ export default function EpicerieDetailScreen() {
     if (searchMode === 'search') {
       filterProducts(searchQuery);
     }
-  }, [searchQuery, searchMode]);
-
-  const loadEpicerieInfo = async () => {
-    try {
-      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
-      const data = await epicerieService.getEpicerieById(epicerieId);
-      setEpicerie(data);
-    } catch (error) {
-      console.error('Erreur lors du chargement de l\'épicerie:', error);
-    }
-  };
-
-  const loadAllProducts = async () => {
-    try {
-      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
-      const data = await productService.getProductsByEpicerie(epicerieId);
-      setAllProducts(data);
-      setFilteredProducts(data);
-    } catch (error) {
-      console.error('Erreur lors du chargement des produits:', error);
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      setLoading(true);
-      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
-      const data = await categoryService.getActiveCategoriesByEpicerie(epicerieId);
-      setCategories(data);
-    } catch (error) {
-      Alert.alert(t('common.error'), String(error));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filterProducts = (query: string) => {
-    if (!query.trim()) {
-      setFilteredProducts(allProducts);
-      return;
-    }
-
-    const filtered = allProducts.filter(product =>
-      product.nom.toLowerCase().includes(query.toLowerCase())
-    );
-    setFilteredProducts(filtered);
-  };
+  }, [searchQuery, searchMode, filterProducts]);
 
   const handleSearchModeChange = (mode: SearchMode) => {
     setSearchMode(mode);
