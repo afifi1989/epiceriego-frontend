@@ -260,6 +260,15 @@ export default function EpicierProfilScreen() {
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(epicier)/zones-livraison')}
+        >
+          <Text style={styles.actionIcon}>🚚</Text>
+          <Text style={styles.actionText}>Zones de livraison</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionButton}>
           <Text style={styles.actionIcon}>🔔</Text>
           <Text style={styles.actionText}>Notifications</Text>
