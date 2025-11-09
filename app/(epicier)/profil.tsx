@@ -7,8 +7,9 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { epicerieService } from '../../src/services/epicerieService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,13 +25,29 @@ export default function EpicierProfilScreen() {
     loadData();
   }, []);
 
+  // Recharger les données chaque fois qu'on revient à cette page
+  useFocusEffect(
+    React.useCallback(() => {
+      const refreshData = async () => {
+        try {
+          const epicerieData = await epicerieService.getMyEpicerie();
+          setEpicerie(epicerieData);
+          console.log('[ProfilScreen] Données rafraîchies');
+        } catch (error) {
+          console.error('Erreur rafraîchissement:', error);
+        }
+      };
+      refreshData();
+    }, [])
+  );
+
   const loadData = async () => {
     try {
       const userData = await AsyncStorage.getItem('user');
       if (userData) {
         setUser(JSON.parse(userData));
       }
-      
+
       const epicerieData = await epicerieService.getMyEpicerie();
       setEpicerie(epicerieData);
     } catch (error) {
@@ -75,7 +92,17 @@ export default function EpicierProfilScreen() {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
-          <Text style={styles.avatarEmoji}>🏪</Text>
+          {epicerie?.photoUrl ? (
+            <Image
+              source={{ uri: epicerie.photoUrl }}
+              style={styles.avatar}
+              onError={(error) => {
+                console.warn('[ProfilScreen] Erreur chargement photo:', error);
+              }}
+            />
+          ) : (
+            <Text style={styles.avatarEmoji}>🏪</Text>
+          )}
         </View>
         <Text style={styles.userName}>{epicerie?.nomEpicerie || 'Mon Épicerie'}</Text>
         <Text style={styles.userEmail}>{user?.email || ''}</Text>
@@ -218,6 +245,12 @@ const styles = StyleSheet.create({
   },
   avatarEmoji: {
     fontSize: 50,
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 50,
+    resizeMode: 'cover',
   },
   userName: {
     fontSize: 24,

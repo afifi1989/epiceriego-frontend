@@ -1,5 +1,7 @@
 import { Epicerie } from '../type';
 import api from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
 
 export const epicerieService = {
   /**
@@ -159,4 +161,83 @@ export const epicerieService = {
       throw error.response?.data?.message || 'Erreur lors de la mise à jour';
     }
   },
+
+  /**
+   * Upload la photo de profil de l'épicerie
+   * Utilise fetch API pour supporter les FormData avec les images
+   */
+  uploadProfilePhoto: async (imageUri: string, base64?: string): Promise<Epicerie> => {
+    try {
+      console.log('[EpicerieService] Envoi de la photo de profil...');
+
+      // Récupérer le token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      // Créer FormData pour l'upload
+      const formData = new FormData();
+
+      // Ajouter l'image
+      if (base64) {
+        // Si on a le base64, utiliser un Blob
+        const blob = base64ToBlob(base64, 'image/jpeg');
+        formData.append('photo', blob, 'profile.jpg');
+      } else {
+        // Sinon, utiliser l'URI directe
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        formData.append('photo', blob, 'profile.jpg');
+      }
+
+      console.log('[EpicerieService] Envoi avec fetch...');
+
+      const headers: any = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const uploadResponse = await fetch(
+        `${API_CONFIG.BASE_URL}/epiceries/my-epicerie/photo`,
+        {
+          method: 'POST',
+          headers: headers,
+          body: formData,
+        }
+      );
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.text();
+        console.error('[EpicerieService] Erreur upload:', {
+          status: uploadResponse.status,
+          statusText: uploadResponse.statusText,
+          body: errorData,
+        });
+        throw new Error(
+          `Erreur HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`
+        );
+      }
+
+      const responseData = await uploadResponse.json();
+      console.log('[EpicerieService] Photo uploadée avec succès');
+      return responseData;
+    } catch (error: any) {
+      console.error('[EpicerieService] Erreur upload photo:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      throw error.message || 'Erreur lors de l\'upload de la photo';
+    }
+  },
 };
+
+/**
+ * Convertit une chaîne base64 en Blob
+ */
+function base64ToBlob(base64: string, mimeType: string = 'image/jpeg'): Blob {
+  const byteCharacters = atob(base64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: mimeType });
+}

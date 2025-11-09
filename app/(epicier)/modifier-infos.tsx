@@ -13,13 +13,17 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { epicerieService } from '../../src/services/epicerieService';
+import { ProfilePhotoUpload } from '../../components/epicier/ProfilePhotoUpload';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ModifierInfosScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
+  const [selectedPhotoUri, setSelectedPhotoUri] = useState<string | null>(null);
+  const [selectedPhotoBase64, setSelectedPhotoBase64] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     nomEpicerie: '',
     description: '',
@@ -65,6 +69,12 @@ export default function ModifierInfosScreen() {
     }
   };
 
+  const handlePhotoSelected = (uri: string, base64?: string) => {
+    console.log('[ModifierInfos] Photo sélectionnée');
+    setSelectedPhotoUri(uri);
+    setSelectedPhotoBase64(base64 || undefined);
+  };
+
   const handleSave = async () => {
     // Validation
     if (!formData.nomEpicerie.trim()) {
@@ -88,14 +98,32 @@ export default function ModifierInfosScreen() {
 
     try {
       setSaving(true);
-      
+
+      // D'abord, uploader la photo si une nouvelle a été sélectionnée
+      if (selectedPhotoUri) {
+        try {
+          setUploading(true);
+          console.log('[ModifierInfos] Upload de la photo...');
+          await epicerieService.uploadProfilePhoto(selectedPhotoUri, selectedPhotoBase64);
+          setSelectedPhotoUri(null);
+          setSelectedPhotoBase64(null);
+        } catch (uploadError) {
+          Alert.alert('Erreur', `Erreur upload photo: ${uploadError}`);
+          setUploading(false);
+          setSaving(false);
+          return;
+        } finally {
+          setUploading(false);
+        }
+      }
+
+      // Ensuite, mettre à jour les autres informations
       const updateData: any = {
         nomEpicerie: formData.nomEpicerie,
         description: formData.description,
         adresse: formData.adresse,
         telephonePro: formData.telephonePro,
         telephonePersonnel: formData.telephonePersonnel,
-        photoUrl: formData.photoUrl,
         horaires: formData.horaires,
         nomGerant: formData.nomGerant,
         prenomGerant: formData.prenomGerant,
@@ -138,8 +166,15 @@ export default function ModifierInfosScreen() {
     >
       <ScrollView style={styles.scrollView}>
         <View style={styles.form}>
+          {/* Section Photo de Profil */}
+          <ProfilePhotoUpload
+            photoUrl={formData.photoUrl}
+            onPhotoSelected={handlePhotoSelected}
+            uploading={uploading}
+          />
+
           <Text style={styles.sectionTitle}>Informations de l'épicerie</Text>
-          
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
               Nom de l'épicerie <Text style={styles.required}>*</Text>
