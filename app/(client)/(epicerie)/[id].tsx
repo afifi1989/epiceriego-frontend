@@ -44,12 +44,24 @@ export default function EpicerieDetailScreen() {
   const [showUnitSelector, setShowUnitSelector] = useState(false);
   const [selectedProductForCart, setSelectedProductForCart] = useState<Product | null>(null);
 
-  // Charger les données au montage
+  // Charger les données au montage ET quand l'ID de l'épicerie change
   useEffect(() => {
-    loadEpicerieInfo();
-    loadCategories();
-    loadAllProducts();
-  }, []);
+    if (id) {
+      // Réinitialiser la vue et l'état de navigation
+      setSearchMode('categories');
+      setViewMode('categories');
+      setSearchQuery('');
+      setSelectedCategory(null);
+      setSubCategories([]);
+      setSelectedSubCategory(null);
+      setProducts([]);
+
+      // Charger les nouvelles données
+      loadEpicerieInfo();
+      loadCategories();
+      loadAllProducts();
+    }
+  }, [id]);
 
   // Recharger le panier CHAQUE FOIS qu'on revient à cette page
   useFocusEffect(
