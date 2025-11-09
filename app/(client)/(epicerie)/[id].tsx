@@ -230,6 +230,7 @@ export default function EpicerieDetailScreen() {
       const cartItem: CartItem = {
         productId: product.id,
         productNom: product.nom,
+        epicerieId: product.epicerieId,
         quantity: 1,
         pricePerUnit: product.prix,
         totalPrice: product.prix,
@@ -260,6 +261,7 @@ export default function EpicerieDetailScreen() {
       const cartItem: CartItem = {
         productId: selectedProductForCart.id,
         productNom: selectedProductForCart.nom,
+        epicerieId: selectedProductForCart.epicerieId,
         unitId: unitId,
         unitLabel: unit.label,
         quantity: quantity,
