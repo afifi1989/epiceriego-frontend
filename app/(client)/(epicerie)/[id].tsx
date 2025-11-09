@@ -14,7 +14,7 @@ import {
 import { ProductUnitDisplay } from '../../../components/client/ProductUnitDisplay';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { cartService } from '../../../src/services/cartService';
-import { Category, categoryService, SubCategory } from '../../../src/services/categoryService';
+import { Category, categoryService } from '../../../src/services/categoryService';
 import { epicerieService } from '../../../src/services/epicerieService';
 import { productService } from '../../../src/services/productService';
 import { CartItem, Epicerie, Product, ProductUnit } from '../../../src/type';
@@ -98,7 +98,8 @@ export default function EpicerieDetailScreen() {
   const loadCategories = async () => {
     try {
       setLoading(true);
-      const data = await categoryService.getActiveCategories();
+      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+      const data = await categoryService.getActiveCategoriesByEpicerie(epicerieId);
       setCategories(data);
     } catch (error) {
       Alert.alert(t('common.error'), String(error));
@@ -131,7 +132,8 @@ export default function EpicerieDetailScreen() {
     try {
       setLoading(true);
       setSelectedCategory(category);
-      const subCats = await categoryService.getActiveSubCategories(category.id);
+      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+      const subCats = await categoryService.getActiveCategoryChildrenByEpicerie(category.id, epicerieId);
       setSubCategories(subCats);
       setViewMode('subcategories');
     } catch (error) {
