@@ -33,7 +33,6 @@ export default function ModifierInfosScreen() {
     telephonePro: '',
     telephonePersonnel: '',
     photoUrl: '',
-    horaires: '',
     nomGerant: '',
     prenomGerant: '',
     emailGerant: '',
@@ -57,7 +56,6 @@ export default function ModifierInfosScreen() {
         telephonePro: data.telephonePro || data.telephone || '',
         telephonePersonnel: data.telephonePersonnel || '',
         photoUrl: data.photoUrl || '',
-        horaires: data.horaires || '',
         nomGerant: data.nomGerant || '',
         prenomGerant: data.prenomGerant || '',
         emailGerant: data.emailGerant || '',
@@ -124,7 +122,6 @@ export default function ModifierInfosScreen() {
         adresse: formData.adresse,
         telephonePro: formData.telephonePro,
         telephonePersonnel: formData.telephonePersonnel,
-        horaires: formData.horaires,
         nomGerant: formData.nomGerant,
         prenomGerant: formData.prenomGerant,
         emailGerant: formData.emailGerant,
@@ -253,17 +250,6 @@ export default function ModifierInfosScreen() {
               placeholder="+33123456789"
               placeholderTextColor="#999"
               keyboardType="phone-pad"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Horaires d'ouverture</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.horaires}
-              onChangeText={(text) => setFormData({ ...formData, horaires: text })}
-              placeholder="8h-20h"
-              placeholderTextColor="#999"
             />
           </View>
 
