@@ -1,10 +1,10 @@
-import { Tabs, Redirect, useRouter } from 'expo-router';
-import { Text, ActivityIndicator, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { pushNotificationService } from '../../src/services/pushNotificationService';
+import { Redirect, Tabs, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { STORAGE_KEYS } from '../../src/constants/config';
+import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 // Composant interne pour gérer le layout authentifié
 function EpicierTabsContent() {
@@ -92,11 +92,11 @@ function EpicierTabsContent() {
         }}
       />
       <Tabs.Screen
-        name="commandes"
+        name="(commandes)"
         options={{
           title: 'Commandes',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🛍️</Text>,
-          headerTitle: '🛍️ Commandes',
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -147,6 +147,24 @@ function EpicierTabsContent() {
       />
       <Tabs.Screen
         name="modifier-produit"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="horaires"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="zones-livraison"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="details-commande"
         options={{
           href: null,
         }}
