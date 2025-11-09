@@ -352,7 +352,7 @@ export default function EpicerieDetailScreen() {
       <Text style={styles.productEmoji}>📦</Text>
       <View style={styles.productInfo}>
         <Text style={styles.productName}>{item.nom}</Text>
-        <Text style={styles.productCategory}>{item.subCategoryName || item.categorie || t('products.uncategorized')}</Text>
+        <Text style={styles.productCategory}>{item.subCategoryName || item.categoryName || item.categorie || t('products.uncategorized')}</Text>
         <Text style={styles.productPrice}>{formatPrice(item.prix)}</Text>
         <Text style={styles.productStock}>{t('products.stock')}: {item.stock}</Text>
         <Text style={styles.seeMoreText}>👉 {t('products.seeMore')}</Text>
