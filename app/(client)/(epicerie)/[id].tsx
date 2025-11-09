@@ -469,7 +469,7 @@ export default function EpicerieDetailScreen() {
           </>
         )}
       </View>
-        )}
+      )}
 
       {/* Search Results View */}
       {searchMode === 'search' && (

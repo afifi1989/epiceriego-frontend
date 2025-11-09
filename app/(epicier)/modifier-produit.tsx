@@ -16,7 +16,7 @@ import {
   View
 } from 'react-native';
 import { ProductUnitList } from '../../components/epicier/ProductUnitList';
-import { Category, categoryService, SubCategory } from '../../src/services/categoryService';
+import { Category, categoryService } from '../../src/services/categoryService';
 import { productService } from '../../src/services/productService';
 import { Product } from '../../src/type';
 
@@ -27,8 +27,8 @@ export default function ModifierProduitScreen() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'units'>('info');
   const [product, setProduct] = useState<Product | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+  const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
+  const [flatCategories, setFlatCategories] = useState<Category[]>([]);
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
   const [imageChanged, setImageChanged] = useState(false);
@@ -38,7 +38,6 @@ export default function ModifierProduitScreen() {
     prix: '',
     stock: '',
     categoryId: '',
-    subCategoryId: '',
   });
 
   useEffect(() => {
@@ -47,15 +46,6 @@ export default function ModifierProduitScreen() {
       loadProduct();
     }
   }, [id]);
-
-  useEffect(() => {
-    if (formData.categoryId) {
-      loadSubCategories(parseInt(formData.categoryId));
-    } else {
-      setSubCategories([]);
-      setFormData(prev => ({ ...prev, subCategoryId: '' }));
-    }
-  }, [formData.categoryId]);
 
   const loadProduct = async () => {
     try {
@@ -73,7 +63,6 @@ export default function ModifierProduitScreen() {
         prix: productData.prix.toString(),
         stock: productData.stock.toString(),
         categoryId: productData.categoryId?.toString() || '',
-        subCategoryId: productData.subCategoryId?.toString() || '',
       });
     } catch (error) {
       console.error('Erreur chargement produit:', error);
@@ -87,21 +76,16 @@ export default function ModifierProduitScreen() {
 
   const loadCategories = async () => {
     try {
+      // Charger l'arborescence complète
       const data = await categoryService.getActiveCategories();
-      setCategories(data);
+      setCategoriesTree(data);
+      
+      // Aplatir l'arborescence pour le select
+      const flat = categoryService.flattenCategories(data);
+      setFlatCategories(flat);
     } catch (error) {
       console.error('Erreur chargement catégories:', error);
       Alert.alert('Erreur', 'Impossible de charger les catégories');
-    }
-  };
-
-  const loadSubCategories = async (categoryId: number) => {
-    try {
-      const data = await categoryService.getActiveSubCategories(categoryId);
-      setSubCategories(data);
-    } catch (error) {
-      console.error('Erreur chargement sous-catégories:', error);
-      setSubCategories([]);
     }
   };
 
@@ -178,9 +162,6 @@ export default function ModifierProduitScreen() {
       formDataToSend.append('prix', prix.toString());
       formDataToSend.append('stock', stock.toString());
       formDataToSend.append('categoryId', formData.categoryId);
-      if (formData.subCategoryId) {
-        formDataToSend.append('subCategoryId', formData.subCategoryId);
-      }
 
       // Ajouter la nouvelle image si elle a été sélectionnée
       if (selectedImage) {
@@ -314,31 +295,19 @@ export default function ModifierProduitScreen() {
                 itemStyle={styles.pickerItem}
               >
                 <Picker.Item label="-- Sélectionnez une catégorie --" value="" />
-                {categories.map((cat) => (
-                  <Picker.Item key={cat.id} label={cat.name} value={cat.id.toString()} />
+                {flatCategories.map((cat) => (
+                  <Picker.Item 
+                    key={cat.id} 
+                    label={categoryService.getLabelWithIndentation(cat)} 
+                    value={cat.id.toString()} 
+                  />
                 ))}
               </Picker>
             </View>
+            <Text style={styles.hint}>
+              💡 Les catégories sont organisées de manière hiérarchique
+            </Text>
           </View>
-
-          {formData.categoryId && subCategories.length > 0 && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Sous-catégorie</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.subCategoryId}
-                  onValueChange={(value) => setFormData({ ...formData, subCategoryId: value })}
-                  style={styles.picker}
-                  itemStyle={styles.pickerItem}
-                >
-                  <Picker.Item label="-- Sélectionnez une sous-catégorie --" value="" />
-                  {subCategories.map((subCat) => (
-                    <Picker.Item key={subCat.id} label={subCat.name} value={subCat.id.toString()} />
-                  ))}
-                </Picker>
-              </View>
-            </View>
-          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Photo du produit</Text>

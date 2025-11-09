@@ -15,15 +15,15 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { Category, categoryService, SubCategory } from '../../src/services/categoryService';
+import { Category, categoryService } from '../../src/services/categoryService';
 import { productService } from '../../src/services/productService';
 
 export default function AjouterProduitScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
+  const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
+  const [flatCategories, setFlatCategories] = useState<Category[]>([]);
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [formData, setFormData] = useState({
     nom: '',
@@ -31,41 +31,26 @@ export default function AjouterProduitScreen() {
     prix: '',
     stock: '',
     categoryId: '',
-    subCategoryId: '',
   });
 
   useEffect(() => {
     loadCategories();
   }, []);
 
-  useEffect(() => {
-    if (formData.categoryId) {
-      loadSubCategories(parseInt(formData.categoryId));
-    } else {
-      setSubCategories([]);
-      setFormData(prev => ({ ...prev, subCategoryId: '' }));
-    }
-  }, [formData.categoryId]);
-
   const loadCategories = async () => {
     try {
+      // Charger l'arborescence complète
       const data = await categoryService.getActiveCategories();
-      setCategories(data);
+      setCategoriesTree(data);
+      
+      // Aplatir l'arborescence pour le select
+      const flat = categoryService.flattenCategories(data);
+      setFlatCategories(flat);
     } catch (error) {
       console.error('Erreur chargement catégories:', error);
       Alert.alert('Erreur', 'Impossible de charger les catégories');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadSubCategories = async (categoryId: number) => {
-    try {
-      const data = await categoryService.getActiveSubCategories(categoryId);
-      setSubCategories(data);
-    } catch (error) {
-      console.error('Erreur chargement sous-catégories:', error);
-      setSubCategories([]);
     }
   };
 
@@ -141,9 +126,6 @@ export default function AjouterProduitScreen() {
         formDataToSend.append('prix', prix.toString());
         formDataToSend.append('stock', stock.toString());
         formDataToSend.append('categoryId', formData.categoryId);
-        if (formData.subCategoryId) {
-          formDataToSend.append('subCategoryId', formData.subCategoryId);
-        }
 
         // Ajouter l'image
         const imageUri = selectedImage.uri;
@@ -209,10 +191,6 @@ export default function AjouterProduitScreen() {
           stock: stock,
           categoryId: parseInt(formData.categoryId),
         };
-
-        if (formData.subCategoryId) {
-          productData.subCategoryId = parseInt(formData.subCategoryId);
-        }
 
         const response: any = await productService.addProduct(productData);
 
@@ -339,31 +317,19 @@ export default function AjouterProduitScreen() {
                 itemStyle={styles.pickerItem}
               >
                 <Picker.Item label="-- Sélectionnez une catégorie --" value="" />
-                {categories.map((cat) => (
-                  <Picker.Item key={cat.id} label={cat.name} value={cat.id.toString()} />
+                {flatCategories.map((cat) => (
+                  <Picker.Item 
+                    key={cat.id} 
+                    label={categoryService.getLabelWithIndentation(cat)} 
+                    value={cat.id.toString()} 
+                  />
                 ))}
               </Picker>
             </View>
+            <Text style={styles.hint}>
+              💡 Les catégories sont organisées de manière hiérarchique
+            </Text>
           </View>
-
-          {formData.categoryId && subCategories.length > 0 && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Sous-catégorie</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.subCategoryId}
-                  onValueChange={(value) => setFormData({ ...formData, subCategoryId: value })}
-                  style={styles.picker}
-                  itemStyle={styles.pickerItem}
-                >
-                  <Picker.Item label="-- Sélectionnez une sous-catégorie --" value="" />
-                  {subCategories.map((subCat) => (
-                    <Picker.Item key={subCat.id} label={subCat.name} value={subCat.id.toString()} />
-                  ))}
-                </Picker>
-              </View>
-            </View>
-          )}
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Photo du produit</Text>

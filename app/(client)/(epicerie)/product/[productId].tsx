@@ -1,13 +1,12 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
 } from 'react-native';
 import { ProductUnitDisplay } from '../../../../components/client/ProductUnitDisplay';
 import { useLanguage } from '../../../../src/context/LanguageContext';
@@ -162,11 +161,6 @@ export default function ProductDetailScreen() {
               {product.categoryName && (
                 <View style={styles.categoryBadge}>
                   <Text style={styles.categoryText}>{product.categoryName}</Text>
-                </View>
-              )}
-              {product.subCategoryName && (
-                <View style={styles.subCategoryBadge}>
-                  <Text style={styles.subCategoryText}>{product.subCategoryName}</Text>
                 </View>
               )}
             </View>
