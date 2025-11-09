@@ -54,7 +54,15 @@ export const ShopHoursManager: React.FC<ShopHoursManagerProps> = ({
   initialHours,
   onSave,
 }) => {
-  const [hours, setHours] = useState<ShopHours>(initialHours || DEFAULT_HOURS);
+  // Use initialHours if provided and not empty, otherwise use DEFAULT_HOURS
+  const getInitialHours = (): ShopHours => {
+    if (initialHours && Object.keys(initialHours).length > 0) {
+      return initialHours;
+    }
+    return DEFAULT_HOURS;
+  };
+
+  const [hours, setHours] = useState<ShopHours>(getInitialHours());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [tempOpenTime, setTempOpenTime] = useState('');

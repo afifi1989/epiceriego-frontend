@@ -67,7 +67,15 @@ export const DeliveryZoneManager: React.FC<DeliveryZoneManagerProps> = ({
   latitude,
   longitude,
 }) => {
-  const [zones, setZones] = useState<DeliveryZone[]>(initialZones || DEFAULT_ZONES);
+  // Use initialZones if provided and not empty, otherwise use DEFAULT_ZONES
+  const getInitialZones = (): DeliveryZone[] => {
+    if (initialZones && Array.isArray(initialZones) && initialZones.length > 0) {
+      return initialZones;
+    }
+    return DEFAULT_ZONES;
+  };
+
+  const [zones, setZones] = useState<DeliveryZone[]>(getInitialZones());
   const [modalVisible, setModalVisible] = useState(false);
   const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null);
   const [tempFormData, setTempFormData] = useState({
