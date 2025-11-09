@@ -85,6 +85,12 @@ export interface ProductUnitRequest {
   displayOrder?: number;
 }
 
+export interface CategoryPathItem {
+  id: number;
+  name: string;
+  level: number;
+}
+
 export interface Product {
   id: number;
   nom: string;
@@ -92,15 +98,16 @@ export interface Product {
   prix: number;              // Legacy - ignore si units
   stock: number;             // Legacy - ignore si units
   photoUrl?: string;
-  categorie?: string; // Deprecated: use categoryId and subCategoryId
+  categorie?: string; // Deprecated: use categoryId
   categoryId?: number;
   categoryName?: string;
-  subCategoryId?: number;
-  subCategoryName?: string;
+  parentCategoryId?: number | null;
+  categoryLevel?: number;
+  categoryPath?: CategoryPathItem[];  // Full category path with hierarchy
   isAvailable: boolean;
   epicerieId: number;
   epicerieNom: string;
-  
+
   // NEW - Product Units
   units?: ProductUnit[];      // Array of available units
   totalStock?: number;        // Total across all units
