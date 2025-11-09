@@ -33,19 +33,24 @@ export default function ShopHoursScreen() {
       const epicerieData = await epicerieService.getMyEpicerie();
 
       // Parse horaires if they exist
-      if (epicerieData.horaires) {
+      if (epicerieData.horaires && epicerieData.horaires.trim()) {
         try {
           const parsedHours = JSON.parse(epicerieData.horaires);
           setHours(parsedHours);
+          console.log('[HoairesScreen] Horaires chargés:', parsedHours);
         } catch (parseError) {
-          // Si le format n'est pas JSON, utiliser les defaults
-          console.warn('Format horaires non valide, utiliser les defaults');
+          // Si le format n'est pas JSON, utiliser les defaults du composant
+          console.warn('[HoairesScreen] Format horaires non valide, utiliser les defaults');
           setHours({});
         }
+      } else {
+        // Pas de horaires en BD, utiliser defaults du composant
+        console.log('[HoairesScreen] Aucun horaire en BD, utiliser defaults');
+        setHours({});
       }
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de charger les données');
-      console.error('Erreur chargement horaires:', error);
+      console.error('[HoairesScreen] Erreur chargement:', error);
     } finally {
       setLoading(false);
     }

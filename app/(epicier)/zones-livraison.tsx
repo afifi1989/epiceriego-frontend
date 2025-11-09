@@ -37,19 +37,24 @@ export default function DeliveryZonesScreen() {
       setLongitude(epicerieData.longitude);
 
       // Parse zones de livraison if they exist
-      if (epicerieData.deliveryZones) {
+      if (epicerieData.deliveryZones && epicerieData.deliveryZones.trim()) {
         try {
           const parsedZones = JSON.parse(epicerieData.deliveryZones);
           setZones(parsedZones);
+          console.log('[DeliveryZonesScreen] Zones chargées:', parsedZones);
         } catch (parseError) {
-          // Si le format n'est pas JSON, utiliser les defaults
-          console.warn('Format zones non valide, utiliser les defaults');
+          // Si le format n'est pas JSON, utiliser les defaults du composant
+          console.warn('[DeliveryZonesScreen] Format zones non valide, utiliser les defaults');
           setZones([]);
         }
+      } else {
+        // Pas de zones en BD, utiliser defaults du composant
+        console.log('[DeliveryZonesScreen] Aucune zone en BD, utiliser defaults');
+        setZones([]);
       }
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de charger les données');
-      console.error('Erreur chargement zones:', error);
+      console.error('[DeliveryZonesScreen] Erreur chargement:', error);
     } finally {
       setLoading(false);
     }
