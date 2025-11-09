@@ -250,13 +250,22 @@ export default function EpicierProfilScreen() {
           <Text style={styles.actionText}>Modifier le profil</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
-        
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(epicier)/horaires')}
+        >
+          <Text style={styles.actionIcon}>⏰</Text>
+          <Text style={styles.actionText}>Horaires d'ouverture</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionButton}>
           <Text style={styles.actionIcon}>🔔</Text>
           <Text style={styles.actionText}>Notifications</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity style={styles.actionButton}>
           <Text style={styles.actionIcon}>❓</Text>
           <Text style={styles.actionText}>Aide & Support</Text>
