@@ -12,6 +12,8 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
+import { MaterialIcons } from '@expo/vector-icons';
 import { epicerieService } from '../../src/services/epicerieService';
 import { ProfilePhotoUpload } from '../../components/epicier/ProfilePhotoUpload';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,7 +23,9 @@ export default function ModifierInfosScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string>('');
   const [selectedPhotoUri, setSelectedPhotoUri] = useState<string | null>(null);
   const [selectedPhotoBase64, setSelectedPhotoBase64] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -32,7 +36,6 @@ export default function ModifierInfosScreen() {
     longitude: '',
     telephonePro: '',
     telephonePersonnel: '',
-    photoUrl: '',
     nomGerant: '',
     prenomGerant: '',
     emailGerant: '',
@@ -47,6 +50,7 @@ export default function ModifierInfosScreen() {
       const data = await epicerieService.getMyEpicerie();
       
       setEpicerieId(data.id);
+      setPhotoUrl(data.photoUrl || '');
       setFormData({
         nomEpicerie: data.nomEpicerie || '',
         description: data.description || '',
@@ -55,7 +59,6 @@ export default function ModifierInfosScreen() {
         longitude: data.longitude?.toString() || '',
         telephonePro: data.telephonePro || data.telephone || '',
         telephonePersonnel: data.telephonePersonnel || '',
-        photoUrl: data.photoUrl || '',
         nomGerant: data.nomGerant || '',
         prenomGerant: data.prenomGerant || '',
         emailGerant: data.emailGerant || '',
@@ -73,6 +76,53 @@ export default function ModifierInfosScreen() {
     setSelectedPhotoBase64(base64 || undefined);
   };
 
+  const detectLocation = async () => {
+    try {
+      setLocating(true);
+
+      // Demander les permissions
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission refusée',
+          'Vous devez autoriser l\'accès à la localisation pour détecter automatiquement votre position.'
+        );
+        setLocating(false);
+        return;
+      }
+
+      // Obtenir la localisation actuelle
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const { latitude, longitude } = location.coords;
+
+      // Mettre à jour le formulaire
+      setFormData(prev => ({
+        ...prev,
+        latitude: latitude.toFixed(8),
+        longitude: longitude.toFixed(8),
+      }));
+
+      Alert.alert(
+        '✅ Localisation détectée',
+        `Latitude: ${latitude.toFixed(8)}\nLongitude: ${longitude.toFixed(8)}`
+      );
+
+      console.log('[ModifierInfos] Localisation détectée:', { latitude, longitude });
+    } catch (error) {
+      console.error('[ModifierInfos] Erreur géolocalisation:', error);
+      Alert.alert(
+        'Erreur',
+        'Impossible de détecter votre position. Vérifiez que GPS est activé et que l\'app a les permissions.'
+      );
+    } finally {
+      setLocating(false);
+    }
+  };
+
   const handleSave = async () => {
     // Validation
     if (!formData.nomEpicerie.trim()) {
@@ -84,12 +134,20 @@ export default function ModifierInfosScreen() {
       return;
     }
 
-    // Validation latitude/longitude si fournies
-    if (formData.latitude && isNaN(Number(formData.latitude))) {
+    // Validation latitude/longitude - OBLIGATOIRES
+    if (!formData.latitude.trim()) {
+      Alert.alert('Erreur', 'La latitude est requise. Utilisez le bouton "Détecter ma position" pour la géolocaliser automatiquement.');
+      return;
+    }
+    if (!formData.longitude.trim()) {
+      Alert.alert('Erreur', 'La longitude est requise. Utilisez le bouton "Détecter ma position" pour la géolocaliser automatiquement.');
+      return;
+    }
+    if (isNaN(Number(formData.latitude))) {
       Alert.alert('Erreur', 'La latitude doit être un nombre valide');
       return;
     }
-    if (formData.longitude && isNaN(Number(formData.longitude))) {
+    if (isNaN(Number(formData.longitude))) {
       Alert.alert('Erreur', 'La longitude doit être un nombre valide');
       return;
     }
@@ -165,7 +223,7 @@ export default function ModifierInfosScreen() {
         <View style={styles.form}>
           {/* Section Photo de Profil */}
           <ProfilePhotoUpload
-            photoUrl={formData.photoUrl}
+            photoUrl={photoUrl}
             onPhotoSelected={handlePhotoSelected}
             uploading={uploading}
           />
@@ -215,30 +273,63 @@ export default function ModifierInfosScreen() {
             />
           </View>
 
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Latitude</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.latitude}
-                onChangeText={(text) => setFormData({ ...formData, latitude: text })}
-                placeholder="48.8566"
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-              />
+          <View style={styles.inputGroup}>
+            <View style={styles.locationHeader}>
+              <Text style={styles.label}>
+                Localisation <Text style={styles.required}>*</Text>
+              </Text>
+              <TouchableOpacity
+                style={[styles.detectButton, locating && styles.detectButtonLoading]}
+                onPress={detectLocation}
+                disabled={locating || saving}
+              >
+                {locating ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <MaterialIcons name="location-on" size={18} color="#fff" />
+                    <Text style={styles.detectButtonText}>Détecter</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
 
-            <View style={[styles.inputGroup, styles.halfWidth]}>
-              <Text style={styles.label}>Longitude</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.longitude}
-                onChangeText={(text) => setFormData({ ...formData, longitude: text })}
-                placeholder="2.3522"
-                placeholderTextColor="#999"
-                keyboardType="numeric"
-              />
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Latitude</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.latitude}
+                  onChangeText={(text) => setFormData({ ...formData, latitude: text })}
+                  placeholder="48.8566"
+                  placeholderTextColor="#999"
+                  keyboardType="decimal-pad"
+                  editable={!locating}
+                />
+              </View>
+
+              <View style={[styles.inputGroup, styles.halfWidth]}>
+                <Text style={styles.label}>Longitude</Text>
+                <TextInput
+                  style={styles.input}
+                  value={formData.longitude}
+                  onChangeText={(text) => setFormData({ ...formData, longitude: text })}
+                  placeholder="2.3522"
+                  placeholderTextColor="#999"
+                  keyboardType="decimal-pad"
+                  editable={!locating}
+                />
+              </View>
             </View>
+
+            {formData.latitude && formData.longitude && (
+              <View style={styles.locationSuccess}>
+                <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
+                <Text style={styles.locationSuccessText}>
+                  Coordonnées détectées avec succès
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.inputGroup}>
@@ -253,23 +344,6 @@ export default function ModifierInfosScreen() {
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Photo (URL)</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.photoUrl}
-              onChangeText={(text) => setFormData({ ...formData, photoUrl: text })}
-              placeholder="https://example.com/photo.jpg"
-              placeholderTextColor="#999"
-              keyboardType="url"
-              autoCapitalize="none"
-            />
-            {formData.photoUrl && (
-              <Text style={styles.hint}>
-                💡 L'image sera affichée aux clients
-              </Text>
-            )}
-          </View>
 
           <Text style={[styles.sectionTitle, styles.sectionTitleMargin]}>
             Informations du gérant
@@ -402,6 +476,51 @@ const styles = StyleSheet.create({
   required: {
     color: '#f44336',
     fontWeight: 'bold',
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  detectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  detectButtonLoading: {
+    backgroundColor: '#90CAF9',
+  },
+  detectButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  locationSuccess: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#E8F5E9',
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  locationSuccessText: {
+    color: '#2E7D32',
+    fontWeight: '500',
+    fontSize: 13,
   },
   input: {
     backgroundColor: '#fff',
