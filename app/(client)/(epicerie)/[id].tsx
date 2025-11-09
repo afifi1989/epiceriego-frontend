@@ -35,8 +35,8 @@ export default function EpicerieDetailScreen() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [subCategories, setSubCategories] = useState<SubCategory[]>([]);
-  const [selectedSubCategory, setSelectedSubCategory] = useState<SubCategory | null>(null);
+  const [subCategories, setSubCategories] = useState<Category[]>([]);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<Category | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,7 +70,7 @@ export default function EpicerieDetailScreen() {
     try {
       setLoading(true);
       const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
-      const data = await categoryService.getActiveCategoriesByEpicerie(epicerieId);
+      const data = await categoryService.getCategoriesByEpicerie(epicerieId);
       setCategories(data);
     } catch (error) {
       Alert.alert(t('common.error'), String(error));
@@ -145,10 +145,19 @@ export default function EpicerieDetailScreen() {
     try {
       setLoading(true);
       setSelectedCategory(category);
-      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
-      const subCats = await categoryService.getActiveCategoryChildrenByEpicerie(category.id, epicerieId);
-      setSubCategories(subCats);
-      setViewMode('subcategories');
+      
+      // Si la catégorie a des enfants, les afficher
+      if (category.children && category.children.length > 0) {
+        setSubCategories(category.children);
+        setViewMode('subcategories');
+      } else {
+        // Sinon, charger directement les produits de cette catégorie
+        const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+        const allProductsData = await productService.getProductsByEpicerie(epicerieId);
+        const filteredProducts = allProductsData.filter(p => p.categoryId === category.id);
+        setProducts(filteredProducts);
+        setViewMode('products');
+      }
     } catch (error) {
       Alert.alert(t('common.error'), String(error));
     } finally {
@@ -156,17 +165,31 @@ export default function EpicerieDetailScreen() {
     }
   };
 
-  const handleSubCategoryClick = async (subCategory: SubCategory) => {
+  const handleSubCategoryClick = async (subCategory: Category) => {
     try {
       setLoading(true);
       setSelectedSubCategory(subCategory);
-      // Charger les produits par épicerie et sous-catégorie
+      
+      // Charger les produits de cette catégorie (et de ses enfants si elle en a)
       const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
-      const allProducts = await productService.getProductsByEpicerie(epicerieId);
-      // Filtrer par sous-catégorie en utilisant subCategoryName
-      const filteredProducts = allProducts.filter(
-        (p) => p.subCategoryName === subCategory.name
+      const allProductsData = await productService.getProductsByEpicerie(epicerieId);
+      
+      // Récupérer tous les IDs de catégorie cible (incluant les enfants)
+      const getCategoryIdsRecursive = (cat: Category): number[] => {
+        let ids = [cat.id];
+        if (cat.children) {
+          cat.children.forEach(child => {
+            ids = ids.concat(getCategoryIdsRecursive(child));
+          });
+        }
+        return ids;
+      };
+      
+      const categoryIds = getCategoryIdsRecursive(subCategory);
+      const filteredProducts = allProductsData.filter(p => 
+        categoryIds.includes(p.categoryId!)
       );
+      
       setProducts(filteredProducts);
       setViewMode('products');
     } catch (error) {
@@ -207,7 +230,6 @@ export default function EpicerieDetailScreen() {
       const cartItem: CartItem = {
         productId: product.id,
         productNom: product.nom,
-        epicerieId: product.epicerieId,
         quantity: 1,
         pricePerUnit: product.prix,
         totalPrice: product.prix,
@@ -238,7 +260,6 @@ export default function EpicerieDetailScreen() {
       const cartItem: CartItem = {
         productId: selectedProductForCart.id,
         productNom: selectedProductForCart.nom,
-        epicerieId: selectedProductForCart.epicerieId,
         unitId: unitId,
         unitLabel: unit.label,
         quantity: quantity,
@@ -302,7 +323,7 @@ export default function EpicerieDetailScreen() {
     </TouchableOpacity>
   );
 
-  const renderSubCategoryCard = ({ item }: { item: SubCategory }) => (
+  const renderSubCategoryCard = ({ item }: { item: Category }) => (
     <TouchableOpacity
       style={styles.subCategoryCard}
       onPress={() => handleSubCategoryClick(item)}
