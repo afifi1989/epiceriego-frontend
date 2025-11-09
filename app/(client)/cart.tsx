@@ -181,8 +181,18 @@ export default function CartScreen() {
       }
 
       const epicerieIdFromCart = cart[0].epicerieId;
+      console.log('[CartScreen] epicerieId from cart[0]:', epicerieIdFromCart);
+      console.log('[CartScreen] cart[0]:', JSON.stringify(cart[0], null, 2));
+
       if (!epicerieIdFromCart) {
-        Alert.alert(t('common.error'), 'Informations d\'épicerie manquantes');
+        // Clear invalid cart items
+        await cartService.clearCart();
+        setCart([]);
+
+        Alert.alert(
+          t('common.error'),
+          'Les articles de votre panier sont obsolètes. Veuillez ajouter les produits à nouveau.'
+        );
         return;
       }
 

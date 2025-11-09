@@ -17,9 +17,24 @@ export const cartService = {
       console.log('[CartService.getCart] Contenu brut:', cartJson);
 
       if (cartJson) {
-        const parsed = JSON.parse(cartJson);
+        let parsed = JSON.parse(cartJson);
         console.log('[CartService.getCart] Panier parsé:', parsed.length, 'articles');
-        return parsed;
+
+        // Migration: Fix items that don't have epicerieId (from before the fix)
+        const migratedCart = parsed.map((item: any) => {
+          if (!item.epicerieId) {
+            console.warn('[CartService] ⚠️ Item sans epicerieId détecté:', item.productNom);
+            // Si epicerieId manque, on ne peut pas corriger sans le backend
+            // Donc on le marque comme invalide
+            return {
+              ...item,
+              epicerieId: 0, // Invalide - sera rejeté à la checkout
+            };
+          }
+          return item;
+        });
+
+        return migratedCart;
       }
       console.log('[CartService.getCart] Panier vide');
       return [];
