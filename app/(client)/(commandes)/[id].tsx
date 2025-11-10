@@ -163,7 +163,13 @@ export default function OrderDetailsScreen() {
           <View key={item.id} style={styles.orderItem}>
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.productNom}</Text>
+              {item.unitLabel && (
+                <Text style={styles.itemUnit}>{item.unitLabel}</Text>
+              )}
               <Text style={styles.itemQuantity}>{t('cart.quantity')}: {item.quantite}</Text>
+              {item.prixUnitaire && (
+                <Text style={styles.itemUnitPrice}>{t('orders.unitPrice')}: {formatPrice(item.prixUnitaire)}</Text>
+              )}
             </View>
             <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
           </View>
@@ -338,9 +344,22 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
   },
+  itemUnit: {
+    fontSize: 13,
+    color: '#9C27B0',
+    fontWeight: '600',
+    marginBottom: 2,
+    fontStyle: 'italic',
+  },
   itemQuantity: {
     fontSize: 12,
     color: '#666',
+    marginBottom: 2,
+  },
+  itemUnitPrice: {
+    fontSize: 12,
+    color: '#FF9800',
+    marginTop: 2,
   },
   itemPrice: {
     fontSize: 14,
