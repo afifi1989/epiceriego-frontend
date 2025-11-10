@@ -86,7 +86,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
         <View style={styles.legacyContainer}>
           <View style={styles.priceSection}>
             <Text style={styles.priceLabel}>Prix</Text>
-            <Text style={styles.legacyPrice}>€{product.prix.toFixed(2)}</Text>
+            <Text style={styles.legacyPrice}>{product.prix.toFixed(2)} DH</Text>
           </View>
 
           <View style={styles.stockSection}>
@@ -179,7 +179,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
 
               {/* Prix */}
               <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled]}>
-                €{unit.prix.toFixed(2)}
+                {unit.prix.toFixed(2)} DH
               </Text>
 
               {/* Badge stock */}
@@ -213,7 +213,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Prix unitaire:</Text>
-            <Text style={styles.detailValue}>€{selectedUnit.prix.toFixed(2)}</Text>
+            <Text style={styles.detailValue}>{selectedUnit.prix.toFixed(2)} DH</Text>
           </View>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Stock disponible:</Text>
@@ -257,7 +257,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
           {/* Affichage du prix total */}
           <View style={styles.totalPriceBox}>
             <Text style={styles.totalPriceLabel}>Total</Text>
-            <Text style={styles.totalPrice}>€{getTotalPrice().toFixed(2)}</Text>
+            <Text style={styles.totalPrice}>{getTotalPrice().toFixed(2)} DH</Text>
           </View>
         </View>
       </View>
