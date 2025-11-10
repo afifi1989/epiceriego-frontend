@@ -56,12 +56,44 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
 
   // Ajouter au panier
   const handleAddToCart = () => {
+    const qty = parseFloat(quantity) || 1;
+
+    // Pour les produits sans unités (legacy), créer une unité par défaut
+    if (!selectedUnit && (!product.units || product.units.length === 0)) {
+      // Legacy product - create default unit
+      const defaultUnit: ProductUnit = {
+        id: 0, // No specific unit ID for legacy products
+        unitType: 'PIECE',
+        quantity: 1,
+        label: 'À l\'unité',
+        prix: product.prix,
+        stock: product.stock,
+        isAvailable: product.isAvailable,
+        displayOrder: 0,
+        formattedQuantity: '1 pcs',
+        formattedPrice: `${product.prix.toFixed(2)} DH`,
+        baseUnit: 'pcs',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const totalPrice = product.prix * qty;
+      console.log('[ProductUnitDisplay] Ajout produit legacy au panier:', {
+        quantity: qty,
+        totalPrice,
+        pricePerUnit: product.prix,
+        label: defaultUnit.label
+      });
+      onAddToCart(0, qty, totalPrice, defaultUnit);
+      return;
+    }
+
+    // Pour les produits avec unités
     if (!selectedUnit) {
       Alert.alert('Erreur', 'Veuillez sélectionner un format');
       return;
     }
 
-    const qty = parseFloat(quantity) || 1;
     if (!canOrderNow()) {
       Alert.alert('Stock insuffisant', 'La quantité demandée dépasse le stock disponible');
       return;

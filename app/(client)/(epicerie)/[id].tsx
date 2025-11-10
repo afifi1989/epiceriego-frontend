@@ -232,6 +232,8 @@ export default function EpicerieDetailScreen() {
         productNom: product.nom,
         epicerieId: product.epicerieId,
         quantity: 1,
+        unitId: undefined, // Legacy product (no specific unit)
+        unitLabel: t('products.piece') || 'À l\'unité', // Default label for legacy products
         pricePerUnit: product.prix,
         totalPrice: product.prix,
         photoUrl: product.photoUrl,
