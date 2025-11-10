@@ -1,20 +1,20 @@
-import React, { useState, useCallback } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
+  ActivityIndicator,
+  Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
+  Text,
   TextInput,
-  Modal,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { settingsService } from '../../src/services/settingsService';
-import { authService } from '../../src/services/authService';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { authService } from '../../src/services/authService';
+import { settingsService } from '../../src/services/settingsService';
 import type {
   NotificationSettings,
   UserPreferences,
@@ -35,8 +35,8 @@ const TIMEZONE_OPTIONS = [
 ];
 
 const CURRENCY_OPTIONS = [
-  { label: 'EUR (€)', value: 'EUR' },
-  { label: 'MAD (د.م.)', value: 'MAD' },
+  { label: 'EUR (DH)', value: 'EUR' },
+  { label: 'MAD (DH)', value: 'MAD' },
 ];
 
 export default function SettingsScreen() {
@@ -327,20 +327,6 @@ export default function SettingsScreen() {
             <Text style={styles.settingText}>{t('settings.language')}</Text>
             <Text style={styles.settingDescription}>
               {LANGUAGE_OPTIONS.find((l) => l.value === language)?.label}
-            </Text>
-          </View>
-          <Text style={styles.arrow}>›</Text>
-        </TouchableOpacity>
-
-        {/* Devise */}
-        <TouchableOpacity
-          style={styles.settingItem}
-          onPress={() => setShowCurrencyModal(true)}
-        >
-          <View style={styles.settingLabel}>
-            <Text style={styles.settingText}>{t('settings.currency')}</Text>
-            <Text style={styles.settingDescription}>
-              {CURRENCY_OPTIONS.find((c) => c.value === preferences.currency)?.label}
             </Text>
           </View>
           <Text style={styles.arrow}>›</Text>

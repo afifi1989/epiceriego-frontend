@@ -93,7 +93,7 @@ export const ProductUnitList: React.FC<ProductUnitListProps> = ({
         <View style={styles.unitBody}>
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Prix:</Text>
-            <Text style={styles.priceValue}>€{item.prix.toFixed(2)}</Text>
+            <Text style={styles.priceValue}>{item.prix.toFixed(2)} DH</Text>
           </View>
 
           <View style={styles.stockRow}>

@@ -86,7 +86,7 @@ export const UnitSelector: React.FC<UnitSelectorProps> = ({
             <View style={styles.legacyCard}>
               <View style={styles.priceRow}>
                 <Text style={styles.priceLabel}>Prix:</Text>
-                <Text style={styles.priceValue}>€{product.prix.toFixed(2)}</Text>
+                <Text style={styles.priceValue}>{product.prix.toFixed(2)} DH</Text>
               </View>
 
               <View style={styles.stockRow}>
@@ -112,7 +112,7 @@ export const UnitSelector: React.FC<UnitSelectorProps> = ({
               <View style={styles.totalContainer}>
                 <Text style={styles.totalLabel}>Total:</Text>
                 <Text style={styles.totalValue}>
-                  €{(product.prix * quantity).toFixed(2)}
+                  {(product.prix * quantity).toFixed(2)} DH
                 </Text>
               </View>
             </View>
@@ -202,7 +202,7 @@ export const UnitSelector: React.FC<UnitSelectorProps> = ({
                       styles.unitPrice,
                       unit.stock <= 0 && styles.unitPriceDisabled
                     ]}>
-                      €{unit.prix.toFixed(2)}
+                      {unit.prix.toFixed(2)} DH
                     </Text>
                     <View style={[
                       styles.stockBadge,
@@ -261,7 +261,7 @@ export const UnitSelector: React.FC<UnitSelectorProps> = ({
               <View style={styles.totalContainer}>
                 <Text style={styles.totalLabel}>Prix total:</Text>
                 <Text style={styles.totalValue}>
-                  €{calculatePrice().toFixed(2)}
+                  {calculatePrice().toFixed(2)} DH
                 </Text>
               </View>
 

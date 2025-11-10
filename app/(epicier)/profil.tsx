@@ -162,7 +162,7 @@ export default function EpicierProfilScreen() {
         >
           <Text style={styles.statIcon}>💰</Text>
           <Text style={styles.statLabel}>Chiffre du jour</Text>
-          <Text style={styles.statValue}>€{stats.todayRevenue.toFixed(2)}</Text>
+          <Text style={styles.statValue}>{stats.todayRevenue.toFixed(2)} DH</Text>
         </TouchableOpacity>
       </View>
 

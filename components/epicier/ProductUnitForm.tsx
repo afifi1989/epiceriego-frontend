@@ -119,7 +119,7 @@ export const ProductUnitForm: React.FC<ProductUnitFormProps> = ({
       />
 
       {/* Prix */}
-      <Text style={styles.label}>Prix (€) *</Text>
+      <Text style={styles.label}>Prix (DH) *</Text>
       <TextInput
         style={styles.input}
         value={formData.prix.toString()}

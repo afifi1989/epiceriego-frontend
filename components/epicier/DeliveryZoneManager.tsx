@@ -203,7 +203,7 @@ export const DeliveryZoneManager: React.FC<DeliveryZoneManagerProps> = ({
         <View style={styles.zoneInfo}>
           <Text style={styles.zoneName}>{item.name}</Text>
           <Text style={styles.zoneDetails}>
-            Rayon: {item.maxDistance}km • Frais: €{item.deliveryFee.toFixed(2)}
+            Rayon: {item.maxDistance}km • Frais: {item.deliveryFee.toFixed(2)} DH
           </Text>
           <Text style={styles.zoneTime}>⏱️ {item.estimatedTime}</Text>
         </View>
@@ -328,7 +328,7 @@ export const DeliveryZoneManager: React.FC<DeliveryZoneManagerProps> = ({
                 </View>
 
                 <View style={[styles.formField, styles.formFieldHalf]}>
-                  <Text style={styles.formLabel}>Frais (€)</Text>
+                  <Text style={styles.formLabel}>Frais (DH)</Text>
                   <TextInput
                     style={styles.formInput}
                     value={tempFormData.deliveryFee}

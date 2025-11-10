@@ -280,7 +280,7 @@ export default function AjouterProduitScreen() {
           <View style={styles.row}>
             <View style={[styles.inputGroup, styles.halfWidth]}>
               <Text style={styles.label}>
-                Prix (€) <Text style={styles.required}>*</Text>
+                Prix (DH) <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={styles.input}

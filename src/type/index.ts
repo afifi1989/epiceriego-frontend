@@ -69,7 +69,7 @@ export interface ProductUnit {
   isAvailable: boolean;
   displayOrder: number;
   formattedQuantity: string;  // "500g", "1 pcs", "1.0 L"
-  formattedPrice: string;     // "€1.20 / 500g"
+  formattedPrice: string;     // "1.20 DH / 500g"
   baseUnit: string;           // "kg", "pcs", "L"
   createdAt: string;
   updatedAt: string;
