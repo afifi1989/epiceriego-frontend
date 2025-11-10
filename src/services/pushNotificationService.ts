@@ -392,51 +392,6 @@ export const pushNotificationService = {
   },
 
   /**
-   * Envoie le token au serveur
-   * Appelle l'endpoint /api/notifications/register-device
-   */
-  sendTokenToServer: async (token: string): Promise<boolean> => {
-    try {
-      console.log('[PushNotificationService] ========== ENVOI TOKEN AU SERVEUR ==========');
-      console.log('[PushNotificationService] Token push:', token.substring(0, 40) + '...');
-
-      // Vérifier le JWT token avant d'envoyer
-      const jwtToken = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
-      console.log('[PushNotificationService] JWT Token présent?:', !!jwtToken);
-      if (!jwtToken) {
-        console.error('[PushNotificationService] ⚠️ AUCUN JWT TOKEN EN AsyncStorage');
-        return false;
-      }
-
-      console.log('[PushNotificationService] JWT Token: OK');
-
-      const payload = {
-        expoPushToken: token,
-        deviceType: Device.osVersion || 'Unknown',
-        platform: Device.modelName || 'Unknown'
-      };
-
-      console.log('[PushNotificationService] Payload:', JSON.stringify(payload, null, 2));
-
-      const endpoint = '/notifications/register-device';
-      console.log(`[PushNotificationService] 📡 Appel de l'endpoint: ${endpoint}`);
-      
-      const response = await api.post(endpoint, payload);
-      console.log('[PushNotificationService] ✅ Succès! Status:', response.status);
-      console.log('[PushNotificationService] Réponse:', response.data);
-      console.log('[PushNotificationService] ========== ENVOI RÉUSSI ==========');
-      return true;
-      
-    } catch (error: any) {
-      console.error('[PushNotificationService] ❌ Erreur lors de l\'envoi');
-      console.error('[PushNotificationService] Status HTTP:', error.response?.status);
-      console.error('[PushNotificationService] Message:', error.response?.data?.message || error.message);
-      console.error('[PushNotificationService] Données complètes:', error.response?.data);
-      return false;
-    }
-  },
-
-  /**
    * Définis le comportement des notifications en avant-plan
    */
   setForegroundNotificationHandler: async () => {
