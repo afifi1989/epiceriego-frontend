@@ -200,8 +200,10 @@ export default function CartScreen() {
         epicerieId: epicerieIdFromCart,
         items: cart.map(item => ({
           productId: item.productId,
-          unitId: item.unitId,
           quantite: item.quantity,
+          unitId: item.unitId,
+          unitLabel: item.unitLabel,
+          requestedQuantity: item.requestedQuantity,
         })),
         deliveryType: deliveryType,
         adresseLivraison: adresse,

@@ -131,6 +131,7 @@ export interface OrderItem {
   productId: number;
   quantite: number;
   unitId?: number;                // ID of selected unit
+  unitLabel?: string;             // Label of selected unit (e.g., "500g", "1kg")
   requestedQuantity?: number;     // Pour weight-based (1.0kg, 0.5L)
 }
 
