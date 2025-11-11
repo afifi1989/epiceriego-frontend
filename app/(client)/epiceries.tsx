@@ -46,17 +46,14 @@ export default function EpiceriesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-search effect - triggers when location is obtained or permission is denied
+  // Auto-search effect - triggers ONLY when location coordinates are obtained
   useEffect(() => {
     if (hasAutoSearched) return; // Prevent multiple searches
 
-    // Check if location detection is complete (either has coords or permission was checked and denied)
-    const locationDetectionComplete =
-      (latitude && longitude) || // Has valid coordinates
-      (locationEnabled === false && !latitude && !longitude); // Permission checked and denied
-
-    if (locationDetectionComplete) {
+    // Trigger search ONLY when we have valid latitude and longitude
+    if (latitude && longitude) {
       setHasAutoSearched(true);
+      console.log('[EpiceriesScreen] 📍 Localisation détectée, lancement recherche automatique:', { latitude, longitude });
       // Use async IIFE to allow await without making the effect async
       (async () => {
         // Small delay to ensure state updates are processed
@@ -65,7 +62,7 @@ export default function EpiceriesScreen() {
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latitude, longitude, locationEnabled]);
+  }, [latitude, longitude]);
 
   const loadFavoriteIds = async () => {
     try {
