@@ -5,6 +5,7 @@ import {
   Alert,
   FlatList,
   Modal,
+  Linking,
   StyleSheet,
   Text,
   TextInput,
@@ -311,6 +312,32 @@ export default function EpicerieDetailScreen() {
     return icons[categoryName] || icons['default'];
   };
 
+  const openGoogleMaps = async () => {
+    if (!epicerie?.latitude || !epicerie?.longitude) {
+      Alert.alert(t('common.error'), 'Coordonnées GPS non disponibles pour cette épicerie');
+      return;
+    }
+
+    try {
+      // URL pour ouvrir Google Maps avec les coordonnées
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${epicerie.latitude},${epicerie.longitude}&destination_place_id=${epicerie.nomEpicerie}`;
+
+      // Vérifier si Google Maps peut être ouvert
+      const canOpen = await Linking.canOpenURL(googleMapsUrl);
+
+      if (canOpen) {
+        await Linking.openURL(googleMapsUrl);
+      } else {
+        // Fallback: essayer d'ouvrir avec un autre format d'URL
+        const webUrl = `https://maps.google.com/?q=${epicerie.latitude},${epicerie.longitude}`;
+        await Linking.openURL(webUrl);
+      }
+    } catch (error) {
+      console.error('Erreur ouverture Google Maps:', error);
+      Alert.alert(t('common.error'), 'Impossible d\'ouvrir Google Maps');
+    }
+  };
+
   const renderCategoryCard = ({ item }: { item: Category }) => (
     <TouchableOpacity
       style={styles.categoryCard}
@@ -396,7 +423,12 @@ export default function EpicerieDetailScreen() {
             <Text style={styles.epicerieIcon}>🏪</Text>
             <View style={styles.epicerieInfo}>
               <Text style={styles.epicerieName}>{epicerie.nomEpicerie}</Text>
-              <Text style={styles.epicerieAddress}>📍 {epicerie.adresse}</Text>
+              <TouchableOpacity
+                onPress={openGoogleMaps}
+                style={styles.locationButton}
+              >
+                <Text style={styles.epicerieAddress}>📍 {epicerie.adresse}</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -627,6 +659,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
     opacity: 0.9,
+  },
+  locationButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   modeSelector: {
     flexDirection: 'row',
