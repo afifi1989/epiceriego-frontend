@@ -24,6 +24,7 @@ const LANGUAGE_OPTIONS = [
   { label: 'Français', value: 'fr' },
   { label: 'العربية', value: 'ar' },
   { label: 'English', value: 'en' },
+  { label: 'Tamazight (ⴰⵜⵎⴰⵣⵎⴰⵖⵜ)', value: 'tz' },
 ];
 
 const TIMEZONE_OPTIONS = [

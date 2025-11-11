@@ -19,7 +19,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const loadLanguage = async () => {
       try {
         const saved = await AsyncStorage.getItem('app_language');
-        if (saved && (saved === 'fr' || saved === 'ar' || saved === 'en')) {
+        if (saved && (saved === 'fr' || saved === 'ar' || saved === 'en' || saved === 'tz')) {
           console.log('[LanguageContext] ✅ Langue chargée:', saved);
           setLanguageState(saved as Language);
         } else {
