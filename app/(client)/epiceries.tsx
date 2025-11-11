@@ -36,11 +36,32 @@ export default function EpiceriesScreen() {
   const [searchAddress, setSearchAddress] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationEnabled, setLocationEnabled] = useState(false);
+  const [hasAutoSearched, setHasAutoSearched] = useState(false);
 
   useEffect(() => {
     checkLocationPermission();
     loadFavoriteIds();
+    // Auto-trigger location detection on page load
+    initializeAutoSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-search effect - triggers when location is obtained or permission is denied
+  useEffect(() => {
+    if (hasAutoSearched) return; // Prevent multiple searches
+
+    if ((latitude && longitude) || (!locationEnabled && !latitude && !longitude)) {
+      // If we have coords OR location permission was denied (no coords after permission check)
+      if (!hasAutoSearched) {
+        setHasAutoSearched(true);
+        // Delay slightly to ensure state is updated
+        setTimeout(() => {
+          performAutoSearch();
+        }, 300);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latitude, longitude, locationEnabled, hasAutoSearched]);
 
   const loadFavoriteIds = async () => {
     try {
@@ -61,6 +82,23 @@ export default function EpiceriesScreen() {
     }
   };
 
+  const initializeAutoSearch = async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'granted') {
+        // If permission already granted, get current location
+        await getCurrentLocation();
+      } else {
+        // Request permission automatically
+        await requestLocationPermission();
+      }
+    } catch {
+      console.error('[EpiceriesScreen] Erreur initialisation auto-recherche');
+      // Even if location fails, we can still search without location
+      setLocationEnabled(false);
+    }
+  };
+
   const requestLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -73,7 +111,7 @@ export default function EpiceriesScreen() {
           t('epiceries.permissionMessage')
         );
       }
-    } catch (error) {
+    } catch {
       Alert.alert(t('common.error'), t('epiceries.permissionRequestError'));
     }
   };
@@ -101,7 +139,7 @@ export default function EpiceriesScreen() {
 
       setLatitude(location.coords.latitude.toFixed(6));
       setLongitude(location.coords.longitude.toFixed(6));
-    } catch (error) {
+    } catch {
       Alert.alert(t('common.error'), t('epiceries.gpsError'));
     } finally {
       setLocationLoading(false);
@@ -170,6 +208,42 @@ export default function EpiceriesScreen() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const performAutoSearch = async () => {
+    if (loading) return;
+
+    try {
+      setLoading(true);
+      let data: Epicerie[] = [];
+
+      // If we have location coordinates, search by proximity
+      if (latitude && longitude) {
+        data = await epicerieService.searchByProximity(
+          parseFloat(latitude),
+          parseFloat(longitude),
+          parseFloat(radius) || 5
+        );
+      }
+      // If location was denied, fall back to getting all epiceries by empty name search
+      else if (!locationEnabled && !latitude && !longitude) {
+        console.log('[EpiceriesScreen] Emplacement refusé, recherche par défaut');
+        data = await epicerieService.searchByName(''); // Empty search returns all
+      }
+
+      setEpiceries(data);
+      // Recharger les favoris après la recherche
+      await loadFavoriteIds();
+
+      if (data.length === 0) {
+        Alert.alert(t('epiceries.noResults'), t('epiceries.noResultsMessage'));
+      }
+    } catch (error) {
+      console.error('[EpiceriesScreen] Erreur auto-recherche:', error);
+      // Silently fail on auto-search to avoid annoying users
+    } finally {
+      setLoading(false);
     }
   };
 
