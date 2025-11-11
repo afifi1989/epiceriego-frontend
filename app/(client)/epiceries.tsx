@@ -50,18 +50,22 @@ export default function EpiceriesScreen() {
   useEffect(() => {
     if (hasAutoSearched) return; // Prevent multiple searches
 
-    if ((latitude && longitude) || (!locationEnabled && !latitude && !longitude)) {
-      // If we have coords OR location permission was denied (no coords after permission check)
-      if (!hasAutoSearched) {
-        setHasAutoSearched(true);
-        // Delay slightly to ensure state is updated
-        setTimeout(() => {
-          performAutoSearch();
-        }, 300);
-      }
+    // Check if location detection is complete (either has coords or permission was checked and denied)
+    const locationDetectionComplete =
+      (latitude && longitude) || // Has valid coordinates
+      (locationEnabled === false && !latitude && !longitude); // Permission checked and denied
+
+    if (locationDetectionComplete) {
+      setHasAutoSearched(true);
+      // Use async IIFE to allow await without making the effect async
+      (async () => {
+        // Small delay to ensure state updates are processed
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await performAutoSearch();
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latitude, longitude, locationEnabled, hasAutoSearched]);
+  }, [latitude, longitude, locationEnabled]);
 
   const loadFavoriteIds = async () => {
     try {
@@ -212,24 +216,32 @@ export default function EpiceriesScreen() {
   };
 
   const performAutoSearch = async () => {
-    if (loading) return;
-
     try {
       setLoading(true);
       let data: Epicerie[] = [];
 
+      console.log('[EpiceriesScreen] Auto-search lancée avec:', {
+        latitude,
+        longitude,
+        locationEnabled,
+        searchMode,
+      });
+
       // If we have location coordinates, search by proximity
       if (latitude && longitude) {
+        console.log('[EpiceriesScreen] Recherche par proximité avec coords:', latitude, longitude);
         data = await epicerieService.searchByProximity(
           parseFloat(latitude),
           parseFloat(longitude),
           parseFloat(radius) || 5
         );
+        console.log('[EpiceriesScreen] Résultats proximité:', data.length);
       }
       // If location was denied, fall back to getting all epiceries by empty name search
-      else if (!locationEnabled && !latitude && !longitude) {
-        console.log('[EpiceriesScreen] Emplacement refusé, recherche par défaut');
+      else if (!locationEnabled) {
+        console.log('[EpiceriesScreen] Emplacement refusé, récupération de toutes les épiceries');
         data = await epicerieService.searchByName(''); // Empty search returns all
+        console.log('[EpiceriesScreen] Résultats par défaut:', data.length);
       }
 
       setEpiceries(data);
