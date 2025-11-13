@@ -1,46 +1,189 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
-import { authService } from '../../src/services/authService';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  RefreshControl,
+  ActivityIndicator,
+  Alert,
+  useWindowDimensions,
+} from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { DeliveryCard } from '../../src/components/livreur/DeliveryCard';
+import { DailyStatsCard } from '../../src/components/livreur/DailyStatsCard';
+import { AvailabilityToggle } from '../../src/components/livreur/AvailabilityToggle';
+import { livreurService } from '../../src/services/livreurService';
+import { Delivery } from '../../src/type';
 
 export default function LivreurDeliveriesScreen() {
-  const router = useRouter();
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
-  const handleLogout = async (): Promise<void> => {
+  // Charger les livraisons
+  const loadDeliveries = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const data = await livreurService.getMyDeliveries();
+      setDeliveries(data || []);
+    } catch (error: any) {
+      console.error('Erreur chargement livraisons:', error);
+      Alert.alert('Erreur', error.message || 'Impossible de charger les livraisons');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Charger les livraisons au montage
+  useEffect(() => {
+    loadDeliveries();
+  }, [loadDeliveries]);
+
+  // Rafraîchir quand l'écran est activé
+  useFocusEffect(
+    useCallback(() => {
+      loadDeliveries();
+    }, [loadDeliveries])
+  );
+
+  // Rafraîchissement manuel
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadDeliveries();
+    setIsRefreshing(false);
+  };
+
+  // Gérer la disponibilité
+  const handleAvailabilityToggle = async (value: boolean) => {
+    try {
+      setAvailabilityLoading(true);
+      await livreurService.updateAvailability(value, userLocation?.latitude, userLocation?.longitude);
+      setIsAvailable(value);
+      Alert.alert(
+        'Succès',
+        value
+          ? 'Vous êtes maintenant en ligne et recevrez les nouvelles commandes'
+          : 'Vous êtes maintenant hors ligne'
+      );
+    } catch (error: any) {
+      console.error('Erreur disponibilité:', error);
+      Alert.alert('Erreur', error.message || 'Impossible de mettre à jour la disponibilité');
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  };
+
+  // Démarrer une livraison
+  const handleStartDelivery = async (orderId: number) => {
+    try {
+      const result = await livreurService.startDelivery(orderId);
+      setDeliveries(deliveries.map(d => (d.orderId === orderId ? result : d)));
+      Alert.alert('Succès', 'Livraison démarrée');
+    } catch (error: any) {
+      Alert.alert('Erreur', error.message || 'Impossible de démarrer la livraison');
+    }
+  };
+
+  // Compléter une livraison
+  const handleCompleteDelivery = async (orderId: number) => {
     Alert.alert(
-      'Déconnexion',
-      'Voulez-vous vraiment vous déconnecter ?',
+      'Confirmation',
+      'Êtes-vous sûr de vouloir marquer cette livraison comme complétée ?',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Déconnexion',
-          style: 'destructive',
+          text: 'Compléter',
           onPress: async () => {
-            await authService.logout();
-            router.replace('/(auth)/login');
+            try {
+              const result = await livreurService.completeDelivery(orderId);
+              setDeliveries(deliveries.map(d => (d.orderId === orderId ? result : d)));
+              Alert.alert('Succès', 'Livraison complétée');
+            } catch (error: any) {
+              Alert.alert('Erreur', error.message || 'Impossible de compléter la livraison');
+            }
           },
         },
       ]
     );
   };
 
+  // Calculer les statistiques
+  const stats = {
+    completed: deliveries.filter(d => d.status.toLowerCase() === 'completed' || d.status.toLowerCase() === 'complétée').length,
+    inProgress: deliveries.filter(d => d.status.toLowerCase() === 'in_progress' || d.status.toLowerCase() === 'en cours').length,
+    pending: deliveries.filter(d => d.status.toLowerCase() === 'pending' || d.status.toLowerCase() === 'en attente').length,
+    totalAmount: deliveries.reduce((sum, d) => sum + d.total, 0),
+  };
+
+  const renderDelivery = ({ item }: { item: Delivery }) => (
+    <DeliveryCard
+      delivery={item}
+      onPress={() => {
+        /* Naviguer vers détail si besoin */
+      }}
+      onStartPress={() => handleStartDelivery(item.orderId)}
+      onCompletePress={() => handleCompleteDelivery(item.orderId)}
+    />
+  );
+
+  const renderEmpty = () => (
+    <View style={styles.emptyContainer}>
+      <Text style={styles.emptyIcon}>🎉</Text>
+      <Text style={styles.emptyTitle}>Aucune livraison</Text>
+      <Text style={styles.emptySubtitle}>
+        Vous n'avez pas de livraisons en attente pour le moment
+      </Text>
+    </View>
+  );
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#9C27B0" />
+        <Text style={styles.loadingText}>Chargement des livraisons...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.emoji}>🚚</Text>
-        <Text style={styles.title}>Mes Livraisons</Text>
-        <Text style={styles.subtitle}>Interface en cours de développement</Text>
-        
-        <View style={styles.featureList}>
-          <Text style={styles.featureItem}>✅ Liste des livraisons</Text>
-          <Text style={styles.featureItem}>✅ Navigation GPS</Text>
-          <Text style={styles.featureItem}>✅ Statut en temps réel</Text>
-          <Text style={styles.featureItem}>✅ Historique des livraisons</Text>
-        </View>
-
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>Déconnexion</Text>
-        </TouchableOpacity>
-      </View>
+      <FlatList
+        data={deliveries}
+        renderItem={renderDelivery}
+        keyExtractor={item => item.orderId.toString()}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={['#9C27B0']}
+          />
+        }
+        ListHeaderComponent={
+          <>
+            <AvailabilityToggle
+              isAvailable={isAvailable}
+              onToggle={handleAvailabilityToggle}
+              isLoading={availabilityLoading}
+              location={userLocation}
+            />
+            <DailyStatsCard
+              completed={stats.completed}
+              inProgress={stats.inProgress}
+              pending={stats.pending}
+              totalAmount={stats.totalAmount}
+            />
+          </>
+        }
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={styles.listContent}
+      />
     </View>
   );
 }
@@ -50,53 +193,41 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
-  content: {
+  listContent: {
+    paddingVertical: 8,
+    paddingBottom: 20,
+  },
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    backgroundColor: '#f5f5f5',
   },
-  emoji: {
-    fontSize: 80,
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
     color: '#666',
-    marginBottom: 30,
-    textAlign: 'center',
   },
-  featureList: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 15,
-    marginBottom: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
   },
-  featureItem: {
-    fontSize: 16,
-    color: '#333',
+  emptyIcon: {
+    fontSize: 60,
     marginBottom: 10,
   },
-  logoutButton: {
-    backgroundColor: '#f44336',
-    paddingHorizontal: 30,
-    paddingVertical: 12,
-    borderRadius: 10,
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
   },
-  logoutButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    paddingHorizontal: 30,
   },
 });

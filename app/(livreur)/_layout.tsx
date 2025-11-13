@@ -1,14 +1,13 @@
-import { Stack, useRouter, Redirect } from 'expo-router';
-import { TouchableOpacity, Alert, Text, ActivityIndicator, View } from 'react-native';
+import { Tabs, useRouter, Redirect } from 'expo-router';
+import { Alert, ActivityIndicator, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/constants/config';
-
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 // Composant interne pour gérer le layout authentifié
-function LivreurStackContent() {
+function LivreurTabsContent() {
   const router = useRouter();
 
   // ✅ Initialiser les push notifications pour les livreurs authentifiés
@@ -17,7 +16,6 @@ function LivreurStackContent() {
 
     const setupNotifications = async () => {
       try {
-        // Petit délai pour s'assurer que le composant est complètement monté
         await new Promise(resolve => setTimeout(resolve, 500));
 
         console.log('[LivreurLayout] 1️⃣ Setting foreground handler');
@@ -84,31 +82,54 @@ function LivreurStackContent() {
   };
 
   return (
-    <Stack
+    <Tabs
       screenOptions={{
+        tabBarActiveTintColor: '#9C27B0',
+        tabBarInactiveTintColor: '#999',
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopColor: '#e0e0e0',
+          borderTopWidth: 1,
+        },
         headerStyle: { backgroundColor: '#9C27B0' },
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: 'bold' },
       }}
     >
-      <Stack.Screen 
-        name="deliveries" 
-        options={{ 
-          title: '🚚 Mes Livraisons',
-          headerLeft: () => null,
-          headerRight: () => (
-            <TouchableOpacity 
-              onPress={handleLogout} 
-              style={{ marginRight: 15 }}
-            >
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-                Déconnexion
-              </Text>
-            </TouchableOpacity>
+      <Tabs.Screen
+        name="deliveries"
+        options={{
+          title: 'Livraisons',
+          tabBarLabel: 'Livraisons',
+          tabBarIcon: ({ color, size }) => (
+            <View style={{ fontSize: size, color }}>📦</View>
           ),
-        }} 
+          headerTitle: '🚚 Mes Livraisons',
+        }}
       />
-    </Stack>
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: 'Historique',
+          tabBarLabel: 'Historique',
+          tabBarIcon: ({ color, size }) => (
+            <View style={{ fontSize: size, color }}>📋</View>
+          ),
+          headerTitle: '📋 Historique',
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profil',
+          tabBarLabel: 'Profil',
+          tabBarIcon: ({ color, size }) => (
+            <View style={{ fontSize: size, color }}>👤</View>
+          ),
+          headerTitle: '👤 Mon Profil',
+        }}
+      />
+    </Tabs>
   );
 }
 
@@ -161,5 +182,5 @@ export default function LivreurLayout() {
   }
 
   // ✅ Afficher le contenu authentifié
-  return <LivreurStackContent />;
+  return <LivreurTabsContent />;
 }
