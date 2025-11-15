@@ -108,6 +108,14 @@ function EpicierTabsContent() {
         }}
       />
       <Tabs.Screen
+        name="livreurs"
+        options={{
+          title: 'Livreurs',
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🚚</Text>,
+          headerTitle: '🚚 Gérer les Livreurs',
+        }}
+      />
+      <Tabs.Screen
         name="profil"
         options={{
           title: 'Profil',

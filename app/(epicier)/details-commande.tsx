@@ -11,9 +11,17 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../../src/constants/config';
 import { orderService } from '../../src/services/orderService';
+import {
+  epicierLivreurService,
+  AssignedLivreur,
+} from '../../src/services/epicierLivreurService';
 import { Order } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
+import { OrderLivreurAssignmentSection } from '../../src/components/epicier/OrderLivreurAssignmentSection';
+import { LivreurAssignmentModal } from '../../src/components/epicier/LivreurAssignmentModal';
 
 export default function DetailsCommandeScreen() {
   const router = useRouter();
@@ -21,12 +29,16 @@ export default function DetailsCommandeScreen() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [assignedLivreurs, setAssignedLivreurs] = useState<AssignedLivreur[]>([]);
+  const [selectedLivreurId, setSelectedLivreurId] = useState<number | null>(null);
+  const [showLivreurModal, setShowLivreurModal] = useState(false);
+  const [assigningLivreur, setAssigningLivreur] = useState(false);
 
   useEffect(() => {
-    loadOrderDetails();
+    loadInitialData();
   }, [orderId]);
 
-  const loadOrderDetails = async () => {
+  const loadInitialData = async () => {
     try {
       if (!orderId) {
         Alert.alert('Erreur', 'ID de commande manquant');
@@ -34,11 +46,19 @@ export default function DetailsCommandeScreen() {
         return;
       }
 
+      // Charger les détails de la commande
       const data = await orderService.getOrderById(parseInt(orderId as string));
       setOrder(data);
-    } catch (error) {
-      Alert.alert('Erreur', 'Impossible de charger les détails de la commande');
+
+      // Charger les livreurs assignés
+      const livreurs = await epicierLivreurService.getAssignedLivreurs();
+      setAssignedLivreurs(
+        livreurs && Array.isArray(livreurs) ? livreurs : []
+      );
+    } catch (error: any) {
       console.error('Erreur détails commande:', error);
+      setAssignedLivreurs([]);
+      Alert.alert('Erreur', error.message || 'Impossible de charger les détails');
     } finally {
       setLoading(false);
     }
@@ -51,11 +71,28 @@ export default function DetailsCommandeScreen() {
       setUpdating(true);
       await orderService.updateOrderStatus(order.id, newStatus);
       Alert.alert('✅', 'Statut mis à jour avec succès');
-      await loadOrderDetails();
+      await loadInitialData();
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleAssignLivreur = async () => {
+    if (!order || !selectedLivreurId) return;
+
+    try {
+      setAssigningLivreur(true);
+      await epicierLivreurService.assignOrderToLivreur(order.id, selectedLivreurId);
+      Alert.alert('✅', 'Livreur assigné avec succès');
+      setShowLivreurModal(false);
+      setSelectedLivreurId(null);
+      await loadInitialData();
+    } catch (error: any) {
+      Alert.alert('Erreur', error.message || 'Impossible d\'assigner le livreur');
+    } finally {
+      setAssigningLivreur(false);
     }
   };
 
@@ -182,6 +219,19 @@ export default function DetailsCommandeScreen() {
           </View>
         </View>
 
+        {/* Assignation Livreur */}
+        {order.status === 'READY' && (
+          <OrderLivreurAssignmentSection
+            currentLivreur={
+              assignedLivreurs.find(l => l.nom === order.livreurNom) || null
+            }
+            availableLivreurs={assignedLivreurs}
+            isLoading={assigningLivreur}
+            onAssignClick={() => setShowLivreurModal(true)}
+            status={order.status}
+          />
+        )}
+
         {/* Articles */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📦 Articles ({order.nombreItems})</Text>
@@ -265,6 +315,22 @@ export default function DetailsCommandeScreen() {
           </>
         )}
       </TouchableOpacity>
+
+      {/* Modal de sélection livreur */}
+      <LivreurAssignmentModal
+        visible={showLivreurModal}
+        livreurs={assignedLivreurs}
+        selectedLivreurId={selectedLivreurId}
+        isLoading={assigningLivreur}
+        onSelect={(livreur) => setSelectedLivreurId(livreur.id)}
+        onConfirm={handleAssignLivreur}
+        onCancel={() => {
+          setShowLivreurModal(false);
+          setSelectedLivreurId(null);
+        }}
+        title="Assigner un Livreur"
+        description="Sélectionnez un livreur pour cette commande"
+      />
     </SafeAreaView>
   );
 }

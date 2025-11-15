@@ -110,11 +110,15 @@ export const DeliveryCard = ({
       {/* Boutons d'action */}
       {(delivery.status.toLowerCase() === 'pending' ||
         delivery.status.toLowerCase() === 'en attente' ||
+        delivery.status.toLowerCase() === 'ready' ||
+        delivery.status.toLowerCase() === 'prête' ||
         delivery.status.toLowerCase() === 'in_progress' ||
         delivery.status.toLowerCase() === 'en cours') && (
         <View style={styles.actionsRow}>
           {(delivery.status.toLowerCase() === 'pending' ||
-            delivery.status.toLowerCase() === 'en attente') && onStartPress && (
+            delivery.status.toLowerCase() === 'en attente' ||
+            delivery.status.toLowerCase() === 'ready' ||
+            delivery.status.toLowerCase() === 'prête') && onStartPress && (
             <TouchableOpacity
               style={[styles.actionBtn, styles.startBtn]}
               onPress={onStartPress}

@@ -143,6 +143,37 @@ export default function CommandesScreen() {
             </TouchableOpacity>
           </View>
         )}
+        {item.status === 'ACCEPTED' && (
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.quickBtn, styles.acceptBtn]}
+              onPress={() => handleUpdateStatus(item.id, 'PREPARING')}
+            >
+              <Text style={styles.quickBtnText}>👨‍🍳 Préparation</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {item.status === 'PREPARING' && (
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.quickBtn, styles.acceptBtn]}
+              onPress={() => handleUpdateStatus(item.id, 'READY')}
+            >
+              <Text style={styles.quickBtnText}>📦 Prête</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {item.status === 'READY' && (
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[styles.quickBtn, styles.infoBtn]}
+              disabled={true}
+            >
+              <Text style={styles.quickBtnText}>✅ Commande Prête</Text>
+            </TouchableOpacity>
+            <Text style={styles.readyText}>En attente de livreur ou client</Text>
+          </View>
+        )}
         <TouchableOpacity
           style={styles.detailsBtn}
           onPress={() => router.push(`/details-commande?orderId=${item.id}` as any)}
@@ -347,10 +378,21 @@ const styles = StyleSheet.create({
   rejectBtn: {
     backgroundColor: '#f44336',
   },
+  infoBtn: {
+    backgroundColor: '#2196F3',
+    opacity: 0.7,
+  },
   quickBtnText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  readyText: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 8,
   },
   detailsBtn: {
     flexDirection: 'row',
