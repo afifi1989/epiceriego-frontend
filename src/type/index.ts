@@ -206,6 +206,7 @@ export interface Delivery {
   orderId: number;
   total: number;
   status: string;
+  deliveryType?: DeliveryType; // PICKUP ou HOME_DELIVERY
   adresseLivraison: string;
   latitudeLivraison?: number;
   longitudeLivraison?: number;

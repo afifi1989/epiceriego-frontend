@@ -27,6 +27,7 @@ export default function OrderDetailsScreen() {
   const [adresse, setAdresse] = useState('');
   const [telephone, setTelephone] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
 
   useEffect(() => {
     loadOrder();
@@ -82,6 +83,50 @@ export default function OrderDetailsScreen() {
     } finally {
       setUpdating(false);
     }
+  };
+
+  // Marquer la commande comme récupérée (RETRAIT) ou livrée (LIVRAISON)
+  const handleMarkPickedUpOrDelivered = async () => {
+    if (!order) return;
+
+    const idStr = Array.isArray(id) ? id[0] : id;
+    const orderId = parseInt(idStr as string);
+
+    // Pour RETRAIT: passer directement à DELIVERED
+    // Pour LIVRAISON: passer à DELIVERED (le client confirme la réception)
+    const targetStatus = 'DELIVERED';
+
+    const actionLabel = order.deliveryType === 'PICKUP'
+      ? 'Confirmer la récupération de la commande ?'
+      : 'Confirmer la réception de la commande ?';
+
+    Alert.alert(
+      'Confirmation',
+      actionLabel,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Confirmer',
+          onPress: async () => {
+            try {
+              setStatusUpdating(true);
+              const updatedOrder = await orderService.updateOrderStatus(orderId, targetStatus);
+              setOrder(updatedOrder);
+              Alert.alert(
+                'Succès',
+                order.deliveryType === 'PICKUP'
+                  ? 'Commande marquée comme récupérée'
+                  : 'Commande marquée comme livrée'
+              );
+            } catch (error: any) {
+              Alert.alert(t('common.error'), error.message || 'Erreur lors de la mise à jour');
+            } finally {
+              setStatusUpdating(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -154,6 +199,57 @@ export default function OrderDetailsScreen() {
             <Text style={styles.value}>{order.telephoneLivraison || t('orders.notProvided')}</Text>
           </View>
         </View>
+      </View>
+
+      {/* Type de livraison et actions */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📦 Mode de livraison</Text>
+        <View style={styles.deliveryTypeBox}>
+          <View style={styles.deliveryTypeInfo}>
+            <Text style={styles.deliveryTypeIcon}>
+              {order.deliveryType === 'PICKUP' ? '🏪' : '🚚'}
+            </Text>
+            <View style={styles.deliveryTypeText}>
+              <Text style={styles.deliveryTypeLabel}>
+                {order.deliveryType === 'PICKUP' ? 'Retrait en épicerie' : 'Livraison à domicile'}
+              </Text>
+              <Text style={styles.deliveryTypeSubtext}>
+                {order.deliveryType === 'PICKUP'
+                  ? 'Venez récupérer votre commande à l\'épicerie'
+                  : 'Le livreur vous livrera à domicile'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Bouton d'action selon le statut et le type de livraison */}
+        {order.status === 'READY' && order.deliveryType === 'PICKUP' && (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.pickupButton]}
+            onPress={handleMarkPickedUpOrDelivered}
+            disabled={statusUpdating}
+          >
+            {statusUpdating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.actionButtonText}>✅ Confirmer la récupération</Text>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {order.status === 'IN_DELIVERY' && order.deliveryType === 'HOME_DELIVERY' && (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.deliveryButton]}
+            onPress={handleMarkPickedUpOrDelivered}
+            disabled={statusUpdating}
+          >
+            {statusUpdating ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.actionButtonText}>✅ Confirmer la réception</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Articles de la commande */}
@@ -325,6 +421,53 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: '#4CAF50',
+  },
+  deliveryTypeBox: {
+    backgroundColor: '#f9f9f9',
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+    marginBottom: 15,
+  },
+  deliveryTypeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deliveryTypeIcon: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  deliveryTypeText: {
+    flex: 1,
+  },
+  deliveryTypeLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  deliveryTypeSubtext: {
+    fontSize: 12,
+    color: '#666',
+  },
+  actionButton: {
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  pickupButton: {
+    backgroundColor: '#4CAF50',
+  },
+  deliveryButton: {
+    backgroundColor: '#2196F3',
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   orderItem: {
     flexDirection: 'row',

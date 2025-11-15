@@ -73,6 +73,15 @@ export const DeliveryCard = ({
         </View>
       </View>
 
+      {/* Type de livraison */}
+      {delivery.deliveryType && (
+        <View style={styles.deliveryTypeSection}>
+          <Text style={styles.deliveryTypeLabel}>
+            {delivery.deliveryType === 'PICKUP' ? '🏪 Retrait en épicerie' : '🚚 Livraison à domicile'}
+          </Text>
+        </View>
+      )}
+
       {/* Infos client et adresse */}
       <View style={styles.section}>
         <View style={styles.infoRow}>
@@ -111,7 +120,9 @@ export const DeliveryCard = ({
               onPress={onStartPress}
               disabled={isLoading}
             >
-              <Text style={styles.actionBtnText}>Démarrer</Text>
+              <Text style={styles.actionBtnText}>
+                {delivery.deliveryType === 'PICKUP' ? '🏪 Récupérer' : '🚚 Récupérer'}
+              </Text>
             </TouchableOpacity>
           )}
           {(delivery.status.toLowerCase() === 'in_progress' ||
@@ -121,7 +132,9 @@ export const DeliveryCard = ({
               onPress={onCompletePress}
               disabled={isLoading}
             >
-              <Text style={styles.actionBtnText}>Compléter</Text>
+              <Text style={styles.actionBtnText}>
+                {delivery.deliveryType === 'PICKUP' ? '✅ Remis au client' : '✅ Livré au client'}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -175,6 +188,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  deliveryTypeSection: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f0f7ff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  deliveryTypeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2196F3',
   },
   section: {
     padding: 12,

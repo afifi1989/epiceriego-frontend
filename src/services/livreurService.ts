@@ -51,26 +51,35 @@ export const livreurService = {
   },
 
   /**
-   * Démarre une livraison
+   * Récupère une livraison (passe le statut à IN_DELIVERY)
+   * C'est quand le livreur récupère la commande en épicerie
    */
   startDelivery: async (orderId: number): Promise<Delivery> => {
     try {
+      console.log('[LivreurService] 🚚 Démarrage de la livraison pour la commande:', orderId);
       const response = await api.put<Delivery>(`/livreurs/delivery/${orderId}/start`);
+      console.log('[LivreurService] ✅ Livraison démarrée');
       return response.data;
     } catch (error: any) {
-      throw error.response?.data?.message || 'Erreur';
+      console.error('[LivreurService] ❌ Erreur démarrage livraison:', error);
+      throw error.response?.data?.message || 'Erreur lors du démarrage de la livraison';
     }
   },
 
   /**
-   * Marque une livraison comme terminée
+   * Complète une livraison (passe le statut à DELIVERED)
+   * C'est quand le livreur livre la commande au client à domicile
+   * OU quand le livreur récupère une commande pour retrait en épicerie
    */
   completeDelivery: async (orderId: number): Promise<Delivery> => {
     try {
+      console.log('[LivreurService] ✅ Complétude de la livraison pour la commande:', orderId);
       const response = await api.put<Delivery>(`/livreurs/delivery/${orderId}/complete`);
+      console.log('[LivreurService] ✅ Livraison complétée');
       return response.data;
     } catch (error: any) {
-      throw error.response?.data?.message || 'Erreur';
+      console.error('[LivreurService] ❌ Erreur complétude livraison:', error);
+      throw error.response?.data?.message || 'Erreur lors de la complétude de la livraison';
     }
   },
 };
