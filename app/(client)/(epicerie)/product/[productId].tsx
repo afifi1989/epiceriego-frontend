@@ -112,10 +112,19 @@ export default function ProductDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          title: '',
+          title: product.nom,
           headerShown: true,
           headerBackTitle: t('common.back'),
-          headerTransparent: true,
+          headerTransparent: false,
+          headerStyle: {
+            backgroundColor: '#4CAF50',
+          },
+          headerTitleStyle: {
+            color: '#fff',
+            fontSize: 18,
+            fontWeight: 'bold',
+          },
+          headerTintColor: '#fff',
         }}
       />
 
