@@ -204,7 +204,7 @@ export default function EpicerieDetailScreen() {
     if (searchMode === "search") {
       filterProducts(searchQuery);
     }
-  }, [searchQuery, searchMode, filterProducts]);
+  }, [searchQuery, searchMode]);
 
   const handleSearchModeChange = (mode: SearchMode) => {
     setSearchMode(mode);
