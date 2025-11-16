@@ -191,22 +191,7 @@ export default function ProductDetailScreen() {
             )}
           </View>
 
-          {/* === UNIT/FORMAT SELECTION === */}
-          {product.units && product.units.length > 0 && (
-            <View style={styles.formatSection}>
-              <Text style={styles.sectionLabel}>Choisir le format</Text>
-              <View style={styles.unitsContainer}>
-                {product.units.map((unit) => (
-                  <View key={unit.id} style={styles.unitCard}>
-                    <Text style={styles.unitLabel}>{unit.label}</Text>
-                    <Text style={styles.unitPrice}>{formatPrice(unit.prix)}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* === QUANTITY SELECTOR === */}
+          {/* === QUANTITY & FORMAT SELECTOR === */}
           {isAvailable && (
             <View style={styles.quantitySection}>
               <ProductUnitDisplay
@@ -402,47 +387,6 @@ const styles = StyleSheet.create({
   stockCount: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#4CAF50',
-  },
-  /* === FORMAT SELECTION === */
-  formatSection: {
-    backgroundColor: '#fff',
-    padding: 18,
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  sectionLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#222',
-    marginBottom: 14,
-  },
-  unitsContainer: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  unitCard: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: '#f8f9fa',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#4CAF50',
-    alignItems: 'center',
-  },
-  unitLabel: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 5,
-  },
-  unitPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
     color: '#4CAF50',
   },
   /* === QUANTITY SECTION === */
