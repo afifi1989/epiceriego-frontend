@@ -227,6 +227,72 @@ export const epicerieService = {
       throw error.message || 'Erreur lors de l\'upload de la photo';
     }
   },
+
+  /**
+   * Upload la photo de présentation (bannière) de l'épicerie
+   * Utilise fetch API pour supporter les FormData avec les images
+   */
+  uploadPresentationPhoto: async (imageUri: string, base64?: string): Promise<Epicerie> => {
+    try {
+      console.log('[EpicerieService] Envoi de la photo de présentation...');
+
+      // Récupérer le token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      // Créer FormData pour l'upload
+      const formData = new FormData();
+
+      // Ajouter l'image
+      if (base64) {
+        // Si on a le base64, utiliser un Blob
+        const blob = base64ToBlob(base64, 'image/jpeg');
+        formData.append('presentationPhoto', blob, 'presentation.jpg');
+      } else {
+        // Sinon, utiliser l'URI directe
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        formData.append('presentationPhoto', blob, 'presentation.jpg');
+      }
+
+      console.log('[EpicerieService] Envoi avec fetch...');
+
+      const headers: any = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const uploadResponse = await fetch(
+        `${API_CONFIG.BASE_URL}/epiceries/my-epicerie/presentation-photo`,
+        {
+          method: 'POST',
+          headers: headers,
+          body: formData,
+        }
+      );
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.text();
+        console.error('[EpicerieService] Erreur upload:', {
+          status: uploadResponse.status,
+          statusText: uploadResponse.statusText,
+          body: errorData,
+        });
+        throw new Error(
+          `Erreur HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`
+        );
+      }
+
+      const responseData = await uploadResponse.json();
+      console.log('[EpicerieService] Photo de présentation uploadée avec succès');
+      return responseData;
+    } catch (error: any) {
+      console.error('[EpicerieService] Erreur upload photo de présentation:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      throw error.message || 'Erreur lors de l\'upload de la photo de présentation';
+    }
+  },
 };
 
 /**

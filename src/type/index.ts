@@ -43,7 +43,8 @@ export interface Epicerie {
   telephone?: string; // Deprecated: use telephonePro
   telephonePro?: string;
   telephonePersonnel?: string;
-  photoUrl?: string;
+  photoUrl?: string; // Photo de profil (logo/avatar)
+  presentationPhotoUrl?: string; // Photo de présentation (bannière)
   horaires?: string;
   nomGerant?: string;
   prenomGerant?: string;
