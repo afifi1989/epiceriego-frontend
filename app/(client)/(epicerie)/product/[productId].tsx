@@ -25,6 +25,7 @@ export default function ProductDetailScreen() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [addingToCart, setAddingToCart] = useState(false);
+  const [showImageZoom, setShowImageZoom] = useState(false);
 
   useEffect(() => {
     loadProduct();
@@ -117,10 +118,38 @@ export default function ProductDetailScreen() {
           headerTransparent: true,
         }}
       />
+
+      {/* === IMAGE ZOOM MODAL === */}
+      {showImageZoom && product.photoUrl && (
+        <View style={styles.zoomModal}>
+          <TouchableOpacity
+            style={styles.zoomModalOverlay}
+            onPress={() => setShowImageZoom(false)}
+          />
+          <View style={styles.zoomModalContent}>
+            <FallbackImage
+              urls={[product.photoUrl]}
+              style={styles.zoomedImage}
+              resizeMode="contain"
+            />
+            <TouchableOpacity
+              style={styles.zoomCloseButton}
+              onPress={() => setShowImageZoom(false)}
+            >
+              <Text style={styles.zoomCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       <View style={styles.container}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           {/* === PRODUCT IMAGE SECTION === */}
-          <View style={styles.imageSection}>
+          <TouchableOpacity
+            style={styles.imageSection}
+            onPress={() => setShowImageZoom(true)}
+            activeOpacity={0.9}
+          >
             {product.photoUrl ? (
               <FallbackImage
                 urls={[product.photoUrl]}
@@ -134,7 +163,11 @@ export default function ProductDetailScreen() {
             )}
             {/* Gradient overlay */}
             <View style={styles.imageOverlay} />
-          </View>
+            {/* Zoom indicator */}
+            <View style={styles.zoomIndicator}>
+              <Text style={styles.zoomText}>🔍 Zoom</Text>
+            </View>
+          </TouchableOpacity>
 
           {/* === PRODUCT INFO HEADER === */}
           <View style={styles.infoHeader}>
@@ -262,6 +295,66 @@ const styles = StyleSheet.create({
     right: 0,
     height: 80,
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+  zoomIndicator: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  zoomText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  /* === ZOOM MODAL === */
+  zoomModal: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomModalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+  },
+  zoomModalContent: {
+    width: '90%',
+    height: '80%',
+    zIndex: 1001,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  zoomedImage: {
+    width: '100%',
+    height: '100%',
+  },
+  zoomCloseButton: {
+    position: 'absolute',
+    top: -50,
+    right: 0,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 22,
+  },
+  zoomCloseText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   /* === INFO HEADER === */
   infoHeader: {
