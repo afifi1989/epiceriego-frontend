@@ -169,28 +169,6 @@ export default function ProductDetailScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* === PRODUCT INFO HEADER === */}
-          <View style={styles.infoHeader}>
-            {/* Product Name + Category on same line */}
-            <View style={styles.titleRow}>
-              <View style={styles.titleSection}>
-                <Text style={styles.productName}>{product.nom}</Text>
-                {product.categoryName && (
-                  <View style={styles.categoryTag}>
-                    <Text style={styles.categoryTagText}>{product.categoryName}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            {/* Stock indicator - bottom right */}
-            {isAvailable && (
-              <View style={styles.stockIndicator}>
-                <Text style={styles.stockCount}>📦 {product.stock} en stock</Text>
-              </View>
-            )}
-          </View>
-
           {/* === QUANTITY & FORMAT SELECTOR === */}
           {isAvailable && (
             <View style={styles.quantitySection}>
@@ -340,54 +318,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-  },
-  /* === INFO HEADER === */
-  infoHeader: {
-    backgroundColor: '#fff',
-    padding: 18,
-    paddingBottom: 16,
-    marginTop: -5,
-    borderRadius: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  titleSection: {
-    flex: 1,
-  },
-  productName: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#222',
-    marginBottom: 8,
-    letterSpacing: -0.5,
-  },
-  categoryTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#e8f5e9',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-  },
-  categoryTagText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#2e7d32',
-  },
-  stockIndicator: {
-    marginTop: 2,
-  },
-  stockCount: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#4CAF50',
   },
   /* === QUANTITY SECTION === */
   quantitySection: {
