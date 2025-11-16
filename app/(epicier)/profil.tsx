@@ -19,6 +19,7 @@ import { User, Epicerie } from '../../src/type';
 
 export default function EpicierProfilScreen() {
   const router = useRouter();
+  const scrollViewRef = React.useRef<ScrollView>(null);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
@@ -107,6 +108,10 @@ export default function EpicierProfilScreen() {
     );
   };
 
+  const scrollToPhotoUpload = () => {
+    scrollViewRef.current?.scrollTo({ y: 250, animated: true });
+  };
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -116,7 +121,7 @@ export default function EpicierProfilScreen() {
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={styles.container} ref={scrollViewRef}>
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
           {epicerie?.photoUrl ? (
@@ -281,6 +286,15 @@ export default function EpicierProfilScreen() {
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.actionButton, styles.highlightedAction]}
+          onPress={scrollToPhotoUpload}
+        >
+          <Text style={styles.actionIcon}>📸</Text>
+          <Text style={styles.actionText}>Photo de présentation</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionButton}>
           <Text style={styles.actionIcon}>🔔</Text>
           <Text style={styles.actionText}>Notifications</Text>
@@ -413,6 +427,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  highlightedAction: {
+    backgroundColor: '#FFF3E0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
   },
   actionIcon: {
     fontSize: 24,
