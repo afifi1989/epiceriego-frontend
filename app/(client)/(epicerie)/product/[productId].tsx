@@ -169,6 +169,16 @@ export default function ProductDetailScreen() {
             </View>
           </TouchableOpacity>
 
+          {/* === PRODUCT NAME & CATEGORY === */}
+          <View style={styles.productHeader}>
+            <Text style={styles.productName}>{product.nom}</Text>
+            {product.categoryName && (
+              <View style={styles.categoryTag}>
+                <Text style={styles.categoryTagText}>{product.categoryName}</Text>
+              </View>
+            )}
+          </View>
+
           {/* === QUANTITY & FORMAT SELECTOR === */}
           {isAvailable && (
             <View style={styles.quantitySection}>
@@ -318,6 +328,34 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  /* === PRODUCT HEADER === */
+  productHeader: {
+    backgroundColor: '#fff',
+    padding: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  productName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#222',
+    marginBottom: 8,
+  },
+  categoryTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  categoryTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2e7d32',
   },
   /* === QUANTITY SECTION === */
   quantitySection: {
