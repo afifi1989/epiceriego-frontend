@@ -232,7 +232,7 @@ export const epicerieService = {
    * Upload la photo de présentation (bannière) de l'épicerie
    * Utilise fetch API pour supporter les FormData avec les images
    */
-  uploadPresentationPhoto: async (imageUri: string, base64?: string): Promise<Epicerie> => {
+  uploadPresentationPhoto: async (epicerieId: number, imageUri: string, base64?: string): Promise<Epicerie> => {
     try {
       console.log('[EpicerieService] Envoi de la photo de présentation...');
 
@@ -246,12 +246,12 @@ export const epicerieService = {
       if (base64) {
         // Si on a le base64, utiliser un Blob
         const blob = base64ToBlob(base64, 'image/jpeg');
-        formData.append('presentationPhoto', blob, 'presentation.jpg');
+        formData.append('photo', blob, 'presentation.jpg');
       } else {
         // Sinon, utiliser l'URI directe
         const response = await fetch(imageUri);
         const blob = await response.blob();
-        formData.append('presentationPhoto', blob, 'presentation.jpg');
+        formData.append('photo', blob, 'presentation.jpg');
       }
 
       console.log('[EpicerieService] Envoi avec fetch...');
@@ -262,7 +262,7 @@ export const epicerieService = {
       }
 
       const uploadResponse = await fetch(
-        `${API_CONFIG.BASE_URL}/epiceries/my-epicerie/presentation-photo`,
+        `${API_CONFIG.BASE_URL}/epiceries/${epicerieId}/presentation-photo`,
         {
           method: 'POST',
           headers: headers,
@@ -291,6 +291,114 @@ export const epicerieService = {
         stack: error.stack,
       });
       throw error.message || 'Erreur lors de l\'upload de la photo de présentation';
+    }
+  },
+
+  /**
+   * Met à jour la photo de présentation (bannière) de l'épicerie
+   */
+  updatePresentationPhoto: async (epicerieId: number, imageUri: string, base64?: string): Promise<Epicerie> => {
+    try {
+      console.log('[EpicerieService] Mise à jour de la photo de présentation...');
+
+      // Récupérer le token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      // Créer FormData pour l'upload
+      const formData = new FormData();
+
+      // Ajouter l'image
+      if (base64) {
+        const blob = base64ToBlob(base64, 'image/jpeg');
+        formData.append('photo', blob, 'presentation.jpg');
+      } else {
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+        formData.append('photo', blob, 'presentation.jpg');
+      }
+
+      const headers: any = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const uploadResponse = await fetch(
+        `${API_CONFIG.BASE_URL}/epiceries/${epicerieId}/presentation-photo`,
+        {
+          method: 'PUT',
+          headers: headers,
+          body: formData,
+        }
+      );
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.text();
+        console.error('[EpicerieService] Erreur update:', {
+          status: uploadResponse.status,
+          statusText: uploadResponse.statusText,
+          body: errorData,
+        });
+        throw new Error(
+          `Erreur HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`
+        );
+      }
+
+      const responseData = await uploadResponse.json();
+      console.log('[EpicerieService] Photo de présentation mise à jour avec succès');
+      return responseData;
+    } catch (error: any) {
+      console.error('[EpicerieService] Erreur update photo de présentation:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      throw error.message || 'Erreur lors de la mise à jour de la photo de présentation';
+    }
+  },
+
+  /**
+   * Supprime la photo de présentation (bannière) de l'épicerie
+   */
+  deletePresentationPhoto: async (epicerieId: number): Promise<any> => {
+    try {
+      console.log('[EpicerieService] Suppression de la photo de présentation...');
+
+      // Récupérer le token
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      const headers: any = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const deleteResponse = await fetch(
+        `${API_CONFIG.BASE_URL}/epiceries/${epicerieId}/presentation-photo`,
+        {
+          method: 'DELETE',
+          headers: headers,
+        }
+      );
+
+      if (!deleteResponse.ok) {
+        const errorData = await deleteResponse.text();
+        console.error('[EpicerieService] Erreur suppression:', {
+          status: deleteResponse.status,
+          statusText: deleteResponse.statusText,
+          body: errorData,
+        });
+        throw new Error(
+          `Erreur HTTP ${deleteResponse.status}: ${deleteResponse.statusText}`
+        );
+      }
+
+      const responseData = await deleteResponse.json();
+      console.log('[EpicerieService] Photo de présentation supprimée avec succès');
+      return responseData;
+    } catch (error: any) {
+      console.error('[EpicerieService] Erreur suppression photo de présentation:', {
+        message: error.message,
+        stack: error.stack,
+      });
+      throw error.message || 'Erreur lors de la suppression de la photo de présentation';
     }
   },
 };

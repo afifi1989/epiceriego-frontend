@@ -13,6 +13,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
+import { PresentationPhotoUpload } from '../../src/components/epicier/PresentationPhotoUpload';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, Epicerie } from '../../src/type';
 
@@ -165,6 +166,17 @@ export default function EpicierProfilScreen() {
           <Text style={styles.statValue}>{stats.todayRevenue.toFixed(2)} DH</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Photo de Présentation */}
+      {epicerie && (
+        <PresentationPhotoUpload
+          epicerie={epicerie}
+          epicerieId={epicerie.id}
+          onPhotoUpdated={(updatedEpicerie) => {
+            setEpicerie(updatedEpicerie);
+          }}
+        />
+      )}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Informations de l'épicerie</Text>
