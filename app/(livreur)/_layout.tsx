@@ -1,5 +1,5 @@
 import { Tabs, useRouter, Redirect } from 'expo-router';
-import { Alert, ActivityIndicator, View } from 'react-native';
+import { Alert, ActivityIndicator, View, Text } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/constants/config';
@@ -102,7 +102,7 @@ function LivreurTabsContent() {
           title: 'Livraisons',
           tabBarLabel: 'Livraisons',
           tabBarIcon: ({ color, size }) => (
-            <View style={{ fontSize: size, color }}>📦</View>
+            <Text style={{ fontSize: size, color }}>📦</Text>
           ),
           headerTitle: '🚚 Mes Livraisons',
         }}
@@ -113,7 +113,7 @@ function LivreurTabsContent() {
           title: 'Historique',
           tabBarLabel: 'Historique',
           tabBarIcon: ({ color, size }) => (
-            <View style={{ fontSize: size, color }}>📋</View>
+            <Text style={{ fontSize: size, color }}>📋</Text>
           ),
           headerTitle: '📋 Historique',
         }}
@@ -124,7 +124,7 @@ function LivreurTabsContent() {
           title: 'Profil',
           tabBarLabel: 'Profil',
           tabBarIcon: ({ color, size }) => (
-            <View style={{ fontSize: size, color }}>👤</View>
+            <Text style={{ fontSize: size, color }}>👤</Text>
           ),
           headerTitle: '👤 Mon Profil',
         }}

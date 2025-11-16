@@ -6,6 +6,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
@@ -13,8 +14,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Product, ProductUnit } from '../../src/type';
+import { Product, ProductUnit, UnitType } from '../../src/type';
 import { calculateUnitPrice, canOrder, getStockLevel } from '../../src/utils/unitCalculations';
+import { ProductImageModal } from '../../src/components/client/ProductImageModal';
+import { FallbackImage } from './FallbackImage';
+import { productService } from '../../src/services/productService';
 
 interface ProductUnitDisplayProps {
   product: Product;
@@ -29,6 +33,16 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
     product.units && product.units.length > 0 ? product.units[0].id : null
   );
   const [quantity, setQuantity] = useState<string>('1');
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageLoadingError, setImageLoadingError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
+
+  // Réinitialiser les états d'image quand le produit change
+  React.useEffect(() => {
+    setImageLoadingError(false);
+    setImageLoading(true);
+    console.log('[ProductUnitDisplay.useEffect] Product changed, resetting image state');
+  }, [product.id, product.photoUrl]);
 
   // Sélectionner l'unité
   const selectedUnit = product.units?.find(u => u.id === selectedUnitId);
@@ -63,7 +77,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
       // Legacy product - create default unit
       const defaultUnit: ProductUnit = {
         id: 0, // No specific unit ID for legacy products
-        unitType: 'PIECE',
+        unitType: UnitType.PIECE,
         quantity: 1,
         label: 'À l\'unité',
         prix: product.prix,
@@ -169,11 +183,64 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
   }
 
   return (
-    <View style={styles.container}>
-      {/* Titre */}
-      <Text style={styles.mainTitle}>Choisissez votre format</Text>
+    <>
+      {/* Image Modal avec Zoom */}
+      {product.photoUrl && (
+        <ProductImageModal
+          visible={showImageModal}
+          photoUrl={product.photoUrl}
+          productName={product.nom}
+          onClose={() => setShowImageModal(false)}
+        />
+      )}
 
-      {/* Grille d'unités */}
+      <View style={styles.container}>
+        {/* Image du produit */}
+        {product.photoUrl && !imageLoadingError && (
+          <TouchableOpacity
+            style={styles.imageSection}
+            onPress={() => setShowImageModal(true)}
+            activeOpacity={0.7}
+          >
+            {imageLoading && (
+              <View style={styles.imageLoadingSpinner}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+              </View>
+            )}
+            <FallbackImage
+              urls={productService.getImageUrls(product.photoUrl)}
+              style={[styles.productImage, { opacity: imageLoading ? 0.3 : 1 }]}
+              resizeMode="contain"
+              onLoadStart={() => {
+                console.log(`[ProductUnitDisplay.onLoadStart] Product: ${product.nom}`);
+                setImageLoading(true);
+              }}
+              onLoadEnd={() => {
+                console.log(`[ProductUnitDisplay.onLoadEnd] Product: ${product.nom}`);
+                setImageLoading(false);
+              }}
+              onError={(error) => {
+                console.error('[ProductUnitDisplay.onError] Image load error:', {
+                  product: product.nom,
+                  photoUrl: product.photoUrl,
+                  error: error.nativeEvent?.error || 'Unknown error'
+                });
+                setImageLoadingError(true);
+              }}
+            />
+            {!imageLoading && (
+              <View style={styles.zoomHint}>
+                <MaterialIcons name="zoom-in" size={24} color="#fff" />
+                <Text style={styles.zoomHintText}>Appuyez pour zoomer</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {/* Titre */}
+        <Text style={styles.mainTitle}>Choisissez votre format</Text>
+
+        {/* Grille d'unités */}
       <View style={styles.unitsGrid}>
         {product.units.map((unit) => {
           const isSelected = unit.id === selectedUnitId;
@@ -310,7 +377,8 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
       {!canOrderNow() && (
         <Text style={styles.errorText}>Stock insuffisant pour cette quantité</Text>
       )}
-    </View>
+      </View>
+    </>
   );
 };
 
@@ -318,6 +386,51 @@ const styles = StyleSheet.create({
   container: {
     padding: 16,
     backgroundColor: '#fff',
+  },
+
+  /* === IMAGE SECTION === */
+  imageSection: {
+    width: '100%',
+    height: 280,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    marginBottom: 20,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  productImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  imageLoadingSpinner: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    zIndex: 1,
+  },
+
+  zoomHint: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+
+  zoomHintText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   /* === LEGACY CONTAINER === */
