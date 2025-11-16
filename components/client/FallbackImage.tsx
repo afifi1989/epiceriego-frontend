@@ -40,11 +40,11 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
     }
   };
 
-  const handleLoadEnd = (result: any) => {
+  const handleLoadEnd = () => {
     console.log(`[FallbackImage] Successfully loaded URL (${currentUrlIndex + 1}/${urls.length}): ${urls[currentUrlIndex]}`);
     // Call parent's onLoadEnd callback if provided
     if (onLoadEnd) {
-      onLoadEnd(result);
+      onLoadEnd?.();
     }
   };
 
@@ -52,7 +52,7 @@ export const FallbackImage: React.FC<FallbackImageProps> = ({
     console.log(`[FallbackImage] Loading URL (${currentUrlIndex + 1}/${urls.length}): ${urls[currentUrlIndex]}`);
     // Call parent's onLoadStart callback if provided
     if (onLoadStart) {
-      onLoadStart();
+      onLoadStart?.();
     }
   };
 
