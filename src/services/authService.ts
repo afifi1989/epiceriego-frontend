@@ -20,6 +20,11 @@ export const authService = {
         await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.data.token);
         await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.data));
         await AsyncStorage.setItem(STORAGE_KEYS.ROLE, response.data.role);
+
+        // Stocker le nom de l'épicerie pour les livreurs
+        if (response.data.epicerieName) {
+          await AsyncStorage.setItem('epicerieName', response.data.epicerieName);
+        }
       }
 
       return response.data;
@@ -56,6 +61,12 @@ export const authService = {
         await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.data.token);
         await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.data));
         await AsyncStorage.setItem(STORAGE_KEYS.ROLE, response.data.role);
+
+        // Stocker le nom de l'épicerie pour les livreurs
+        if (response.data.epicerieName) {
+          await AsyncStorage.setItem('epicerieName', response.data.epicerieName);
+        }
+
         console.log('[authService.login] Données sauvegardées avec succès');
       }
 
@@ -84,6 +95,7 @@ export const authService = {
         STORAGE_KEYS.TOKEN,
         STORAGE_KEYS.USER,
         STORAGE_KEYS.ROLE,
+        'epicerieName',
       ]);
 
       console.log('[authService.logout] Déconnexion effectuée - Panier vidé');

@@ -1,7 +1,7 @@
-import { Tabs, useRouter, Redirect } from 'expo-router';
-import { Alert, ActivityIndicator, View, Text } from 'react-native';
-import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Redirect, Tabs, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
@@ -9,6 +9,22 @@ import { pushNotificationService } from '../../src/services/pushNotificationServ
 // Composant interne pour gérer le layout authentifié
 function LivreurTabsContent() {
   const router = useRouter();
+  const [epicerieName, setEpicerieName] = useState<string>('');
+
+  // ✅ Charger le nom de l'épicerie au montage
+  useEffect(() => {
+    const loadEpicerieName = async () => {
+      try {
+        const storedEpicerieName = await AsyncStorage.getItem('epicerieName');
+        if (storedEpicerieName) {
+          setEpicerieName(storedEpicerieName);
+        }
+      } catch (error) {
+        console.error('[LivreurLayout] Erreur chargement nom épicerie:', error);
+      }
+    };
+    loadEpicerieName();
+  }, []);
 
   // ✅ Initialiser les push notifications pour les livreurs authentifiés
   useEffect(() => {
@@ -104,7 +120,7 @@ function LivreurTabsContent() {
           tabBarIcon: ({ color, size }) => (
             <Text style={{ fontSize: size, color }}>📦</Text>
           ),
-          headerTitle: '🚚 Mes Livraisons',
+          headerTitle: epicerieName || '🚚 Mes Livraisons',
         }}
       />
       <Tabs.Screen

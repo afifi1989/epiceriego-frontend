@@ -16,6 +16,7 @@ export interface LoginResponse {
   nom: string;
   role: string;
   epicerieId?: number;
+  epicerieName?: string;
   livreurId?: number;
 }
 
