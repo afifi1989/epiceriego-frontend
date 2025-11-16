@@ -26,6 +26,7 @@ export default function ProductDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [addingToCart, setAddingToCart] = useState(false);
   const [showImageZoom, setShowImageZoom] = useState(false);
+  const [epicerieName, setEpicerieName] = useState<string>('');
 
   useEffect(() => {
     loadProduct();
@@ -36,13 +37,17 @@ export default function ProductDetailScreen() {
       setLoading(true);
       const parsedProductId = typeof productId === 'string' ? parseInt(productId, 10) : parseInt(productId[0], 10);
       const parsedEpicerieId = typeof epicerieId === 'string' ? parseInt(epicerieId, 10) : parseInt(epicerieId[0], 10);
-      
+
       // Charger tous les produits de l'épicerie et trouver celui qui correspond
       const products = await productService.getProductsByEpicerie(parsedEpicerieId);
       const foundProduct = products.find(p => p.id === parsedProductId);
-      
+
       if (foundProduct) {
         setProduct(foundProduct);
+        // Récupérer le nom de l'épicerie depuis le produit
+        if (foundProduct.epicerieNom) {
+          setEpicerieName(foundProduct.epicerieNom);
+        }
       } else {
         Alert.alert(t('common.error'), 'Produit non trouvé');
         router.back();
@@ -112,7 +117,7 @@ export default function ProductDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          title: product.nom,
+          title: epicerieName || product.nom,
           headerShown: true,
           headerBackTitle: t('common.back'),
           headerTransparent: false,
