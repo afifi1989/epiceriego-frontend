@@ -128,19 +128,4 @@ export const orderService = {
       throw error.response?.data?.message || 'Erreur lors de la mise à jour des informations de livraison';
     }
   },
-
-  /**
-   * Met à jour le statut d'une commande
-   */
-  updateOrderStatus: async (orderId: number, status: string): Promise<Order> => {
-    try {
-      console.log(`[OrderService] Mise à jour du statut de la commande ${orderId} à ${status}`);
-      const response = await api.put<Order>(`/orders/${orderId}/status`, { status });
-      console.log('[OrderService] ✅ Statut mis à jour avec succès');
-      return response.data;
-    } catch (error: any) {
-      console.error('[OrderService] ❌ Erreur lors de la mise à jour du statut:', error);
-      throw error.response?.data?.message || 'Erreur lors de la mise à jour du statut';
-    }
-  },
 };
