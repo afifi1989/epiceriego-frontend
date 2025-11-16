@@ -117,7 +117,7 @@ export default function ProductDetailScreen() {
           headerBackTitle: t('common.back'),
           headerTransparent: false,
           headerStyle: {
-            backgroundColor: '#4CAF50',
+            backgroundColor: '#2196F3',
           },
           headerTitleStyle: {
             color: '#fff',
