@@ -174,10 +174,14 @@ export default function ProductDetailScreen() {
           )}
 
           {/* === QUANTITY SELECTOR === */}
-          <View style={styles.quantitySection}>
-            <Text style={styles.sectionLabel}>Quantité</Text>
-            {/* Rendered via ProductUnitDisplay */}
-          </View>
+          {isAvailable && (
+            <View style={styles.quantitySection}>
+              <ProductUnitDisplay
+                product={product}
+                onAddToCart={handleAddToCart}
+              />
+            </View>
+          )}
 
           {/* === DESCRIPTION SECTION === */}
           {product.description && (
@@ -192,20 +196,8 @@ export default function ProductDetailScreen() {
           <View style={styles.spacer} />
         </ScrollView>
 
-        {/* === STICKY FOOTER === */}
-        {isAvailable ? (
-          <View style={styles.footer}>
-            <View style={styles.footerContent}>
-              <View style={styles.priceInfo}>
-                <Text style={styles.priceLabel}>Prix</Text>
-                <Text style={styles.footerPrice}>{formatPrice(product.prix)}</Text>
-              </View>
-              <TouchableOpacity style={styles.addButton}>
-                <Text style={styles.addButtonText}>➕ Ajouter</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
+        {/* Out of Stock Message - Only show if not available */}
+        {!isAvailable && (
           <View style={styles.footer}>
             <View style={styles.outOfStockButton}>
               <Text style={styles.outOfStockText}>❌ Rupture de stock</Text>
