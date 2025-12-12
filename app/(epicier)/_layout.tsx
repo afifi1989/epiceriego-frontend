@@ -100,11 +100,11 @@ function EpicierTabsContent() {
         }}
       />
       <Tabs.Screen
-        name="produits"
+        name="clients-list"
         options={{
-          title: 'Produits',
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>📦</Text>,
-          headerTitle: '📦 Mes Produits',
+          title: 'Clients',
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>👥</Text>,
+          headerTitle: '👥 Mes Clients',
         }}
       />
       <Tabs.Screen
@@ -177,6 +177,86 @@ function EpicierTabsContent() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="ajouter-modifier-produit"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="ajouter-promo"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="ajuster-stock"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="produits"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="clients"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="commande-prep"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="commandes-list"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="commande-summary"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="factures"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="inviter-clients"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="modifier-promo"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="produit-detail"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="promotions"
+        options={{
+          href: null,
+        }}
+      />
+
+
     </Tabs>
   );
 }

@@ -183,7 +183,7 @@ export default function EpicierDashboardScreen() {
       <View style={styles.quickActions}>
         <Text style={styles.sectionTitle}>Actions Rapides</Text>
         <View style={styles.actionsGrid}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.actionButton}
             onPress={() => router.push('/(epicier)/produits')}
           >
@@ -199,17 +199,17 @@ export default function EpicierDashboardScreen() {
             <Text style={styles.actionText}>Statistiques</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => Alert.alert('Info', 'Gestion livreurs à venir')}
+            onPress={() => router.push('/(epicier)/livreurs')}
           >
             <Text style={styles.actionEmoji}>🚚</Text>
             <Text style={styles.actionText}>Livreurs</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => Alert.alert('Info', 'Paramètres à venir')}
+            onPress={() => router.push('/(epicier)/profil')}
           >
             <Text style={styles.actionEmoji}>⚙️</Text>
             <Text style={styles.actionText}>Paramètres</Text>
