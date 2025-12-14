@@ -297,9 +297,19 @@ export default function InviterClientsScreen() {
 
         {/* Invitations History */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Historique des invitations
-          </Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              Historique des invitations
+            </Text>
+
+            <TouchableOpacity
+              style={styles.viewAllButton}
+              onPress={() => router.push('/(epicier)/historique-invitations')}
+            >
+              <Text style={styles.viewAllButtonText}>Voir tout</Text>
+              <Text style={styles.viewAllIcon}>→</Text>
+            </TouchableOpacity>
+          </View>
 
           {invitations.length === 0 ? (
             <View style={styles.emptyState}>
@@ -338,11 +348,37 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     marginBottom: 12,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: FontSizes.lg,
     fontWeight: 'bold',
     color: Colors.text,
-    marginBottom: 16,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  viewAllButtonText: {
+    fontSize: FontSizes.xs,
+    fontWeight: '600',
+    color: Colors.primary,
+    marginRight: 4,
+  },
+  viewAllIcon: {
+    fontSize: FontSizes.sm,
+    color: Colors.primary,
+    fontWeight: 'bold',
   },
   inputSection: {
     flexDirection: 'row',
