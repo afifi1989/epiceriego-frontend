@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -9,17 +10,16 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { ClientInvitation } from '../../src/type';
 
 type FilterStatus = 'ALL' | 'PENDING' | 'ACCEPTED' | 'REJECTED';
 
 export default function HistoriqueInvitationsScreen() {
-  const params = useLocalSearchParams();
   const router = useRouter();
-  const epicerieId = Number(params.epicerieId);
 
+  const [epicerieId, setEpicerieId] = useState<number | null>(null);
   const [invitations, setInvitations] = useState<ClientInvitation[]>([]);
   const [filteredInvitations, setFilteredInvitations] = useState<ClientInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,23 +31,54 @@ export default function HistoriqueInvitationsScreen() {
   const [hasMore, setHasMore] = useState(true);
   const PAGE_SIZE = 20;
 
+  /**
+   * Get epicerie ID from storage
+   */
   useEffect(() => {
-    loadInvitations();
+    const getEpicerieId = async () => {
+      const user = await AsyncStorage.getItem('@epiceriego_user');
+      if (user) {
+        const userData = JSON.parse(user);
+        if (userData.epicerieId) {
+          setEpicerieId(userData.epicerieId);
+        }
+      }
+    };
+    getEpicerieId();
   }, []);
+
+  /**
+   * Load invitations when epicerie ID is available
+   */
+  useFocusEffect(
+    React.useCallback(() => {
+      if (epicerieId) {
+        loadInvitations();
+      }
+    }, [epicerieId])
+  );
 
   useEffect(() => {
     applyFilter();
   }, [invitations, filterStatus]);
 
   const loadInvitations = async (loadMore = false) => {
+    if (!epicerieId) {
+      console.log('[HistoriqueInvitations] No epicerieId available');
+      setLoading(false);
+      return;
+    }
+
     try {
       if (!loadMore) {
         setLoading(true);
         setPage(0);
       }
 
+      console.log('[HistoriqueInvitations] Loading invitations for epicerieId:', epicerieId);
       const currentPage = loadMore ? page + 1 : 0;
       const allInvitations = await clientManagementService.getClientInvitations(epicerieId);
+      console.log('[HistoriqueInvitations] Loaded invitations:', allInvitations.length);
 
       // Simuler la pagination côté client
       const startIndex = currentPage * PAGE_SIZE;
