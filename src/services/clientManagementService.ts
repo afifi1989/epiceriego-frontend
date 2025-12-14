@@ -17,10 +17,48 @@ export const clientManagementService = {
    */
   getClientInvitations: async (epicerieId: number): Promise<ClientInvitation[]> => {
     try {
-      const response = await api.get<ClientInvitation[]>(
+      const response = await api.get<any>(
         `/epiceries/${epicerieId}/clients/invitations`
       );
-      return response.data || [];
+
+      console.log('[ClientManagementService] ========================================');
+      console.log('[ClientManagementService] GET /epiceries/' + epicerieId + '/clients/invitations');
+      console.log('[ClientManagementService] Response status:', response.status);
+      console.log('[ClientManagementService] Response type:', typeof response.data);
+      console.log('[ClientManagementService] Is Array:', Array.isArray(response.data));
+      console.log('[ClientManagementService] Raw response:', JSON.stringify(response.data, null, 2));
+      console.log('[ClientManagementService] ========================================');
+
+      // Handle different response formats
+      let invitations: ClientInvitation[] = [];
+
+      if (Array.isArray(response.data)) {
+        invitations = response.data;
+      } else if (response.data?.content) {
+        // Paginated response
+        invitations = response.data.content;
+      } else if (response.data?.data) {
+        // Wrapped response
+        invitations = response.data.data;
+      } else if (response.data) {
+        // Try to extract from response object
+        const keys = Object.keys(response.data);
+        console.log('[ClientManagementService] Response keys:', keys);
+
+        // If there's a key that looks like it contains the data
+        const dataKey = keys.find(k =>
+          k.includes('invitation') ||
+          k.includes('data') ||
+          k.includes('content')
+        );
+
+        if (dataKey && Array.isArray(response.data[dataKey])) {
+          invitations = response.data[dataKey];
+        }
+      }
+
+      console.log('[ClientManagementService] Processed invitations:', invitations.length);
+      return invitations;
     } catch (error: any) {
       console.error('[ClientManagementService] Error getting invitations:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération des invitations';
@@ -28,7 +66,31 @@ export const clientManagementService = {
   },
 
   /**
-   * Send an invitation to a client to join the epicerie
+   * Send an invitation to a client to join the epicerie by email
+   * @param epicerieId ID of the epicerie
+   * @param clientEmail Email of the client to invite
+   * @param clientName Name of the client to invite
+   * @returns Created invitation
+   */
+  sendClientInvitationByEmail: async (
+    epicerieId: number,
+    clientEmail: string,
+    clientName: string
+  ): Promise<ClientInvitation> => {
+    try {
+      const response = await api.post<ClientInvitation>(
+        `/epiceries/${epicerieId}/clients/invite`,
+        { clientEmail, clientName }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error sending invitation:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de l\'envoi de l\'invitation';
+    }
+  },
+
+  /**
+   * Send an invitation to a client to join the epicerie by ID (deprecated, use sendClientInvitationByEmail)
    * @param epicerieId ID of the epicerie
    * @param clientId ID of the client to invite
    * @returns Created invitation

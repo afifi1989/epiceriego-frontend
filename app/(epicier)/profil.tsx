@@ -1,21 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  ScrollView,
   ActivityIndicator,
+  Alert,
   Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { PresentationPhotoUpload } from '../../src/components/epicier/PresentationPhotoUpload';
 import { authService } from '../../src/services/authService';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
-import { PresentationPhotoUpload } from '../../src/components/epicier/PresentationPhotoUpload';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, Epicerie } from '../../src/type';
+import { Epicerie, User } from '../../src/type';
 
 export default function EpicierProfilScreen() {
   const router = useRouter();

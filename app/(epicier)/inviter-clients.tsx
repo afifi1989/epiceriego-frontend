@@ -24,10 +24,12 @@ export default function InviterClientsScreen() {
   const { t } = useLanguage();
 
   const [emailInput, setEmailInput] = useState('');
+  const [clientIdInput, setClientIdInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [invitations, setInvitations] = useState<ClientInvitation[]>([]);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
+  const [useClientId, setUseClientId] = useState(false);
 
   /**
    * Get epicerie ID from storage
@@ -91,7 +93,47 @@ export default function InviterClientsScreen() {
   };
 
   /**
-   * Send invitation
+   * Send invitation by client ID
+   */
+  const handleSendInvitationById = async () => {
+    const clientId = parseInt(clientIdInput);
+
+    if (!clientIdInput.trim() || isNaN(clientId)) {
+      Alert.alert('Erreur', 'Veuillez entrer un ID client valide');
+      return;
+    }
+
+    if (!epicerieId) {
+      Alert.alert('Erreur', 'ID épicerie non trouvé');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Call the actual API to send invitation
+      await clientManagementService.sendClientInvitation(epicerieId, clientId);
+
+      Alert.alert(
+        'Succès',
+        `Invitation envoyée au client #${clientId}`
+      );
+
+      setClientIdInput('');
+      await loadInvitations();
+    } catch (error: any) {
+      console.error('Error sending invitation:', error);
+      Alert.alert(
+        'Erreur',
+        error.message || "Impossible d'envoyer l'invitation"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Send invitation by email
    */
   const handleSendInvitation = async () => {
     if (!emailInput.trim()) {
@@ -112,19 +154,41 @@ export default function InviterClientsScreen() {
     try {
       setLoading(true);
 
+      // Extract name from email if possible (before @)
+      const clientName = emailInput.split('@')[0];
+
+      // Call the API to send invitation by email
+      await clientManagementService.sendClientInvitationByEmail(
+        epicerieId,
+        emailInput.trim(),
+        clientName
+      );
+
       Alert.alert(
-        'Invitation envoyée',
-        `Une invitation a été envoyée à ${emailInput}`
+        'Succès',
+        `Invitation envoyée à ${emailInput}`
       );
 
       setEmailInput('');
       await loadInvitations();
     } catch (error: any) {
       console.error('Error sending invitation:', error);
-      Alert.alert(
-        'Erreur',
-        error.message || "Impossible d'envoyer l'invitation"
-      );
+
+      // Check if it's a "client doesn't exist" error
+      if (error.includes("n'existe pas") || error.includes("not found")) {
+        Alert.alert(
+          'Client non trouvé',
+          `Aucun utilisateur avec l'email ${emailInput} n'existe dans le système.\n\nLe client doit d'abord créer un compte sur l'application.`,
+          [
+            { text: 'OK', style: 'default' }
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Erreur',
+          error.message || error || "Impossible d'envoyer l'invitation"
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -256,41 +320,107 @@ export default function InviterClientsScreen() {
             Inviter un nouveau client
           </Text>
 
-          <View style={styles.inputSection}>
-            <TextInput
-              style={styles.input}
-              placeholder="Email du client"
-              placeholderTextColor="#999"
-              value={emailInput}
-              onChangeText={setEmailInput}
-              keyboardType="email-address"
-              editable={!loading}
-            />
-
+          {/* Toggle between email and ID */}
+          <View style={styles.toggleContainer}>
             <TouchableOpacity
               style={[
-                styles.sendButton,
-                (loading || !emailInput.trim()) &&
-                  styles.sendButtonDisabled,
+                styles.toggleButton,
+                !useClientId && styles.toggleButtonActive,
               ]}
-              onPress={handleSendInvitation}
-              disabled={loading || !emailInput.trim()}
+              onPress={() => setUseClientId(false)}
             >
-              {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.sendButtonText}>
-                  Envoyer invitation
-                </Text>
-              )}
+              <Text
+                style={[
+                  styles.toggleButtonText,
+                  !useClientId && styles.toggleButtonTextActive,
+                ]}
+              >
+                Par Email
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                useClientId && styles.toggleButtonActive,
+              ]}
+              onPress={() => setUseClientId(true)}
+            >
+              <Text
+                style={[
+                  styles.toggleButtonText,
+                  useClientId && styles.toggleButtonTextActive,
+                ]}
+              >
+                Par ID Client
+              </Text>
             </TouchableOpacity>
           </View>
 
+          {useClientId ? (
+            // Client ID input
+            <View style={styles.inputSection}>
+              <TextInput
+                style={styles.input}
+                placeholder="ID du client (ex: 123)"
+                placeholderTextColor="#999"
+                value={clientIdInput}
+                onChangeText={setClientIdInput}
+                keyboardType="number-pad"
+                editable={!loading}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  (loading || !clientIdInput.trim()) &&
+                    styles.sendButtonDisabled,
+                ]}
+                onPress={handleSendInvitationById}
+                disabled={loading || !clientIdInput.trim()}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.sendButtonText}>Envoyer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            // Email input
+            <View style={styles.inputSection}>
+              <TextInput
+                style={styles.input}
+                placeholder="Email du client"
+                placeholderTextColor="#999"
+                value={emailInput}
+                onChangeText={setEmailInput}
+                keyboardType="email-address"
+                editable={!loading}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  (loading || !emailInput.trim()) &&
+                    styles.sendButtonDisabled,
+                ]}
+                onPress={handleSendInvitation}
+                disabled={loading || !emailInput.trim()}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.sendButtonText}>Envoyer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={styles.infoBox}>
             <Text style={styles.infoText}>
-              💡 Le client recevra un email avec un lien d'acceptation de
-              l'invitation. Une fois acceptée, vous pourrez gérer son
-              crédit et voir ses commandes.
+              {useClientId
+                ? '💡 Entrez l\'ID du client à inviter. Une fois l\'invitation acceptée, vous pourrez gérer son crédit et voir ses commandes.'
+                : '💡 Entrez l\'email du client. Le client doit déjà avoir un compte enregistré dans l\'application. Une fois l\'invitation acceptée, vous pourrez gérer son crédit et voir ses commandes.'}
             </Text>
           </View>
         </View>
@@ -358,6 +488,37 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.lg,
     fontWeight: 'bold',
     color: Colors.text,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 4,
+    marginBottom: 12,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toggleButtonActive: {
+    backgroundColor: Colors.primary,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleButtonText: {
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+    color: '#666',
+  },
+  toggleButtonTextActive: {
+    color: '#fff',
   },
   viewAllButton: {
     flexDirection: 'row',

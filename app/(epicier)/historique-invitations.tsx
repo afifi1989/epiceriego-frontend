@@ -174,23 +174,28 @@ export default function HistoriqueInvitationsScreen() {
 
   const renderFilterButton = (status: FilterStatus, label: string, count: number) => {
     const isActive = filterStatus === status;
+    // Utiliser des labels courts pour économiser l'espace
+    const shortLabel = status === 'ALL' ? 'Tout' : label.split(' ')[0];
+
     return (
       <TouchableOpacity
         style={[styles.filterButton, isActive && styles.filterButtonActive]}
         onPress={() => setFilterStatus(status)}
       >
-        <Text style={[styles.filterButtonText, isActive && styles.filterButtonTextActive]}>
-          {label}
-        </Text>
-        <View
-          style={[
-            styles.filterBadge,
-            isActive && styles.filterBadgeActive,
-          ]}
-        >
-          <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
-            {count}
+        <View style={styles.filterContent}>
+          <Text style={[styles.filterButtonText, isActive && styles.filterButtonTextActive]}>
+            {shortLabel}
           </Text>
+          <View
+            style={[
+              styles.filterBadge,
+              isActive && styles.filterBadgeActive,
+            ]}
+          >
+            <Text style={[styles.filterBadgeText, isActive && styles.filterBadgeTextActive]}>
+              {count}
+            </Text>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -268,9 +273,14 @@ export default function HistoriqueInvitationsScreen() {
     <View style={styles.container}>
       {/* Header avec statistiques */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>📨 Historique des invitations</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>📨 Invitations</Text>
+          <View style={styles.totalBadge}>
+            <Text style={styles.totalBadgeText}>{invitations.length}</Text>
+          </View>
+        </View>
         <Text style={styles.headerSubtitle}>
-          {invitations.length} invitation{invitations.length !== 1 ? 's' : ''} au total
+          Gérez vos invitations clients
         </Text>
       </View>
 
@@ -318,49 +328,82 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#2196F3',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     paddingTop: 20,
   },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 12,
+  },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 5,
+  },
+  totalBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 16,
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  totalBadgeText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#fff',
-    opacity: 0.9,
+    opacity: 0.85,
   },
   filtersContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    padding: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    gap: 6,
   },
   filterButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginHorizontal: 4,
-    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderRadius: 16,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
     borderColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterButtonActive: {
     backgroundColor: '#2196F3',
     borderColor: '#2196F3',
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  filterContent: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
   },
   filterButtonText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: '#666',
-    marginRight: 6,
+    textAlign: 'center',
   },
   filterButtonTextActive: {
     color: '#fff',
@@ -368,16 +411,17 @@ const styles = StyleSheet.create({
   filterBadge: {
     backgroundColor: '#e0e0e0',
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    minWidth: 24,
+    paddingVertical: 3,
+    borderRadius: 12,
+    minWidth: 28,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   filterBadgeActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   filterBadgeText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 'bold',
     color: '#666',
   },
