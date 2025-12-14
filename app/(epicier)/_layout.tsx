@@ -238,6 +238,12 @@ function EpicierTabsContent() {
         }}
       />
       <Tabs.Screen
+        name="historique-invitations"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="modifier-promo"
         options={{
           href: null,

@@ -1,17 +1,17 @@
+import { useFocusEffect } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
   Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useFocusEffect } from 'expo-router';
-import { notificationService, Notification } from '../../src/services/notificationService';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { Notification, notificationService } from '../../src/services/notificationService';
 
 type NotificationType = 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO';
 

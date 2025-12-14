@@ -6,13 +6,14 @@ export interface Notification {
   userId: number;
   titre: string;
   message: string;
-  type: 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO';
+  type: 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO' | 'INVITATION';
   isRead: boolean;
   dateCreated: string;
   dateRead?: string;
   data?: {
     orderId?: number;
     epicerieId?: number;
+    clientId?: number;
     [key: string]: any;
   };
 }

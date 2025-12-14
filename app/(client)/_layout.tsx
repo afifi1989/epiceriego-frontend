@@ -158,6 +158,27 @@ function ClientTabsContent() {
       />
 
       <Tabs.Screen
+        name="invitations"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="home"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="factures-paiements"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
         name="settings"
         options={{
           href: null,

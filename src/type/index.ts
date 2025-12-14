@@ -50,6 +50,7 @@ export interface Epicerie {
   prenomGerant?: string;
   emailGerant?: string;
   isActive: boolean;
+  isOpen?: boolean;
   nombreProducts: number;
 }
 
@@ -257,4 +258,66 @@ export interface ChangePasswordRequest {
 export interface DeleteAccountRequest {
   password: string;
   confirmation: string;
+}
+
+export interface ClientInvitation {
+  id: number;
+  status: string;
+  clientName: string;
+  clientEmail: string;
+  createdAt: string;
+  respondedAt: string;
+  clientId: number;
+  epicerieId: number;
+  epicerieName: string;
+}
+
+export interface ClientEpicerieRelation {
+  id: number;
+  clientId: number;
+  epicerieId: number;
+  status: string;
+  createdAt: string;
+  clientNom: string;
+  clientEmail: string;
+  allowCredit: boolean;
+  creditLimit: number;
+}
+
+export interface ClientAccount {
+  id: number;
+  clientId: number;
+  epicerieId: number;
+  creditLimit: number;
+  currentBalance: number;
+  totalPurchases: number;
+  balanceDue: number;
+  totalAdvances: number;
+}
+
+export interface Invoice {
+  id: number;
+  orderId: number;
+  status: string;
+  reference: string;
+  clientId: number;
+  clientNom: string;
+  epicerieId: number;
+  epicerieName: string;
+  amount: number;
+  dueDate: string;
+  createdAt: string;
+  paidAt?: string;
+  paidDate?: string;
+}
+
+export interface Payment {
+  id: number;
+  invoiceId: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  reference: string;
+  createdAt: string;
+  clientId: number;
+  epicerieId: number;
 }

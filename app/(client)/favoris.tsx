@@ -1,19 +1,19 @@
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
   Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { favoritesService } from '../../src/services/favoritesService';
-import { epicerieService } from '../../src/services/epicerieService';
-import { Epicerie } from '../../src/type';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { epicerieService } from '../../src/services/epicerieService';
+import { favoritesService } from '../../src/services/favoritesService';
+import { Epicerie } from '../../src/type';
 
 export default function FavorisScreen() {
   const router = useRouter();

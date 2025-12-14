@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useState, useCallback } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,12 +12,12 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useLanguage } from '../../src/context/LanguageContext';
+import { cartService } from '../../src/services/cartService';
 import { orderService } from '../../src/services/orderService';
 import { paymentService } from '../../src/services/paymentService';
-import { cartService } from '../../src/services/cartService';
 import { CardPaymentDetails, CartItem, DeliveryType, PaymentMethod, SavedPaymentMethod } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
-import { useLanguage } from '../../src/context/LanguageContext';
 
 export default function CartScreen() {
   const router = useRouter();

@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
+  ActivityIndicator,
   Alert,
   ScrollView,
+  StyleSheet,
   Switch,
-  ActivityIndicator,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { epicerieService } from '../../src/services/epicerieService';
 import { Epicerie } from '../../src/type';
 

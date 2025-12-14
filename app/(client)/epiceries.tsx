@@ -12,10 +12,10 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { epicerieService } from '../../src/services/epicerieService';
 import { favoritesService } from '../../src/services/favoritesService';
 import { Epicerie } from '../../src/type';
-import { useLanguage } from '../../src/context/LanguageContext';
 
 type SearchMode = 'proximity' | 'name' | 'address' | 'combined';
 
@@ -475,7 +475,7 @@ export default function EpiceriesScreen() {
         <View style={styles.resultsContainer}>
           {epiceries.length > 0 && (
             <Text style={styles.resultsTitle}>
-              📋 {epiceries.length} {t('epiceries.epiceriesFound', { count: epiceries.length })}
+              📋 {epiceries.length} {t('epiceries.epiceriesFound')}
             </Text>
           )}
           {epiceries.map((item) => (

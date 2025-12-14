@@ -171,4 +171,50 @@ export const productService = {
       throw error.response?.data?.message || 'Erreur lors de la suppression';
     }
   },
+
+  /**
+   * Récupère les produits tendance
+   * TODO: Implémenter la logique côté backend
+   */
+  getTrendingProducts: async (limit: number = 6): Promise<Product[]> => {
+    try {
+      // Pour l'instant, retourne les produits les plus récents
+      const response = await api.get<Product[]>('/products', {
+        params: { limit }
+      });
+      return response.data.slice(0, limit);
+    } catch (error: any) {
+      console.log('Erreur getTrendingProducts:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Récupère les produits récemment consultés
+   * TODO: Implémenter avec AsyncStorage
+   */
+  getRecentlyViewedProducts: async (limit: number = 4): Promise<Product[]> => {
+    try {
+      // Pour l'instant, retourne un tableau vide
+      // TODO: Implémenter la logique de récupération depuis AsyncStorage
+      return [];
+    } catch (error: any) {
+      console.log('Erreur getRecentlyViewedProducts:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Récupère les URLs des images d'un produit
+   * TODO: Implémenter si nécessaire
+   */
+  getImageUrls: async (productId: number): Promise<string[]> => {
+    try {
+      const product = await productService.getProductById(productId);
+      return product.photoUrl ? [product.photoUrl] : [];
+    } catch (error: any) {
+      console.log('Erreur getImageUrls:', error);
+      return [];
+    }
+  },
 };

@@ -389,6 +389,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#f0f0f0',
   },
+  sectionLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
   descriptionText: {
     fontSize: 14,
     lineHeight: 22,

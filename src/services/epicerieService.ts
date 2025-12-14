@@ -401,6 +401,23 @@ export const epicerieService = {
       throw error.message || 'Erreur lors de la suppression de la photo de présentation';
     }
   },
+
+  /**
+   * Récupère les épiceries populaires
+   * TODO: Implémenter la logique côté backend
+   */
+  getPopularEpiceries: async (limit: number = 3): Promise<Epicerie[]> => {
+    try {
+      // Pour l'instant, retourne les épiceries les plus récentes
+      const response = await api.get<Epicerie[]>('/epiceries', {
+        params: { limit }
+      });
+      return response.data.slice(0, limit);
+    } catch (error: any) {
+      console.log('Erreur getPopularEpiceries:', error);
+      return [];
+    }
+  },
 };
 
 /**

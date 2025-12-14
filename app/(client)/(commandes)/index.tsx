@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
   ActivityIndicator,
-  RefreshControl,
   Alert,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { orderService } from '../../../src/services/orderService';
 import { useLanguage } from '../../../src/context/LanguageContext';
+import { orderService } from '../../../src/services/orderService';
 import { Order } from '../../../src/type';
-import { formatPrice, getStatusLabel, getStatusColor } from '../../../src/utils/helpers';
+import { formatPrice, getStatusColor, getStatusLabel } from '../../../src/utils/helpers';
 
 export default function OrdersScreen() {
   const router = useRouter();

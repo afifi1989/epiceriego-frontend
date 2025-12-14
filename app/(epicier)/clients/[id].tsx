@@ -1,25 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
   ActivityIndicator,
   Alert,
-  RefreshControl,
   FlatList,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback } from 'react';
-import { clientManagementService } from '../../../src/services/clientManagementService';
-import { invoiceService } from '../../../src/services/invoiceService';
-import { creditPaymentService } from '../../../src/services/creditPaymentService';
-import { ClientEpicerieRelation, ClientAccount, Invoice } from '../../../src/type';
 import { InvoiceCard } from '../../../src/components/epicier/InvoiceCard';
 import { Colors, FontSizes } from '../../../src/constants/colors';
 import { useLanguage } from '../../../src/context/LanguageContext';
+import { clientManagementService } from '../../../src/services/clientManagementService';
+import { invoiceService } from '../../../src/services/invoiceService';
+import { ClientAccount, ClientEpicerieRelation, Invoice } from '../../../src/type';
 
 type Tab = 'general' | 'invoices' | 'payments' | 'credit';
 
@@ -121,7 +119,7 @@ export default function ClientDetailScreen() {
         { text: 'Annuler', onPress: () => {} },
         {
           text: 'Marquer comme payée',
-          onPress: async (reference) => {
+          onPress: async (reference: any) => {
             try {
               await invoiceService.markInvoiceAsPaid(
                 invoiceId,
