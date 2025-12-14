@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(./gradlew bundleRelease:*)",
+      "Bash(nul)",
+      "Bash(npx expo start --port 8082)",
+      "Bash(ls:*)",
+      "Bash(npx expo start:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git remote remove:*)",
+      "Bash(git init:*)",
+      "Bash(git config:*)",
+      "Bash(git branch:*)",
+      "Bash(npm start)",
+      "Bash(npx expo export:*)",
+      "Bash(npm start:*)",
+      "Bash(find:*)",
+      "Bash(npx tsc:*)",
+      "Bash(taskkill:*)",
+      "Bash(git gc:*)",
+      "Bash(git rm:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

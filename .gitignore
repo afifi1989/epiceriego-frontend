@@ -34,6 +34,9 @@ yarn-error.*
 .env
 .env*.local
 
+# Claude Code local settings
+.claude/settings.local.json
+
 # typescript
 *.tsbuildinfo
 
@@ -60,9 +63,9 @@ nul
 *.tmp
 *.log
 
-# Package locks (optionnel, décommentez si vous voulez les ignorer)
-# package-lock.json
-# yarn.lock
+# Package locks
+package-lock.json
+yarn.lock
 
 # SSL/Certificate files
 *.pem
