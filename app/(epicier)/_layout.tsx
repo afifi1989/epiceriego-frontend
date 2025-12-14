@@ -202,12 +202,6 @@ function EpicierTabsContent() {
         }}
       />
       <Tabs.Screen
-        name="clients"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="commande-prep"
         options={{
           href: null,
@@ -261,8 +255,12 @@ function EpicierTabsContent() {
           href: null,
         }}
       />
-
-
+      <Tabs.Screen
+        name="clients"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
