@@ -139,7 +139,7 @@ export interface OrderItem {
 }
 
 export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
-export type PaymentMethod = 'CASH' | 'CARD';
+export type PaymentMethod = 'CASH' | 'CARD' | 'CLIENT_ACCOUNT';
 
 export interface CardPaymentDetails {
   cardNumber: string;

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { cartService } from '../../src/services/cartService';
+import { clientManagementService } from '../../src/services/clientManagementService';
 import { orderService } from '../../src/services/orderService';
 import { paymentService } from '../../src/services/paymentService';
 import { CardPaymentDetails, CartItem, DeliveryType, PaymentMethod, SavedPaymentMethod } from '../../src/type';
@@ -45,6 +46,16 @@ export default function CartScreen() {
     saveForLater: false,
   });
 
+  // États pour crédit client
+  const [creditInfo, setCreditInfo] = useState<{
+    allowCredit: boolean;
+    creditLimit: number;
+    balanceDue: number;
+    totalAdvances: number;
+    availableCredit: number;
+  } | null>(null);
+  const [loadingCredit, setLoadingCredit] = useState(false);
+
   // Charger le panier CHAQUE FOIS qu'on navigue vers cette page
   useFocusEffect(
     useCallback(() => {
@@ -53,6 +64,11 @@ export default function CartScreen() {
           const savedCart = await cartService.getCart();
           console.log('[CartScreen] 🔄 Panier reloadé au focus:', savedCart.length, 'articles');
           setCart(savedCart);
+
+          // Load credit info if cart has items
+          if (savedCart.length > 0 && savedCart[0].epicerieId) {
+            await loadCreditInfo(savedCart[0].epicerieId);
+          }
         } catch (error) {
           console.error('[CartScreen] ❌ Erreur chargement panier:', error);
         }
@@ -91,6 +107,21 @@ export default function CartScreen() {
       }
     } catch {
       console.log('Pas de cartes enregistrées');
+    }
+  };
+
+  const loadCreditInfo = async (epicerieId: number) => {
+    try {
+      setLoadingCredit(true);
+      console.log('[loadCreditInfo] Chargement info crédit pour épicerie:', epicerieId);
+      const info = await clientManagementService.getCreditInfo(epicerieId);
+      console.log('[loadCreditInfo] Info crédit chargée:', info);
+      setCreditInfo(info);
+    } catch (error) {
+      console.error('[loadCreditInfo] Erreur chargement crédit:', error);
+      setCreditInfo(null);
+    } finally {
+      setLoadingCredit(false);
     }
   };
 
@@ -169,6 +200,23 @@ export default function CartScreen() {
 
     if (paymentMethod === 'CARD' && showCardForm && !validateCardDetails()) {
       return;
+    }
+
+    // Validation du paiement par crédit client
+    if (paymentMethod === 'CLIENT_ACCOUNT') {
+      if (!creditInfo?.allowCredit) {
+        Alert.alert(t('common.error'), t('cart.creditNotAllowed'));
+        return;
+      }
+
+      const orderTotal = getTotal();
+      if (creditInfo.availableCredit < orderTotal) {
+        Alert.alert(
+          t('common.error'),
+          `${t('cart.insufficientCredit')}\n${t('cart.availableCredit')}: ${formatPrice(creditInfo.availableCredit)}\nTotal: ${formatPrice(orderTotal)}`
+        );
+        return;
+      }
     }
 
     setLoading(true);
@@ -257,7 +305,9 @@ export default function CartScreen() {
       }
 
       const deliveryLabel = deliveryType === 'HOME_DELIVERY' ? t('cart.homeDelivery') : t('cart.storePickup');
-      const paymentLabel = paymentMethod === 'CASH' ? t('cart.cash') : t('cart.card');
+      const paymentLabel = paymentMethod === 'CASH' ? t('cart.cash') :
+                          paymentMethod === 'CARD' ? t('cart.card') :
+                          t('cart.clientAccount');
 
       // ✅ Vider le panier après succès
       setCart([]);
@@ -550,6 +600,33 @@ export default function CartScreen() {
     },
     optionButtonTextActive: {
       color: '#4CAF50',
+    },
+    optionButtonDisabled: {
+      opacity: 0.5,
+      backgroundColor: '#f0f0f0',
+    },
+    optionButtonTextDisabled: {
+      color: '#999',
+    },
+    creditInfoContainer: {
+      marginTop: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      backgroundColor: '#f0f7ff',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#d0e7ff',
+    },
+    creditInfoText: {
+      fontSize: 14,
+      color: '#1976D2',
+      fontWeight: '600',
+      marginBottom: 4,
+    },
+    creditWarningText: {
+      fontSize: 13,
+      color: '#f44336',
+      fontWeight: '500',
     },
     input: {
       borderWidth: 1,
@@ -935,7 +1012,53 @@ export default function CartScreen() {
                         {t('cart.bankCard')}
                       </Text>
                     </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.optionButton,
+                        paymentMethod === 'CLIENT_ACCOUNT' && styles.optionButtonActive,
+                        (!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit < getTotal())) && styles.optionButtonDisabled,
+                      ]}
+                      onPress={() => {
+                        if (creditInfo?.allowCredit && creditInfo.availableCredit >= getTotal()) {
+                          setPaymentMethod('CLIENT_ACCOUNT');
+                        }
+                      }}
+                      disabled={!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit < getTotal())}
+                    >
+                      <Text style={styles.optionEmoji}>💰</Text>
+                      <Text
+                        style={[
+                          styles.optionButtonText,
+                          paymentMethod === 'CLIENT_ACCOUNT' && styles.optionButtonTextActive,
+                          (!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit < getTotal())) && styles.optionButtonTextDisabled,
+                        ]}
+                      >
+                        {t('cart.clientAccount')}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
+
+                  {/* Affichage du crédit disponible pour CLIENT_ACCOUNT */}
+                  {creditInfo && (
+                    <View style={styles.creditInfoContainer}>
+                      {creditInfo.allowCredit ? (
+                        <View>
+                          <Text style={styles.creditInfoText}>
+                            {t('cart.availableCredit')}: {formatPrice(creditInfo.availableCredit)}
+                          </Text>
+                          {creditInfo.availableCredit < getTotal() && (
+                            <Text style={styles.creditWarningText}>
+                              {t('cart.insufficientCredit')}
+                            </Text>
+                          )}
+                        </View>
+                      ) : (
+                        <Text style={styles.creditWarningText}>
+                          {t('cart.creditNotAllowed')}
+                        </Text>
+                      )}
+                    </View>
+                  )}
 
                   {/* Cartes ou Formulaire */}
                   {paymentMethod === 'CARD' && (

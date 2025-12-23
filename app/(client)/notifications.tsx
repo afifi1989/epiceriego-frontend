@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { Notification, notificationService } from '../../src/services/notificationService';
+import { clientManagementService } from '../../src/services/clientManagementService';
+import { authService } from '../../src/services/authService';
 
-type NotificationType = 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO';
+type NotificationType = 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO' | 'INVITATION';
 
 interface GroupedNotifications {
   [date: string]: Notification[];
@@ -24,6 +26,7 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<GroupedNotifications>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [processedInvitations, setProcessedInvitations] = useState<Set<number>>(new Set());
 
   useFocusEffect(
     React.useCallback(() => {
@@ -95,6 +98,8 @@ export default function NotificationsScreen() {
         return '⚠️';
       case 'INFO':
         return 'ℹ️';
+      case 'INVITATION':
+        return '✉️';
       default:
         return '📢';
     }
@@ -112,9 +117,156 @@ export default function NotificationsScreen() {
         return '#F44336';
       case 'INFO':
         return '#9C27B0';
+      case 'INVITATION':
+        return '#FF5722';
       default:
         return '#757575';
     }
+  };
+
+  const handleAcceptInvitation = async (notificationId: number) => {
+    try {
+      // Trouver la notification pour extraire les données
+      const notification = Object.values(notifications)
+        .flat()
+        .find(n => n.id === notificationId);
+
+      console.log('[AcceptInvitation] Notification trouvée:', notification);
+      console.log('[AcceptInvitation] Notification.data (brut):', notification?.data);
+
+      if (!notification) {
+        throw new Error('Notification introuvable');
+      }
+
+      if (!notification.data) {
+        console.error('[AcceptInvitation] notification.data est undefined/null');
+        throw new Error('Données de notification manquantes');
+      }
+
+      // Parser les données JSON si c'est une chaîne
+      let notificationData: any;
+      if (typeof notification.data === 'string') {
+        try {
+          notificationData = JSON.parse(notification.data);
+          console.log('[AcceptInvitation] Notification.data parsé:', notificationData);
+        } catch (parseError) {
+          console.error('[AcceptInvitation] Erreur parsing JSON:', parseError);
+          throw new Error('Format de données invalide');
+        }
+      } else {
+        notificationData = notification.data;
+      }
+
+      const epicerieId = notificationData.epicerieId;
+      const currentUser = await authService.getCurrentUser();
+
+      console.log('[AcceptInvitation] epicerieId:', epicerieId);
+      console.log('[AcceptInvitation] currentUser:', currentUser);
+      console.log('[AcceptInvitation] currentUser.userId:', currentUser?.userId);
+
+      if (!epicerieId || !currentUser?.userId) {
+        console.error('[AcceptInvitation] Données manquantes - epicerieId:', epicerieId, 'userId:', currentUser?.userId);
+        throw new Error(`Informations manquantes pour accepter l'invitation (epicerieId: ${epicerieId}, userId: ${currentUser?.userId})`);
+      }
+
+      console.log('[AcceptInvitation] Appel API avec epicerieId:', epicerieId, 'clientId:', currentUser.userId);
+
+      // Appeler le service pour accepter l'invitation
+      await clientManagementService.acceptInvitation(epicerieId, currentUser.userId);
+
+      // Supprimer la notification après acceptation
+      try {
+        await notificationService.deleteNotification(notificationId);
+      } catch (deleteError) {
+        console.warn('[AcceptInvitation] Erreur lors de la suppression de la notification:', deleteError);
+      }
+
+      Alert.alert(t('common.success'), t('notifications.invitationAccepted'));
+
+      // Recharger les notifications pour mettre à jour l'affichage
+      await loadNotifications();
+    } catch (error: any) {
+      console.error('Erreur acceptation invitation:', error);
+
+      // Message d'erreur personnalisé si l'invitation n'est plus en attente
+      let errorMessage = error.message || t('notifications.invitationError');
+      if (error.message && error.message.includes("n'est pas en attente")) {
+        errorMessage = "Cette invitation a déjà été traitée. Veuillez la supprimer ou demander à l'épicier de vous renvoyer une nouvelle invitation.";
+      }
+
+      Alert.alert(t('common.error'), errorMessage);
+    }
+  };
+
+  const handleRejectInvitation = async (notificationId: number) => {
+    Alert.alert(
+      t('notifications.rejectInvitation'),
+      t('notifications.confirmReject'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.reject'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Trouver la notification pour extraire les données
+              const notification = Object.values(notifications)
+                .flat()
+                .find(n => n.id === notificationId);
+
+              if (!notification || !notification.data) {
+                throw new Error('Données de notification manquantes');
+              }
+
+              // Parser les données JSON si c'est une chaîne
+              let notificationData: any;
+              if (typeof notification.data === 'string') {
+                try {
+                  notificationData = JSON.parse(notification.data);
+                } catch (parseError) {
+                  console.error('[RejectInvitation] Erreur parsing JSON:', parseError);
+                  throw new Error('Format de données invalide');
+                }
+              } else {
+                notificationData = notification.data;
+              }
+
+              const epicerieId = notificationData.epicerieId;
+              const currentUser = await authService.getCurrentUser();
+
+              if (!epicerieId || !currentUser?.userId) {
+                throw new Error('Informations manquantes pour refuser l\'invitation');
+              }
+
+              // Appeler le service pour refuser l'invitation
+              await clientManagementService.rejectInvitation(epicerieId, currentUser.userId);
+
+              // Supprimer la notification après refus
+              try {
+                await notificationService.deleteNotification(notificationId);
+              } catch (deleteError) {
+                console.warn('[RejectInvitation] Erreur lors de la suppression de la notification:', deleteError);
+              }
+
+              Alert.alert(t('common.success'), t('notifications.invitationRejected'));
+
+              // Recharger les notifications pour mettre à jour l'affichage
+              await loadNotifications();
+            } catch (error: any) {
+              console.error('Erreur refus invitation:', error);
+
+              // Message d'erreur personnalisé si l'invitation n'est plus en attente
+              let errorMessage = error.message || t('notifications.invitationError');
+              if (error.message && error.message.includes("n'est pas en attente")) {
+                errorMessage = "Cette invitation a déjà été traitée. Veuillez la supprimer ou demander à l'épicier de vous renvoyer une nouvelle invitation.";
+              }
+
+              Alert.alert(t('common.error'), errorMessage);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const onRefresh = () => {
@@ -122,46 +274,85 @@ export default function NotificationsScreen() {
     loadNotifications();
   };
 
-  const renderNotificationCard = (notification: Notification) => (
-    <View key={notification.id} style={styles.notificationCard}>
-      <View style={styles.notificationContent}>
-        <View style={styles.notificationHeader}>
-          <View style={styles.notificationIconContainer}>
-            <Text style={styles.notificationIcon}>
-              {getNotificationIcon(notification.type as NotificationType)}
-            </Text>
-          </View>
-          <View style={styles.notificationTextContainer}>
-            <Text style={styles.notificationTitle}>{notification.titre}</Text>
-            <Text style={styles.notificationMessage}>{notification.message}</Text>
-            <Text style={styles.notificationTime}>
-              {new Date(notification.dateCreated).toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.notificationBadge,
-              {
-                backgroundColor: getNotificationColor(notification.type as NotificationType),
-              },
-            ]}
-          >
-            <Text style={styles.notificationBadgeText}>{notification.type[0]}</Text>
-          </View>
-        </View>
+  const renderNotificationCard = (notification: Notification) => {
+    const isInvitation = notification.type === 'INVITATION';
+    const isProcessed = processedInvitations.has(notification.id);
 
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={() => handleDeleteNotification(notification.id, notification.titre)}
-        >
-          <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
-        </TouchableOpacity>
+    // Vérifier le statut de l'invitation dans les données
+    let invitationStatus = null;
+    if (isInvitation && notification.data) {
+      try {
+        const notificationData = typeof notification.data === 'string'
+          ? JSON.parse(notification.data)
+          : notification.data;
+        invitationStatus = notificationData.status;
+      } catch (e) {
+        console.error('Erreur parsing notification data:', e);
+      }
+    }
+
+    // Afficher les boutons seulement si l'invitation est en attente ET non traitée localement
+    const isPending = !invitationStatus || invitationStatus === 'PENDING' || invitationStatus === 'EN_ATTENTE';
+    const showInvitationActions = isInvitation && !isProcessed && isPending;
+
+    return (
+      <View key={notification.id} style={styles.notificationCard}>
+        <View style={styles.notificationContent}>
+          <View style={styles.notificationHeader}>
+            <View style={styles.notificationIconContainer}>
+              <Text style={styles.notificationIcon}>
+                {getNotificationIcon(notification.type as NotificationType)}
+              </Text>
+            </View>
+            <View style={styles.notificationTextContainer}>
+              <Text style={styles.notificationTitle}>{notification.titre}</Text>
+              <Text style={styles.notificationMessage}>{notification.message}</Text>
+              <Text style={styles.notificationTime}>
+                {new Date(notification.dateCreated).toLocaleTimeString('fr-FR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.notificationBadge,
+                {
+                  backgroundColor: getNotificationColor(notification.type as NotificationType),
+                },
+              ]}
+            >
+              <Text style={styles.notificationBadgeText}>{notification.type[0]}</Text>
+            </View>
+          </View>
+
+          {showInvitationActions ? (
+            <View style={styles.invitationActions}>
+              <TouchableOpacity
+                style={styles.acceptButton}
+                onPress={() => handleAcceptInvitation(notification.id)}
+              >
+                <Text style={styles.acceptButtonText}>✓ {t('notifications.accept')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rejectButton}
+                onPress={() => handleRejectInvitation(notification.id)}
+              >
+                <Text style={styles.rejectButtonText}>✕ {t('notifications.reject')}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+            >
+              <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   if (loading) {
     return (
@@ -340,6 +531,41 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: {
     color: '#d32f2f',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  invitationActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  acceptButton: {
+    flex: 1,
+    backgroundColor: '#e8f5e9',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#a5d6a7',
+  },
+  acceptButtonText: {
+    color: '#2e7d32',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rejectButton: {
+    flex: 1,
+    backgroundColor: '#ffebee',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ef9a9a',
+  },
+  rejectButtonText: {
+    color: '#c62828',
     fontSize: 14,
     fontWeight: '600',
   },

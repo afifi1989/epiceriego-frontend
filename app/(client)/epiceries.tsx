@@ -445,12 +445,12 @@ export default function EpiceriesScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Heart Button */}
+        {/* Favorite Star Button */}
         <TouchableOpacity
           style={[styles.favoriteButton, isFavorite && styles.favoriteButtonActive]}
           onPress={() => handleToggleFavorite(item.id, isFavorite)}
         >
-          <Text style={styles.favoriteIcon}>{isFavorite ? '❤️' : '🤍'}</Text>
+          <Text style={styles.favoriteIcon}>{isFavorite ? '⭐' : '☆'}</Text>
         </TouchableOpacity>
       </View>
     );

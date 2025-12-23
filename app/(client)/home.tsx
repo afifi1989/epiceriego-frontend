@@ -20,6 +20,7 @@ import { epicerieService } from '../../src/services/epicerieService';
 import { productService } from '../../src/services/productService';
 import { Promotion, promotionService } from '../../src/services/promotionService';
 import { Epicerie, Product } from '../../src/type';
+import { FallbackImage } from '../../components/client/FallbackImage';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 50) / 2;
@@ -311,9 +312,16 @@ export default function HomeScreen() {
             // Vérifier si l'image a échoué
             const imageFailed = failedImages[item.id];
 
-            // URL de l'image à afficher
+            // Debug: Afficher l'objet complet
+            console.log('[Home] === Épicerie complète ===');
+            console.log(JSON.stringify(item, null, 2));
+
+            // Utiliser presentationPhotoUrl en priorité, puis photoUrl comme fallback
             const imageUrl = item.presentationPhotoUrl || item.photoUrl;
-            const shouldShowImage = imageUrl && imageUrl.trim() && !imageFailed && !imageUrl.includes('placeholder');
+            // Temporairement: accepter les placeholders pour tester
+            const shouldShowImage = imageUrl && imageUrl.trim() !== '' && !imageFailed;
+            // const shouldShowImage = imageUrl && imageUrl.trim() !== '' && !imageFailed && !imageUrl.includes('placeholder');
+            console.log('[Home] shouldShowImage:', shouldShowImage);
 
             return (
               <TouchableOpacity
@@ -321,8 +329,8 @@ export default function HomeScreen() {
                 onPress={() => handleEpicerieTap(item)}
               >
                 {shouldShowImage ? (
-                  <Image
-                    source={{ uri: imageUrl }}
+                  <FallbackImage
+                    urls={[imageUrl]}
                     style={styles.epicerieImage}
                     resizeMode="cover"
                     onError={() => handleImageError(item.id)}

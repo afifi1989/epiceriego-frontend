@@ -139,7 +139,7 @@ export default function FavorisScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>❤️ {t('favorites.myFavorites')}</Text>
+        <Text style={styles.headerTitle}>⭐ {t('favorites.myFavorites')}</Text>
         <Text style={styles.headerSubtitle}>
           {favorites.length} {favorites.length !== 1 ? t('favorites.epiceries') : t('favorites.epicerie')}
         </Text>

@@ -392,19 +392,121 @@ export default function EpicerieDetailScreen() {
   };
 
   const getCategoryIcon = (categoryName: string) => {
+    const normalizedName = categoryName.toLowerCase().trim();
+
+    // Mapping complet avec recherche par mots-clés
     const icons: Record<string, string> = {
-      "Fruits et Légumes": "🥬",
-      "Viandes et Poissons": "🥩",
-      "Produits Laitiers": "🥛",
-      Épicerie: "🛒",
-      Boissons: "🥤",
-      Surgelés: "❄️",
-      "Pain et Pâtisserie": "🍞",
-      "Hygiène et Beauté": "🧴",
-      Entretien: "🧹",
+      // Fruits et Légumes
+      "fruits et légumes": "🥬",
+      fruits: "🍎",
+      légumes: "🥕",
+      "fruits frais": "🍓",
+      "légumes frais": "🥦",
+      "fruits secs": "🥜",
+      "fruits tropicaux": "🥭",
+
+      // Viandes et Poissons
+      "viandes et poissons": "🥩",
+      viande: "🥩",
+      viandes: "🥩",
+      poisson: "🐟",
+      poissons: "🐟",
+      poulet: "🍗",
+      boeuf: "🥩",
+      agneau: "🍖",
+
+      // Produits Laitiers
+      "produits laitiers": "🥛",
+      lait: "🥛",
+      fromage: "🧀",
+      yaourt: "🥛",
+      yogourt: "🥛",
+      beurre: "🧈",
+      crème: "🥛",
+
+      // Épicerie
+      épicerie: "🛒",
+      "épicerie salée": "🥫",
+      "épicerie sucrée": "🍯",
+      pâtes: "🍝",
+      riz: "🍚",
+      céréales: "🥣",
+      conserves: "🥫",
+      sauces: "🥫",
+      huile: "🫒",
+
+      // Boissons
+      boissons: "🥤",
+      eau: "💧",
+      jus: "🧃",
+      "jus de fruits": "🧃",
+      soda: "🥤",
+      café: "☕",
+      thé: "🍵",
+      alcool: "🍷",
+      vin: "🍷",
+      bière: "🍺",
+
+      // Surgelés
+      surgelés: "❄️",
+      "produits surgelés": "❄️",
+      glace: "🍦",
+      "glaces": "🍦",
+
+      // Pain et Pâtisserie
+      "pain et pâtisserie": "🍞",
+      pain: "🍞",
+      pâtisserie: "🥐",
+      viennoiserie: "🥐",
+      gâteau: "🎂",
+      biscuits: "🍪",
+
+      // Hygiène et Beauté
+      "hygiène et beauté": "🧴",
+      hygiène: "🧴",
+      beauté: "💄",
+      cosmétique: "💄",
+      parfum: "🧴",
+      savon: "🧼",
+      shampoing: "🧴",
+
+      // Entretien
+      entretien: "🧹",
+      ménage: "🧹",
+      nettoyage: "🧽",
+      lessive: "🧺",
+
+      // Bébé et Enfant
+      bébé: "👶",
+      enfant: "👶",
+      "produits bébé": "🍼",
+      couches: "👶",
+
+      // Autres
+      bio: "🌱",
+      "produits bio": "🌱",
+      épices: "🌶️",
+      condiments: "🧂",
+      snacks: "🍿",
+      confiserie: "🍬",
+      chocolat: "🍫",
+
       default: "📦",
     };
-    return icons[categoryName] || icons["default"];
+
+    // Recherche exacte
+    if (icons[normalizedName]) {
+      return icons[normalizedName];
+    }
+
+    // Recherche par mots-clés
+    for (const [key, icon] of Object.entries(icons)) {
+      if (normalizedName.includes(key) || key.includes(normalizedName)) {
+        return icon;
+      }
+    }
+
+    return icons["default"];
   };
 
   const openGoogleMaps = async () => {
@@ -472,14 +574,30 @@ export default function EpicerieDetailScreen() {
     <TouchableOpacity
       style={styles.subCategoryCard}
       onPress={() => handleSubCategoryClick(item)}
+      activeOpacity={0.85}
     >
-      <Text style={styles.subCategoryIcon}>📂</Text>
-      <Text style={styles.subCategoryName}>{item.name}</Text>
-      {item.description && (
-        <Text style={styles.subCategoryDescription}>{item.description}</Text>
-      )}
-      <View style={styles.subCategoryArrow}>
-        <Text style={styles.arrowText}>→</Text>
+      {/* SubCategory Image Background */}
+      <View style={styles.subCategoryImageSection}>
+        <View style={styles.subCategoryImageBg}>
+          <Text style={styles.subCategoryLargeIcon}>
+            {getCategoryIcon(item.name)}
+          </Text>
+        </View>
+        {/* Overlay Gradient Effect */}
+        <View style={styles.subCategoryOverlay} />
+      </View>
+
+      {/* SubCategory Info Section */}
+      <View style={styles.subCategoryContent}>
+        <Text style={styles.subCategoryName}>{item.name}</Text>
+        {item.description && (
+          <Text style={styles.subCategoryDescription} numberOfLines={2}>
+            {item.description}
+          </Text>
+        )}
+        <View style={styles.subCategoryFooter}>
+          <Text style={styles.subCategoryArrowText}>Explorer →</Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -489,9 +607,7 @@ export default function EpicerieDetailScreen() {
   };
 
   const renderProduct = ({ item }: { item: Product }) => {
-    const imageUrls = item.photoUrl
-      ? productService.getImageUrls(item.photoUrl)
-      : [];
+    const imageUrls = item.photoUrl ? [item.photoUrl] : [];
     const isImageLoading = imageLoadingState[item.id] || false;
     const isImageError = imageErrorState[item.id] || false;
 
@@ -624,9 +740,9 @@ export default function EpicerieDetailScreen() {
           <>
             {/* Banner Image */}
             <View style={styles.bannerSection}>
-              {epicerie.photoUrl ? (
+              {epicerie.presentationPhotoUrl ? (
                 <FallbackImage
-                  urls={[epicerie.photoUrl]}
+                  urls={[epicerie.presentationPhotoUrl]}
                   style={styles.bannerImage}
                   resizeMode="cover"
                 />
@@ -1204,7 +1320,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 15,
     width: "48%",
-    height: 260,
+    height: 280,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.12,
@@ -1212,21 +1328,57 @@ const styles = StyleSheet.create({
     elevation: 4,
     flexDirection: "column",
   },
-  subCategoryIcon: {
-    fontSize: 40,
-    marginBottom: 10,
+  subCategoryImageSection: {
+    height: "62%",
+    backgroundColor: "#f0f0f0",
+    position: "relative",
+    overflow: "hidden",
+  },
+  subCategoryImageBg: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#66BB6A",
+  },
+  subCategoryLargeIcon: {
+    fontSize: 80,
+  },
+  subCategoryOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(102, 187, 106, 0.15)",
+  },
+  subCategoryContent: {
+    height: "38%",
+    padding: 14,
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
   },
   subCategoryName: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "bold",
     color: "#333",
-    textAlign: "center",
-    marginBottom: 5,
   },
   subCategoryDescription: {
-    fontSize: 11,
+    fontSize: 12,
     color: "#666",
-    textAlign: "center",
+    lineHeight: 16,
+  },
+  subCategoryFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  subCategoryArrowText: {
+    color: "#66BB6A",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  subCategoryIcon: {
+    fontSize: 40,
     marginBottom: 10,
   },
   subCategoryArrow: {

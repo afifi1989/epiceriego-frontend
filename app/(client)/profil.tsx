@@ -314,6 +314,24 @@ export default function ProfilScreen() {
 
         <TouchableOpacity
           style={styles.actionButton}
+          onPress={() => router.push('/(client)/factures-paiements')}
+        >
+          <Text style={styles.actionIcon}>💳</Text>
+          <Text style={styles.actionText}>{t('profile.myInvoices')}</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(client)/invitations')}
+        >
+          <Text style={styles.actionIcon}>✉️</Text>
+          <Text style={styles.actionText}>{t('profile.myInvitations')}</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
           onPress={() => router.push('/(client)/notifications')}
         >
           <Text style={styles.actionIcon}>📢</Text>

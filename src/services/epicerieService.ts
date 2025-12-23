@@ -164,7 +164,7 @@ export const epicerieService = {
 
   /**
    * Upload la photo de profil de l'épicerie
-   * Utilise fetch API pour supporter les FormData avec les images
+   * Utilise fetch API pour contourner les problèmes HTTPS avec FormData
    */
   uploadProfilePhoto: async (imageUri: string, base64?: string): Promise<Epicerie> => {
     try {
@@ -176,47 +176,43 @@ export const epicerieService = {
       // Créer FormData pour l'upload
       const formData = new FormData();
 
-      // Ajouter l'image
-      if (base64) {
-        // Si on a le base64, utiliser un Blob
-        const blob = base64ToBlob(base64, 'image/jpeg');
-        formData.append('photo', blob, 'profile.jpg');
-      } else {
-        // Sinon, utiliser l'URI directe
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        formData.append('photo', blob, 'profile.jpg');
-      }
+      // Ajouter l'image avec le bon format pour React Native
+      const filename = imageUri.split('/').pop() || 'profile.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
 
-      console.log('[EpicerieService] Envoi avec fetch...');
+      // @ts-ignore - FormData supporte les fichiers sur React Native
+      formData.append('photo', {
+        uri: imageUri,
+        name: filename,
+        type: type,
+      });
 
+      // Utiliser fetch API directement pour FormData
+      // Cela contourne les problèmes HTTPS/SSL avec axios et React Native
       const headers: any = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const uploadResponse = await fetch(
-        `${API_CONFIG.BASE_URL}/epiceries/my-epicerie/photo`,
-        {
-          method: 'POST',
-          headers: headers,
-          body: formData,
-        }
-      );
+      console.log('[EpicerieService] Envoi avec fetch...');
+      const response = await fetch(`${API_CONFIG.BASE_URL}/epiceries/my-epicerie/photo`, {
+        method: 'POST',
+        headers: headers,
+        body: formData,
+      });
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.text();
+      if (!response.ok) {
+        const errorData = await response.text();
         console.error('[EpicerieService] Erreur upload:', {
-          status: uploadResponse.status,
-          statusText: uploadResponse.statusText,
+          status: response.status,
+          statusText: response.statusText,
           body: errorData,
         });
-        throw new Error(
-          `Erreur HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`
-        );
+        throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const responseData = await uploadResponse.json();
+      const responseData = await response.json();
       console.log('[EpicerieService] Photo uploadée avec succès');
       return responseData;
     } catch (error: any) {
@@ -230,11 +226,13 @@ export const epicerieService = {
 
   /**
    * Upload la photo de présentation (bannière) de l'épicerie
-   * Utilise fetch API pour supporter les FormData avec les images
+   * Utilise fetch API pour contourner les problèmes HTTPS avec FormData
    */
   uploadPresentationPhoto: async (epicerieId: number, imageUri: string, base64?: string): Promise<Epicerie> => {
     try {
-      console.log('[EpicerieService] Envoi de la photo de présentation...');
+      console.log('[EpicerieService] === Upload Présentation Photo ===');
+      console.log('[EpicerieService] Epicerie ID:', epicerieId);
+      console.log('[EpicerieService] Image URI:', imageUri);
 
       // Récupérer le token
       const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
@@ -242,26 +240,29 @@ export const epicerieService = {
       // Créer FormData pour l'upload
       const formData = new FormData();
 
-      // Ajouter l'image
-      if (base64) {
-        // Si on a le base64, utiliser un Blob
-        const blob = base64ToBlob(base64, 'image/jpeg');
-        formData.append('photo', blob, 'presentation.jpg');
-      } else {
-        // Sinon, utiliser l'URI directe
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        formData.append('photo', blob, 'presentation.jpg');
-      }
+      // Ajouter l'image avec le bon format pour React Native
+      const filename = imageUri.split('/').pop() || 'presentation.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
 
-      console.log('[EpicerieService] Envoi avec fetch...');
+      // @ts-ignore - FormData supporte les fichiers sur React Native
+      formData.append('photo', {
+        uri: imageUri,
+        name: filename,
+        type: type,
+      });
 
+      console.log('[EpicerieService] FormData créé avec:', { filename, type });
+
+      // Utiliser fetch API directement pour FormData
+      // Cela contourne les problèmes HTTPS/SSL avec axios et React Native
       const headers: any = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const uploadResponse = await fetch(
+      console.log('[EpicerieService] Envoi avec fetch...');
+      const response = await fetch(
         `${API_CONFIG.BASE_URL}/epiceries/${epicerieId}/presentation-photo`,
         {
           method: 'POST',
@@ -270,20 +271,18 @@ export const epicerieService = {
         }
       );
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.text();
+      if (!response.ok) {
+        const errorData = await response.text();
         console.error('[EpicerieService] Erreur upload:', {
-          status: uploadResponse.status,
-          statusText: uploadResponse.statusText,
+          status: response.status,
+          statusText: response.statusText,
           body: errorData,
         });
-        throw new Error(
-          `Erreur HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`
-        );
+        throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const responseData = await uploadResponse.json();
-      console.log('[EpicerieService] Photo de présentation uploadée avec succès');
+      const responseData = await response.json();
+      console.log('[EpicerieService] Photo uploadée avec succès');
       return responseData;
     } catch (error: any) {
       console.error('[EpicerieService] Erreur upload photo de présentation:', {
@@ -296,6 +295,7 @@ export const epicerieService = {
 
   /**
    * Met à jour la photo de présentation (bannière) de l'épicerie
+   * Utilise fetch API pour contourner les problèmes HTTPS avec FormData
    */
   updatePresentationPhoto: async (epicerieId: number, imageUri: string, base64?: string): Promise<Epicerie> => {
     try {
@@ -307,22 +307,26 @@ export const epicerieService = {
       // Créer FormData pour l'upload
       const formData = new FormData();
 
-      // Ajouter l'image
-      if (base64) {
-        const blob = base64ToBlob(base64, 'image/jpeg');
-        formData.append('photo', blob, 'presentation.jpg');
-      } else {
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        formData.append('photo', blob, 'presentation.jpg');
-      }
+      // Ajouter l'image avec le bon format pour React Native
+      const filename = imageUri.split('/').pop() || 'presentation.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const type = match ? `image/${match[1]}` : 'image/jpeg';
 
+      // @ts-ignore - FormData supporte les fichiers sur React Native
+      formData.append('photo', {
+        uri: imageUri,
+        name: filename,
+        type: type,
+      });
+
+      // Utiliser fetch API directement pour FormData
       const headers: any = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const uploadResponse = await fetch(
+      console.log('[EpicerieService] Envoi avec fetch (PUT)...');
+      const response = await fetch(
         `${API_CONFIG.BASE_URL}/epiceries/${epicerieId}/presentation-photo`,
         {
           method: 'PUT',
@@ -331,19 +335,17 @@ export const epicerieService = {
         }
       );
 
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.text();
+      if (!response.ok) {
+        const errorData = await response.text();
         console.error('[EpicerieService] Erreur update:', {
-          status: uploadResponse.status,
-          statusText: uploadResponse.statusText,
+          status: response.status,
+          statusText: response.statusText,
           body: errorData,
         });
-        throw new Error(
-          `Erreur HTTP ${uploadResponse.status}: ${uploadResponse.statusText}`
-        );
+        throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const responseData = await uploadResponse.json();
+      const responseData = await response.json();
       console.log('[EpicerieService] Photo de présentation mise à jour avec succès');
       return responseData;
     } catch (error: any) {
@@ -357,6 +359,7 @@ export const epicerieService = {
 
   /**
    * Supprime la photo de présentation (bannière) de l'épicerie
+   * Utilise fetch API pour contourner les problèmes HTTPS
    */
   deletePresentationPhoto: async (epicerieId: number): Promise<any> => {
     try {
@@ -370,7 +373,7 @@ export const epicerieService = {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const deleteResponse = await fetch(
+      const response = await fetch(
         `${API_CONFIG.BASE_URL}/epiceries/${epicerieId}/presentation-photo`,
         {
           method: 'DELETE',
@@ -378,19 +381,17 @@ export const epicerieService = {
         }
       );
 
-      if (!deleteResponse.ok) {
-        const errorData = await deleteResponse.text();
+      if (!response.ok) {
+        const errorData = await response.text();
         console.error('[EpicerieService] Erreur suppression:', {
-          status: deleteResponse.status,
-          statusText: deleteResponse.statusText,
+          status: response.status,
+          statusText: response.statusText,
           body: errorData,
         });
-        throw new Error(
-          `Erreur HTTP ${deleteResponse.status}: ${deleteResponse.statusText}`
-        );
+        throw new Error(`Erreur HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const responseData = await deleteResponse.json();
+      const responseData = await response.json();
       console.log('[EpicerieService] Photo de présentation supprimée avec succès');
       return responseData;
     } catch (error: any) {
@@ -404,31 +405,16 @@ export const epicerieService = {
 
   /**
    * Récupère les épiceries populaires
-   * TODO: Implémenter la logique côté backend
    */
   getPopularEpiceries: async (limit: number = 3): Promise<Epicerie[]> => {
     try {
-      // Pour l'instant, retourne les épiceries les plus récentes
-      const response = await api.get<Epicerie[]>('/epiceries', {
+      const response = await api.get<Epicerie[]>('/epiceries/popular', {
         params: { limit }
       });
-      return response.data.slice(0, limit);
+      return response.data;
     } catch (error: any) {
       console.log('Erreur getPopularEpiceries:', error);
       return [];
     }
   },
 };
-
-/**
- * Convertit une chaîne base64 en Blob
- */
-function base64ToBlob(base64: string, mimeType: string = 'image/jpeg'): Blob {
-  const byteCharacters = atob(base64);
-  const byteNumbers = new Array(byteCharacters.length);
-  for (let i = 0; i < byteCharacters.length; i++) {
-    byteNumbers[i] = byteCharacters.charCodeAt(i);
-  }
-  const byteArray = new Uint8Array(byteNumbers);
-  return new Blob([byteArray], { type: mimeType });
-}

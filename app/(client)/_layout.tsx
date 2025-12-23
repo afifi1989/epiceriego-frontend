@@ -87,20 +87,20 @@ function ClientTabsContent() {
       }}
     >
       <Tabs.Screen
+        name="home"
+        options={{
+          title: t('client.tabs.home'),
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏠</Text>,
+          headerTitle: t('client.headers.home'),
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+      <Tabs.Screen
         name="epiceries"
         options={{
           title: t('client.tabs.epiceries'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏪</Text>,
           headerTitle: t('client.headers.epiceries'),
-          headerRight: () => <NotificationBadge />,
-        }}
-      />
-      <Tabs.Screen
-        name="favoris"
-        options={{
-          title: t('client.tabs.favorites'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>❤️</Text>,
-          headerTitle: t('client.headers.favorites'),
           headerRight: () => <NotificationBadge />,
         }}
       />
@@ -114,11 +114,11 @@ function ClientTabsContent() {
         }}
       />
       <Tabs.Screen
-        name="(commandes)"
+        name="favoris"
         options={{
-          title: t('client.tabs.orders'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>📦</Text>,
-          headerTitle: t('client.headers.orders'),
+          title: t('client.tabs.favorites'),
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>⭐</Text>,
+          headerTitle: t('client.headers.favorites'),
           headerRight: () => <NotificationBadge />,
         }}
       />
@@ -165,13 +165,6 @@ function ClientTabsContent() {
       />
 
       <Tabs.Screen
-        name="home"
-        options={{
-          href: null,
-        }}
-      />
-
-      <Tabs.Screen
         name="factures-paiements"
         options={{
           href: null,
@@ -180,6 +173,13 @@ function ClientTabsContent() {
 
       <Tabs.Screen
         name="settings"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
+        name="(commandes)"
         options={{
           href: null,
         }}

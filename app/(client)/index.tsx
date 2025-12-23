@@ -5,7 +5,7 @@ export default function ClientHomeScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/(client)/epiceries');
+    router.replace('/(client)/home');
   }, []);
 
   return null;

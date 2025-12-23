@@ -255,6 +255,18 @@ export default function ClientDetailScreen() {
                   {(accountInfo.balanceDue - accountInfo.totalAdvances).toFixed(2)} DH
                 </Text>
               </View>
+
+              <TouchableOpacity
+                style={styles.advanceButton}
+                onPress={() =>
+                  router.push({
+                    pathname: '/(epicier)/clients/enregistrer-avance',
+                    params: { id: clientId.toString() },
+                  })
+                }
+              >
+                <Text style={styles.advanceButtonText}>💰 Enregistrer une avance</Text>
+              </TouchableOpacity>
             </View>
 
             {/* Credit Status */}
@@ -602,6 +614,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: FontSizes.sm,
     fontWeight: '600',
+  },
+  advanceButton: {
+    backgroundColor: '#4CAF50',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  advanceButtonText: {
+    color: '#fff',
+    fontSize: FontSizes.sm,
+    fontWeight: 'bold',
   },
   creditInfoCard: {
     backgroundColor: '#fff',

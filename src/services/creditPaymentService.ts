@@ -9,6 +9,7 @@ export const creditPaymentService = {
   /**
    * Record an advance payment (prepayment by client)
    * @param epicerieId ID of the epicerie
+   * @param clientId ID of the client
    * @param amount Amount of the advance
    * @param paymentMethod Method of payment (CASH/CARD/TRANSFER)
    * @param notes Optional notes
@@ -16,6 +17,7 @@ export const creditPaymentService = {
    */
   recordAdvancePayment: async (
     epicerieId: number,
+    clientId: number,
     amount: number,
     paymentMethod: string = 'CASH',
     notes?: string
@@ -24,9 +26,10 @@ export const creditPaymentService = {
       const response = await api.post<Payment>(
         `/epiceries/${epicerieId}/payments/advance`,
         {
+          clientId,
           amount,
           paymentMethod,
-          notes,
+          reference: notes,
         }
       );
       return response.data;

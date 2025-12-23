@@ -4,6 +4,7 @@ import {
   ClientInvitation,
 } from '../type';
 import api from './api';
+import { authService } from './authService';
 
 /**
  * Client Management Service
@@ -123,7 +124,7 @@ export const clientManagementService = {
   ): Promise<ClientEpicerieRelation> => {
     try {
       const response = await api.put<ClientEpicerieRelation>(
-        `/epiceries/${epicerieId}/clients/invitations/${clientId}/accept`,
+        `/epiceries/${epicerieId}/clients/${clientId}/accept-invitation`,
         {}
       );
       return response.data;
@@ -140,7 +141,7 @@ export const clientManagementService = {
    */
   rejectInvitation: async (epicerieId: number, clientId: number): Promise<void> => {
     try {
-      await api.put(`/epiceries/${epicerieId}/clients/invitations/${clientId}/reject`, {});
+      await api.put(`/epiceries/${epicerieId}/clients/${clientId}/reject-invitation`, {});
     } catch (error: any) {
       console.error('[ClientManagementService] Error rejecting invitation:', error.message);
       throw error.response?.data?.message || 'Erreur lors du rejet de l\'invitation';
@@ -325,6 +326,79 @@ export const clientManagementService = {
     } catch (error: any) {
       console.error('[ClientManagementService] Error getting invitations:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération des invitations';
+    }
+  },
+
+  /**
+   * Get credit information for current client at an epicerie
+   * @param epicerieId ID of the epicerie
+   * @returns Object with creditInfo and allowCredit status
+   */
+  getCreditInfo: async (epicerieId: number): Promise<{
+    allowCredit: boolean;
+    creditLimit: number;
+    balanceDue: number;
+    totalAdvances: number;
+    availableCredit: number;
+  }> => {
+    try {
+      // Get current user
+      const currentUser = await authService.getCurrentUser();
+      if (!currentUser || !currentUser.userId) {
+        throw new Error('User not authenticated');
+      }
+
+      // Get client relationships to check if credit is allowed
+      const relationships = await clientManagementService.getClientRelationships(currentUser.userId);
+      const relationship = relationships.find(r => r.epicerieId === epicerieId);
+
+      if (!relationship || !relationship.allowCredit) {
+        return {
+          allowCredit: false,
+          creditLimit: 0,
+          balanceDue: 0,
+          totalAdvances: 0,
+          availableCredit: 0,
+        };
+      }
+
+      // Get client account for this epicerie
+      const account = await clientManagementService.getClientAccount(epicerieId, currentUser.userId);
+
+      // Calculate available credit: creditLimit - balanceDue + totalAdvances
+      const availableCredit = account.creditLimit - account.balanceDue + account.totalAdvances;
+
+      return {
+        allowCredit: true,
+        creditLimit: account.creditLimit,
+        balanceDue: account.balanceDue,
+        totalAdvances: account.totalAdvances,
+        availableCredit: Math.max(0, availableCredit), // Ensure non-negative
+      };
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error getting credit info:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de la récupération des informations de crédit';
+    }
+  },
+
+  /**
+   * Check if client has enough credit to place an order
+   * @param epicerieId ID of the epicerie
+   * @param orderAmount Amount of the order
+   * @returns True if client can afford the order with credit
+   */
+  canAffordOrder: async (epicerieId: number, orderAmount: number): Promise<boolean> => {
+    try {
+      const creditInfo = await clientManagementService.getCreditInfo(epicerieId);
+
+      if (!creditInfo.allowCredit) {
+        return false;
+      }
+
+      return creditInfo.availableCredit >= orderAmount;
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error checking credit affordability:', error.message);
+      return false; // If error, assume cannot afford
     }
   },
 };

@@ -208,7 +208,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
               </View>
             )}
             <FallbackImage
-              urls={productService.getImageUrls(product.photoUrl)}
+              urls={product.photoUrl ? [product.photoUrl] : []}
               style={[styles.productImage, { opacity: imageLoading ? 0.3 : 1 }]}
               resizeMode="contain"
               onLoadStart={() => {

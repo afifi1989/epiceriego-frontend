@@ -1,7 +1,7 @@
-import { Product } from '../type';
-import api from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
+import { Product } from '../type';
+import api from './api';
 
 export const productService = {
   /**
@@ -208,7 +208,7 @@ export const productService = {
    * Récupère les URLs des images d'un produit
    * TODO: Implémenter si nécessaire
    */
-  getImageUrls: async (productId: number): Promise<string[]> => {
+  getImageUrl: async (productId: number): Promise<string[]> => {
     try {
       const product = await productService.getProductById(productId);
       return product.photoUrl ? [product.photoUrl] : [];
@@ -217,4 +217,13 @@ export const productService = {
       return [];
     }
   },
+  getImageUrls: async (productId: number): Promise<string[]> => {
+    try {
+      const product = await productService.getProductById(productId);
+      return product.photoUrl ? [product.photoUrl] : [];
+    } catch (error: any) {
+      console.log('Erreur getImageUrls:', error);
+      return [];
+    }
+  }
 };
