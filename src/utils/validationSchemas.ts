@@ -156,7 +156,7 @@ export const orderNotesSchema = yup.object().shape({
  * Validate form data and return errors
  */
 export const validateFormData = async (
-  schema: yup.SchemaOf<any>,
+  schema: yup.Schema<any>,
   data: any
 ): Promise<{ [key: string]: string } | null> => {
   try {

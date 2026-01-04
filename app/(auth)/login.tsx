@@ -76,9 +76,33 @@ export default function LoginScreen() {
         console.log('[LoginScreen] 🚗 Redirection vers LIVREUR...');
         router.replace('/(livreur)/deliveries');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('[LoginScreen] ❌ Erreur de connexion:', error);
-      Alert.alert('Erreur de connexion', error as string);
+
+      // Vérifier si le compte n'est pas vérifié
+      if (error.isUnverified) {
+        Alert.alert(
+          'Compte non vérifié',
+          error.message,
+          [
+            {
+              text: 'Vérifier maintenant',
+              onPress: () => {
+                router.push({
+                  pathname: '/(auth)/verify-account',
+                  params: { email: error.email },
+                });
+              },
+            },
+            {
+              text: 'Annuler',
+              style: 'cancel',
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Erreur de connexion', typeof error === 'string' ? error : 'Erreur de connexion');
+      }
     } finally {
       setLoading(false);
     }
@@ -143,7 +167,10 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           {/* Lien mot de passe oublié */}
-          <TouchableOpacity style={styles.forgotPassword}>
+          <TouchableOpacity
+            style={styles.forgotPassword}
+            onPress={() => router.push('/(auth)/forgot-password')}
+          >
             <Text style={styles.forgotPasswordText}>
               Mot de passe oublié ?
             </Text>

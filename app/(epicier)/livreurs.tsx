@@ -149,14 +149,14 @@ export default function LivreursScreen() {
 
     try {
       console.log('[confirmAssign] ✅ Assignation en cours...');
-      setAssigningLivreurId((selectedLivreur as Livreur).id);
+      setAssigningLivreurId((selectedLivreur as Livreur).id ?? null);
       setShowConfirmModal(false);
 
       const livreur = selectedLivreur as Livreur;
 
       await epicierLivreurService.assignLivreur(epicerieId, {
         user: {
-          id: livreur.userId,
+          id: livreur.userId ?? 0,
           nom: livreur.nom,
           email: `${livreur.nom.replace(/\s+/g, '').toLowerCase()}@example.com`,
           telephone: livreur.telephone,
@@ -193,8 +193,8 @@ export default function LivreursScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              setAssigningLivreurId(livreur.id);
-              await epicierLivreurService.unassignLivreur(epicerieId, livreur.id);
+              setAssigningLivreurId(livreur.id ?? null);
+              await epicierLivreurService.unassignLivreur(epicerieId, livreur.id ?? 0);
               Alert.alert('Succès', `${livreur.nom} a été retiré de votre épicerie`);
               await loadLivreurs();
             } catch (error: any) {
@@ -490,7 +490,7 @@ export default function LivreursScreen() {
         livreurs={assignedLivreurs}
         selectedLivreurId={selectedLivreurForOrder}
         isLoading={assigningOrderLivreur}
-        onSelect={(livreur) => setSelectedLivreurForOrder(livreur.id)}
+        onSelect={(livreur) => setSelectedLivreurForOrder(livreur.id ?? null)}
         onConfirm={confirmAssignOrderToLivreur}
         onCancel={() => {
           setShowOrderLivreurModal(false);

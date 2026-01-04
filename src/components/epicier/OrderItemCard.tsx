@@ -80,7 +80,7 @@ export const OrderItemCard: React.FC<OrderItemCardProps> = ({
         activeOpacity={0.7}
       >
         <MaterialCommunityIcons
-          name={statusIcon.icon}
+          name={statusIcon.icon as any}
           size={24}
           color={statusIcon.color}
         />

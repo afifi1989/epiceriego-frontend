@@ -191,9 +191,9 @@ export default function EpicierDashboardScreen() {
             <Text style={styles.actionText}>Produits</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => Alert.alert('Info', 'Statistiques à venir')}
+            onPress={() => router.push('/(epicier)/statistiques')}
           >
             <Text style={styles.actionEmoji}>📊</Text>
             <Text style={styles.actionText}>Statistiques</Text>
@@ -213,6 +213,14 @@ export default function EpicierDashboardScreen() {
           >
             <Text style={styles.actionEmoji}>⚙️</Text>
             <Text style={styles.actionText}>Paramètres</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => router.push('/(epicier)/recharge-offers')}
+          >
+            <Text style={styles.actionEmoji}>📱</Text>
+            <Text style={styles.actionText}>Recharges</Text>
           </TouchableOpacity>
         </View>
       </View>

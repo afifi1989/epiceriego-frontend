@@ -83,7 +83,47 @@ export const creditPaymentService = {
   }> => {
     try {
       const response = await api.get<any>('/payments/my-advances');
-      return response.data;
+
+      console.log('[CreditPaymentService] ========================================');
+      console.log('[CreditPaymentService] GET /payments/my-advances');
+      console.log('[CreditPaymentService] Response status:', response.status);
+      console.log('[CreditPaymentService] Response type:', typeof response.data);
+      console.log('[CreditPaymentService] Raw response:', JSON.stringify(response.data, null, 2));
+      console.log('[CreditPaymentService] ========================================');
+
+      // Handle different response formats
+      const defaultResult = {
+        totalAdvances: 0,
+        availableBalance: 0,
+        usedBalance: 0,
+        byStore: [] as Array<{
+          epicerieId: number;
+          epicerieName: string;
+          totalAdvances: number;
+          availableBalance: number;
+          usedBalance: number;
+        }>,
+      };
+
+      // If response.data is empty or malformed, return default
+      if (!response.data || Object.keys(response.data).length === 0) {
+        console.log('[CreditPaymentService] Empty response, returning defaults');
+        return defaultResult;
+      }
+
+      // If response has the expected structure
+      if ('totalAdvances' in response.data || 'byStore' in response.data) {
+        return {
+          totalAdvances: response.data.totalAdvances || 0,
+          availableBalance: response.data.availableBalance || 0,
+          usedBalance: response.data.usedBalance || 0,
+          byStore: Array.isArray(response.data.byStore) ? response.data.byStore : [],
+        };
+      }
+
+      // If response is wrapped or has unexpected structure
+      console.warn('[CreditPaymentService] Unexpected response format, returning defaults');
+      return defaultResult;
     } catch (error: any) {
       console.error('[CreditPaymentService] Error getting my advances:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération de vos avances';

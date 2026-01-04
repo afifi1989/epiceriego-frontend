@@ -41,7 +41,7 @@ export const useBarcode = () => {
     history: [],
   });
 
-  const scanTimeoutRef = useRef<NodeJS.Timeout>();
+  const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Validate and parse barcode
   const validateBarcode = useCallback(async (barcode: string) => {

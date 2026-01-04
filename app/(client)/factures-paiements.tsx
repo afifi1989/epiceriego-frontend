@@ -94,14 +94,14 @@ export default function FacturesPaiementsScreen() {
   /**
    * Calculate total unpaid
    */
-  const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+  const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
 
   /**
    * Calculate total paid
    */
   const totalPaid = allInvoices
     .filter(inv => inv.status === 'PAID')
-    .reduce((sum, inv) => sum + inv.amount, 0);
+    .reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
 
   if (loading) {
     return (
@@ -139,7 +139,7 @@ export default function FacturesPaiementsScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Avances</Text>
           <Text style={[styles.summaryValue, { color: '#2196F3' }]}>
-            {advances.availableBalance.toFixed(2)} DH
+            {(advances.availableBalance ?? 0).toFixed(2)} DH
           </Text>
           <Text style={styles.summaryCount}>disponibles</Text>
         </View>
@@ -199,7 +199,7 @@ export default function FacturesPaiementsScreen() {
         ListEmptyComponent={
           activeTab === 'advances' ? (
             <View style={styles.advancesContent}>
-              {advances.byStore.length === 0 ? (
+              {!advances.byStore || advances.byStore.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyStateEmoji}>💰</Text>
                   <Text style={styles.emptyStateText}>
@@ -217,7 +217,7 @@ export default function FacturesPaiementsScreen() {
                           {item.epicerieName}
                         </Text>
                         <Text style={styles.advanceTotal}>
-                          {item.totalAdvances.toFixed(2)} DH
+                          {(item.totalAdvances ?? 0).toFixed(2)} DH
                         </Text>
                       </View>
 
@@ -229,7 +229,7 @@ export default function FacturesPaiementsScreen() {
                             { color: '#4CAF50' },
                           ]}
                         >
-                          {item.availableBalance.toFixed(2)} DH
+                          {(item.availableBalance ?? 0).toFixed(2)} DH
                         </Text>
                       </View>
 
@@ -241,7 +241,7 @@ export default function FacturesPaiementsScreen() {
                             { color: '#FF9800' },
                           ]}
                         >
-                          {item.usedBalance.toFixed(2)} DH
+                          {(item.usedBalance ?? 0).toFixed(2)} DH
                         </Text>
                       </View>
                     </View>

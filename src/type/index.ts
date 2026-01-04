@@ -52,6 +52,7 @@ export interface Epicerie {
   isActive: boolean;
   isOpen?: boolean;
   nombreProducts: number;
+  deliveryZones?: string; // JSON string of delivery zones
 }
 
 // Product Units Types
@@ -117,7 +118,10 @@ export interface Product {
   inStock?: boolean;          // Has any unit with stock?
 }
 
+export type CartItemType = 'PRODUCT' | 'RECHARGE';
+
 export interface CartItem {
+  itemType: CartItemType;        // Type d'item: produit ou recharge
   productId: number;
   productNom: string;
   epicerieId: number;            // Store épicerie ID from product
@@ -128,6 +132,12 @@ export interface CartItem {
   pricePerUnit: number;
   totalPrice: number;
   photoUrl?: string;
+
+  // Champs spécifiques pour les recharges téléphoniques
+  rechargeOfferId?: number;      // ID de l'offre de recharge
+  rechargePhoneNumber?: string;  // Numéro à recharger
+  rechargeOperator?: TelecomOperator; // Opérateur télécom
+  rechargeDescription?: string;  // Description de l'offre
 }
 
 export interface OrderItem {
@@ -136,6 +146,11 @@ export interface OrderItem {
   unitId?: number;                // ID of selected unit
   unitLabel?: string;             // Label of selected unit (e.g., "500g", "1kg")
   requestedQuantity?: number;     // Pour weight-based (1.0kg, 0.5L)
+
+  // Champs pour les recharges téléphoniques
+  itemType?: CartItemType;        // Type d'item (PRODUCT par défaut)
+  rechargeOfferId?: number;       // ID de l'offre de recharge
+  rechargePhoneNumber?: string;   // Numéro à recharger
 }
 
 export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
@@ -190,6 +205,8 @@ export interface Order {
   nombreItems: number;
 }
 
+export type OrderItemStatus = 'PENDING' | 'SCANNED' | 'UNAVAILABLE' | 'MODIFIED' | 'COMPLETED';
+
 export interface OrderItemDetail {
   id: number;
   productId: number;
@@ -197,12 +214,24 @@ export interface OrderItemDetail {
   quantite: number;
   prixUnitaire: number;
   total: number;
-  
+
   // NEW - Unit information
   unitId?: number;
   unitLabel?: string;
   unitType?: string;
   productUnit?: ProductUnit;
+
+  // Champs pour les recharges téléphoniques
+  itemType?: CartItemType;
+  rechargeOfferId?: number;
+  rechargePhoneNumber?: string;
+  rechargeOperator?: TelecomOperator;
+  rechargeDescription?: string;
+
+  // Préparation de commande
+  status?: OrderItemStatus;
+  isComplete?: boolean;
+  quantityActual?: number; // Quantité réelle après scan (pour produits au poids)
 }
 
 export interface Delivery {
@@ -320,4 +349,223 @@ export interface Payment {
   createdAt: string;
   clientId: number;
   epicerieId: number;
+}
+
+export interface PaymentCreateRequest {
+  invoiceId?: number;
+  clientId?: number;
+  epicerieId?: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  reference?: string;
+}
+
+export interface InvoiceCreateRequest {
+  orderId?: number;
+  clientId: number;
+  epicerieId: number;
+  amount: number;
+  dueDate?: string;
+  reference?: string;
+}
+
+// === TYPES POUR LES STATISTIQUES ÉPICIER ===
+
+export interface TopProductDTO {
+  productId: number;
+  productName: string;
+  photoUrl?: string;
+  totalQuantitySold: number;
+  totalRevenue: number;
+  orderCount: number;
+}
+
+export interface LowStockProductDTO {
+  productId: number;
+  productName: string;
+  photoUrl?: string;
+  currentStock: number;
+  stockThreshold: number;
+  status: 'OUT_OF_STOCK' | 'LOW_STOCK';
+}
+
+export interface DailyRevenueDTO {
+  date: string;
+  revenue: number;
+  orderCount: number;
+}
+
+export interface TopClientDTO {
+  clientId: number;
+  clientName: string;
+  clientPhone?: string;
+  totalOrders: number;
+  totalSpent: number;
+  lastOrderDate: string;
+}
+
+export interface EpicierStats {
+  // Statistiques globales
+  totalOrders: number;
+  totalRevenue: number;
+  totalClients: number;
+  totalProducts: number;
+
+  // Aujourd'hui
+  todayOrders: number;
+  todayRevenue: number;
+  todayNewClients: number;
+
+  // Cette semaine
+  weekOrders: number;
+  weekRevenue: number;
+  weekNewClients: number;
+
+  // Ce mois
+  monthOrders: number;
+  monthRevenue: number;
+  monthNewClients: number;
+
+  // Moyennes
+  averageOrderValue: number;
+  averageItemsPerOrder: number;
+
+  // Répartition par statut
+  pendingOrders: number;
+  acceptedOrders: number;
+  preparingOrders: number;
+  readyOrders: number;
+  inDeliveryOrders: number;
+  deliveredOrders: number;
+  cancelledOrders: number;
+
+  // Taux
+  acceptanceRate: number;
+  cancellationRate: number;
+  completionRate: number;
+
+  // Détails
+  topProducts: TopProductDTO[];
+  lowStockProducts: LowStockProductDTO[];
+  revenueEvolution: DailyRevenueDTO[];
+  topClients: TopClientDTO[];
+  paymentMethodsDistribution: Record<string, number>;
+  deliveryTypesDistribution: Record<string, number>;
+}
+
+// ============================================
+// TYPES POUR RECHARGES TÉLÉPHONIQUES
+// ============================================
+
+export enum TelecomOperator {
+  INWI = 'INWI',
+  ORANGE = 'ORANGE',
+  IAM = 'IAM',
+  WANA = 'WANA'
+}
+
+export enum RechargeOfferType {
+  SIMPLE = 'SIMPLE',
+  INTERNET = 'INTERNET',
+  APPELS = 'APPELS',
+  MIXTE = 'MIXTE',
+  INTERNATIONAL = 'INTERNATIONAL'
+}
+
+export enum RechargeTransactionStatus {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED',
+  REFUNDED = 'REFUNDED',
+  CANCELLED = 'CANCELLED'
+}
+
+export interface TelecomRechargeOffer {
+  id: number;
+  epicerieId: number;
+  operator: TelecomOperator;
+  operatorDisplayName?: string;
+  offerType: RechargeOfferType;
+  offerTypeDisplayName?: string;
+  amount: number;
+  price: number;
+  description: string;
+  validityDays?: number;
+  enabled: boolean;
+  stockAvailable?: number;
+  operatorProductCode?: string;
+}
+
+export interface TelecomRechargeConfig {
+  id?: number;
+  epicerieId: number;
+  enabled: boolean;
+  commissionPercentage: number;
+  autoApproval: boolean;
+  maxAmountPerDay?: number;
+}
+
+export interface RechargeTransaction {
+  id: number;
+  orderItemId: number;
+  transactionReference: string;
+  phoneNumber: string;
+  amount: number;
+  status: RechargeTransactionStatus;
+  statusDisplayName?: string;
+  operatorTransactionId?: string;
+  errorMessage?: string;
+  refunded: boolean;
+  refundAmount?: number;
+  retryCount: number;
+  maxRetries: number;
+  createdAt: string;
+  processedAt?: string;
+
+  // Infos de l'offre
+  operator: TelecomOperator;
+  operatorName?: string;
+  offerType?: string;
+  offerDescription?: string;
+}
+
+export interface RechargeOrderRequest {
+  orderItemId: number;
+  offerId: number;
+  phoneNumber: string;
+}
+
+// ============================================
+// TYPES POUR VÉRIFICATION D'INSCRIPTION
+// ============================================
+
+export interface RegistrationVerificationResponse {
+  success: boolean;
+  message: string;
+  emailSent?: boolean;
+  smsSent?: boolean;
+  maskedPhone?: string;
+  expiryMinutes?: number;
+  emailVerified?: boolean;
+  smsVerified?: boolean;
+  bothVerified?: boolean;
+  attemptsRemaining?: number;
+  resendCooldownSeconds?: number;
+}
+
+export interface VerifyEmailCodeRequest {
+  email: string;
+  emailOtp: string;
+}
+
+export interface VerifySmsCodeRequest {
+  email: string;
+  smsOtp: string;
+}
+
+export interface UnverifiedLoginResponse {
+  verified: false;
+  message: string;
+  email: string;
 }

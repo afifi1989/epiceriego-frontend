@@ -108,6 +108,12 @@ export default function DetailsCommandeScreen() {
       options.push({ text: 'En préparation', status: 'PREPARING' });
     } else if (order.status === 'PREPARING') {
       options.push({ text: 'Prête', status: 'READY' });
+    } else if (order.status === 'READY') {
+      // Pour les commandes en retrait (PICKUP), l'épicier peut marquer comme livrée
+      if (order.deliveryType === 'PICKUP') {
+        options.push({ text: 'Récupérée par le client', status: 'DELIVERED' });
+      }
+      // Pour les livraisons à domicile, c'est le livreur qui change le statut
     }
 
     if (options.length === 0) {
@@ -239,17 +245,42 @@ export default function DetailsCommandeScreen() {
             {order.items.map((item) => (
               <View key={item.id} style={styles.itemCard}>
                 <View style={styles.itemHeader}>
-                  <Text style={styles.itemName}>{item.productNom}</Text>
+                  <Text style={styles.itemName}>
+                    {item.itemType === 'RECHARGE' ? '📱 ' : ''}
+                    {item.productNom}
+                  </Text>
                   <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
                 </View>
                 <View style={styles.itemDetails}>
-                  <Text style={styles.itemDetail}>
-                    Quantité: {item.quantite}
-                    {item.unitLabel ? ` ${item.unitLabel}` : ''}
-                  </Text>
-                  <Text style={styles.itemDetail}>
-                    Prix unitaire: {formatPrice(item.prixUnitaire)}
-                  </Text>
+                  {item.itemType === 'RECHARGE' ? (
+                    <>
+                      {item.rechargePhoneNumber && (
+                        <Text style={styles.itemDetail}>
+                          ☎️ Numéro: {item.rechargePhoneNumber}
+                        </Text>
+                      )}
+                      {item.rechargeOperator && (
+                        <Text style={styles.itemDetail}>
+                          📡 Opérateur: {item.rechargeOperator}
+                        </Text>
+                      )}
+                      {item.rechargeDescription && (
+                        <Text style={styles.itemDetail}>
+                          💰 {item.rechargeDescription}
+                        </Text>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.itemDetail}>
+                        Quantité: {item.quantite}
+                        {item.unitLabel ? ` ${item.unitLabel}` : ''}
+                      </Text>
+                      <Text style={styles.itemDetail}>
+                        Prix unitaire: {formatPrice(item.prixUnitaire)}
+                      </Text>
+                    </>
+                  )}
                 </View>
               </View>
             ))}
@@ -300,21 +331,35 @@ export default function DetailsCommandeScreen() {
         </View>
       </ScrollView>
 
-      {/* Bouton d'action */}
-      <TouchableOpacity
-        style={[styles.actionButton, updating && styles.actionButtonDisabled]}
-        onPress={showStatusOptions}
-        disabled={updating}
-      >
-        {updating ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <>
-            <MaterialIcons name="edit" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Changer le statut</Text>
-          </>
+      {/* Boutons d'action */}
+      <View style={styles.actionButtonsContainer}>
+        {(order.status === 'ACCEPTED' || order.status === 'PREPARING') && (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.prepareButton]}
+            onPress={() => router.push(`/preparer-commande?orderId=${order.id}` as any)}
+          >
+            <MaterialIcons name="assignment" size={20} color="#fff" />
+            <Text style={styles.actionButtonText}>
+              {order.status === 'ACCEPTED' ? 'Préparer la commande' : 'Continuer la préparation'}
+            </Text>
+          </TouchableOpacity>
         )}
-      </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, updating && styles.actionButtonDisabled]}
+          onPress={showStatusOptions}
+          disabled={updating}
+        >
+          {updating ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <MaterialIcons name="edit" size={20} color="#fff" />
+              <Text style={styles.actionButtonText}>Changer le statut</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
 
       {/* Modal de sélection livreur */}
       <LivreurAssignmentModal
@@ -322,7 +367,7 @@ export default function DetailsCommandeScreen() {
         livreurs={assignedLivreurs}
         selectedLivreurId={selectedLivreurId}
         isLoading={assigningLivreur}
-        onSelect={(livreur) => setSelectedLivreurId(livreur.id)}
+        onSelect={(livreur) => setSelectedLivreurId(livreur.id ?? null)}
         onConfirm={handleAssignLivreur}
         onCancel={() => {
           setShowLivreurModal(false);
@@ -469,7 +514,7 @@ const styles = StyleSheet.create({
   totalRow: {
     borderTopWidth: 1,
     borderTopColor: '#e0e0e0',
-    paddingTopVertical: 12,
+    paddingTop: 12,
   },
   summaryLabel: {
     fontSize: 14,
@@ -495,11 +540,14 @@ const styles = StyleSheet.create({
     color: '#f44336',
     textAlign: 'center',
   },
+  actionButtonsContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
+  },
   actionButton: {
     flexDirection: 'row',
     backgroundColor: '#2196F3',
-    marginHorizontal: 16,
-    marginVertical: 16,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
@@ -510,6 +558,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
+  },
+  prepareButton: {
+    backgroundColor: '#4CAF50',
+    shadowColor: '#4CAF50',
   },
   actionButtonDisabled: {
     backgroundColor: '#ccc',

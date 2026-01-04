@@ -344,15 +344,20 @@ export const clientManagementService = {
     try {
       // Get current user
       const currentUser = await authService.getCurrentUser();
+      console.log('[getCreditInfo] Current user:', currentUser);
       if (!currentUser || !currentUser.userId) {
         throw new Error('User not authenticated');
       }
 
       // Get client relationships to check if credit is allowed
       const relationships = await clientManagementService.getClientRelationships(currentUser.userId);
+      console.log('[getCreditInfo] All relationships count:', relationships.length);
+
       const relationship = relationships.find(r => r.epicerieId === epicerieId);
+      console.log('[getCreditInfo] Found relationship for epicerie', epicerieId, ':', relationship);
 
       if (!relationship || !relationship.allowCredit) {
+        console.log('[getCreditInfo] Credit not allowed. Relationship:', relationship);
         return {
           allowCredit: false,
           creditLimit: 0,
@@ -362,21 +367,41 @@ export const clientManagementService = {
         };
       }
 
-      // Get client account for this epicerie
-      const account = await clientManagementService.getClientAccount(epicerieId, currentUser.userId);
+      // Use creditLimit from relationship as source of truth
+      const creditLimit = relationship.creditLimit || 0;
+      console.log('[getCreditInfo] Credit limit from relationship:', creditLimit);
+
+      // Try to get client account for balanceDue and totalAdvances
+      let balanceDue = 0;
+      let totalAdvances = 0;
+
+      try {
+        const account = await clientManagementService.getClientAccount(epicerieId, currentUser.userId);
+        console.log('[getCreditInfo] Client account loaded:', account);
+
+        // Use account values if available, otherwise use defaults
+        balanceDue = account.balanceDue || 0;
+        totalAdvances = account.totalAdvances || 0;
+      } catch (accountError: any) {
+        console.warn('[getCreditInfo] Could not get client account, using defaults:', accountError?.message || accountError);
+        // Continue with default values (balanceDue = 0, totalAdvances = 0)
+      }
 
       // Calculate available credit: creditLimit - balanceDue + totalAdvances
-      const availableCredit = account.creditLimit - account.balanceDue + account.totalAdvances;
+      const availableCredit = creditLimit - balanceDue + totalAdvances;
+      console.log('[getCreditInfo] Calculation: creditLimit:', creditLimit, '- balanceDue:', balanceDue, '+ totalAdvances:', totalAdvances, '= availableCredit:', availableCredit);
 
       return {
         allowCredit: true,
-        creditLimit: account.creditLimit,
-        balanceDue: account.balanceDue,
-        totalAdvances: account.totalAdvances,
+        creditLimit: creditLimit,
+        balanceDue: balanceDue,
+        totalAdvances: totalAdvances,
         availableCredit: Math.max(0, availableCredit), // Ensure non-negative
       };
     } catch (error: any) {
-      console.error('[ClientManagementService] Error getting credit info:', error.message);
+      console.error('[ClientManagementService] Error getting credit info:', error);
+      console.error('[ClientManagementService] Error message:', error.message);
+      console.error('[ClientManagementService] Error response:', error.response?.data);
       throw error.response?.data?.message || 'Erreur lors de la récupération des informations de crédit';
     }
   },

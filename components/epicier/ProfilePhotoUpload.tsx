@@ -60,7 +60,7 @@ export const ProfilePhotoUpload: React.FC<ProfilePhotoUploadProps> = ({
         });
 
         setSelectedImage(imageUri);
-        onPhotoSelected(imageUri, base64);
+        onPhotoSelected(imageUri, base64 ?? undefined);
       }
     } catch (error) {
       console.error('[ProfilePhotoUpload] Erreur sélection image:', error);
@@ -102,7 +102,7 @@ export const ProfilePhotoUpload: React.FC<ProfilePhotoUploadProps> = ({
         });
 
         setSelectedImage(imageUri);
-        onPhotoSelected(imageUri, base64);
+        onPhotoSelected(imageUri, base64 ?? undefined);
       }
     } catch (error) {
       console.error('[ProfilePhotoUpload] Erreur prise de photo:', error);

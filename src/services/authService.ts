@@ -1,31 +1,22 @@
 import api from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../constants/config';
-import { RegisterRequest, LoginResponse } from '../type';
+import { RegisterRequest, LoginResponse, RegistrationVerificationResponse } from '../type';
 import { cartService } from './cartService';
 
 export const authService = {
   /**
-   * Inscription d'un nouvel utilisateur
+   * Inscription d'un nouvel utilisateur (pas de token retourné - vérification requise)
    */
-  register: async (userData: RegisterRequest, fcmToken: string | null = null): Promise<LoginResponse> => {
+  register: async (userData: RegisterRequest, fcmToken: string | null = null): Promise<RegistrationVerificationResponse> => {
     try {
       // Ajouter le token FCM aux données si fourni
       const dataWithToken = fcmToken ? { ...userData, fcmToken } : userData;
 
-      const response = await api.post<LoginResponse>('/auth/register', dataWithToken);
+      const response = await api.post<RegistrationVerificationResponse>('/auth/register', dataWithToken);
 
-      // Sauvegarder le token et les infos user
-      if (response.data.token) {
-        await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, response.data.token);
-        await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.data));
-        await AsyncStorage.setItem(STORAGE_KEYS.ROLE, response.data.role);
-
-        // Stocker le nom de l'épicerie pour les livreurs
-        if (response.data.epicerieName) {
-          await AsyncStorage.setItem('epicerieName', response.data.epicerieName);
-        }
-      }
+      // PAS de sauvegarde de token - l'utilisateur doit vérifier son compte d'abord
+      console.log('[authService.register] Inscription réussie, vérification requise');
 
       return response.data;
     } catch (error: any) {
@@ -78,6 +69,16 @@ export const authService = {
         data: error.response?.data,
         code: error.code
       });
+
+      // Vérifier si le compte n'est pas vérifié (403 avec verified: false)
+      if (error.response?.status === 403 && error.response?.data?.verified === false) {
+        throw {
+          isUnverified: true,
+          email: error.response.data.email,
+          message: error.response.data.message
+        };
+      }
+
       throw error.response?.data?.message || 'Email ou mot de passe incorrect';
     }
   },

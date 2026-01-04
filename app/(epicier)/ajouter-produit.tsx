@@ -1,4 +1,3 @@
-import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -15,6 +14,9 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { CategoryPicker } from '@/src/components/epicier/CategoryPicker';
+import { getCategoryPath } from '@/src/constants/categories';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Category, categoryService } from '../../src/services/categoryService';
 import { productService } from '../../src/services/productService';
 
@@ -25,6 +27,8 @@ export default function AjouterProduitScreen() {
   const [categoriesTree, setCategoriesTree] = useState<Category[]>([]);
   const [flatCategories, setFlatCategories] = useState<Category[]>([]);
   const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | undefined>();
   const [formData, setFormData] = useState({
     nom: '',
     description: '',
@@ -309,25 +313,29 @@ export default function AjouterProduitScreen() {
             <Text style={styles.label}>
               Catégorie <Text style={styles.required}>*</Text>
             </Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={formData.categoryId}
-                onValueChange={(value) => setFormData({ ...formData, categoryId: value })}
-                style={styles.picker}
-                itemStyle={styles.pickerItem}
-              >
-                <Picker.Item label="-- Sélectionnez une catégorie --" value="" />
-                {flatCategories.map((cat) => (
-                  <Picker.Item 
-                    key={cat.id} 
-                    label={categoryService.getLabelWithIndentation(cat)} 
-                    value={cat.id.toString()} 
-                  />
-                ))}
-              </Picker>
-            </View>
+            <TouchableOpacity
+              style={styles.categoryButton}
+              onPress={() => setShowCategoryPicker(true)}
+            >
+              <MaterialCommunityIcons
+                name="tag"
+                size={20}
+                color="#666"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={[styles.categoryButtonText, !formData.categoryId && styles.placeholderText]}>
+                {formData.categoryId
+                  ? getCategoryPath(parseInt(formData.categoryId), selectedSubcategoryId)
+                  : 'Sélectionner une catégorie'}
+              </Text>
+              <MaterialCommunityIcons
+                name="chevron-down"
+                size={20}
+                color="#666"
+              />
+            </TouchableOpacity>
             <Text style={styles.hint}>
-              💡 Les catégories sont organisées de manière hiérarchique
+              💡 Recherchez et sélectionnez facilement parmi les catégories
             </Text>
           </View>
 
@@ -400,6 +408,18 @@ export default function AjouterProduitScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Enhanced Category Picker */}
+      <CategoryPicker
+        visible={showCategoryPicker}
+        onClose={() => setShowCategoryPicker(false)}
+        onSelect={(categoryId, subcategoryId) => {
+          setFormData({ ...formData, categoryId: categoryId.toString() });
+          setSelectedSubcategoryId(subcategoryId);
+        }}
+        selectedCategoryId={formData.categoryId ? parseInt(formData.categoryId) : undefined}
+        selectedSubcategoryId={selectedSubcategoryId}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -619,5 +639,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  categoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 48,
+  },
+  categoryButtonText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+  },
+  placeholderText: {
+    color: '#999',
   },
 });

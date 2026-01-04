@@ -3,10 +3,12 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -14,6 +16,7 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import { Notification, notificationService } from '../../src/services/notificationService';
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { authService } from '../../src/services/authService';
+import { ratingService, RatingNotificationInfo } from '../../src/services/ratingService';
 
 type NotificationType = 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO' | 'INVITATION';
 
@@ -27,6 +30,11 @@ export default function NotificationsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [processedInvitations, setProcessedInvitations] = useState<Set<number>>(new Set());
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingInfo, setRatingInfo] = useState<RatingNotificationInfo | null>(null);
+  const [selectedRating, setSelectedRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -269,6 +277,108 @@ export default function NotificationsScreen() {
     );
   };
 
+  const handleRateEpicier = async (notificationId: number) => {
+    try {
+      // Trouver la notification pour extraire les données
+      const notification = Object.values(notifications)
+        .flat()
+        .find(n => n.id === notificationId);
+
+      console.log('[RateEpicier] Notification trouvée:', notification);
+
+      if (!notification) {
+        throw new Error('Notification introuvable');
+      }
+
+      if (!notification.data) {
+        throw new Error('Données de notification manquantes');
+      }
+
+      // Parser les données JSON si c'est une chaîne
+      let notificationData: any;
+      if (typeof notification.data === 'string') {
+        try {
+          notificationData = JSON.parse(notification.data);
+          console.log('[RateEpicier] Data parsée:', notificationData);
+        } catch (parseError) {
+          console.error('[RateEpicier] Erreur parsing JSON:', parseError);
+          throw new Error('Format de données invalide');
+        }
+      } else {
+        notificationData = notification.data;
+        console.log('[RateEpicier] Data (objet):', notificationData);
+      }
+
+      // Extraire l'orderId de différentes façons possibles
+      const orderId = notificationData.orderId || notificationData.orderNumber || notificationData.id;
+      console.log('[RateEpicier] OrderId extrait:', orderId);
+
+      if (!orderId) {
+        console.error('[RateEpicier] Données disponibles:', notificationData);
+        throw new Error('ID de commande manquant dans les données de notification');
+      }
+
+      // Récupérer les informations de notation depuis le backend
+      const info = await ratingService.getRatingInfoFromNotification(orderId);
+      console.log('[RateEpicier] Info notation reçue:', info);
+
+      // Vérifier si déjà noté - si oui, empêcher la notation
+      if (info.hasRated && info.existingRating) {
+        Alert.alert(
+          'Déjà noté',
+          `Vous avez déjà noté ${info.epicerieName} avec ${info.existingRating.rating} étoile(s).\n\nVotre commentaire: "${info.existingRating.comment || 'Aucun commentaire'}"`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Première notation - ouvrir le modal
+      setRatingInfo(info);
+      setSelectedRating(0);
+      setRatingComment('');
+      setShowRatingModal(true);
+    } catch (error: any) {
+      console.error('[RateEpicier] Erreur complète:', error);
+      Alert.alert(t('common.error'), error.message || 'Impossible de charger les informations de notation');
+    }
+  };
+
+  const handleSubmitRating = async () => {
+    if (!ratingInfo) return;
+
+    if (selectedRating === 0) {
+      Alert.alert('Erreur', 'Veuillez sélectionner une note');
+      return;
+    }
+
+    try {
+      setSubmittingRating(true);
+      const currentUser = await authService.getCurrentUser();
+
+      if (!currentUser?.userId) {
+        throw new Error('Utilisateur non connecté');
+      }
+
+      await ratingService.addOrUpdateRating({
+        clientId: currentUser.userId,
+        epicerieId: ratingInfo.epicerieId,
+        rating: selectedRating,
+        comment: ratingComment.trim() || undefined,
+      });
+
+      Alert.alert('✅ Merci!', 'Votre avis a été enregistré avec succès.');
+      setShowRatingModal(false);
+      setRatingInfo(null);
+      setSelectedRating(0);
+      setRatingComment('');
+    } catch (error: any) {
+      console.error('Erreur soumission notation:', error);
+      Alert.alert(t('common.error'), error.message || 'Erreur lors de l\'enregistrement de la note');
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     loadNotifications();
@@ -276,16 +386,24 @@ export default function NotificationsScreen() {
 
   const renderNotificationCard = (notification: Notification) => {
     const isInvitation = notification.type === 'INVITATION';
+    const isOrder = notification.type === 'ORDER' || notification.type === 'DELIVERY';
     const isProcessed = processedInvitations.has(notification.id);
 
     // Vérifier le statut de l'invitation dans les données
     let invitationStatus = null;
-    if (isInvitation && notification.data) {
+    let orderStatus = null;
+    if (notification.data) {
       try {
         const notificationData = typeof notification.data === 'string'
           ? JSON.parse(notification.data)
           : notification.data;
-        invitationStatus = notificationData.status;
+
+        if (isInvitation) {
+          invitationStatus = notificationData.status;
+        }
+        if (isOrder) {
+          orderStatus = notificationData.status;
+        }
       } catch (e) {
         console.error('Erreur parsing notification data:', e);
       }
@@ -294,6 +412,9 @@ export default function NotificationsScreen() {
     // Afficher les boutons seulement si l'invitation est en attente ET non traitée localement
     const isPending = !invitationStatus || invitationStatus === 'PENDING' || invitationStatus === 'EN_ATTENTE';
     const showInvitationActions = isInvitation && !isProcessed && isPending;
+
+    // Afficher le bouton de notation UNIQUEMENT pour les commandes livrées
+    const showRatingButton = isOrder && orderStatus === 'DELIVERED';
 
     return (
       <View key={notification.id} style={styles.notificationCard}>
@@ -339,6 +460,21 @@ export default function NotificationsScreen() {
                 onPress={() => handleRejectInvitation(notification.id)}
               >
                 <Text style={styles.rejectButtonText}>✕ {t('notifications.reject')}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : showRatingButton ? (
+            <View style={styles.ratingActions}>
+              <TouchableOpacity
+                style={styles.rateButton}
+                onPress={() => handleRateEpicier(notification.id)}
+              >
+                <Text style={styles.rateButtonText}>⭐ Noter l'épicier</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+              >
+                <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -408,6 +544,77 @@ export default function NotificationsScreen() {
           </View>
         </ScrollView>
       )}
+
+      {/* Modal de notation */}
+      <Modal
+        visible={showRatingModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRatingModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.ratingModalContent}>
+            <View style={styles.ratingModalHeader}>
+              <Text style={styles.ratingModalTitle}>Noter l'épicier</Text>
+              <TouchableOpacity onPress={() => setShowRatingModal(false)}>
+                <Text style={styles.ratingModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {ratingInfo && (
+              <>
+                <Text style={styles.ratingEpicerieName}>{ratingInfo.epicerieName}</Text>
+
+                <View style={styles.starsContainer}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <TouchableOpacity
+                      key={star}
+                      onPress={() => setSelectedRating(star)}
+                      style={styles.starButton}
+                    >
+                      <Text style={styles.starIcon}>
+                        {star <= selectedRating ? '⭐' : '☆'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TextInput
+                  style={styles.ratingCommentInput}
+                  placeholder="Commentaire (optionnel)"
+                  placeholderTextColor="#999"
+                  value={ratingComment}
+                  onChangeText={setRatingComment}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+
+                <View style={styles.ratingModalActions}>
+                  <TouchableOpacity
+                    style={styles.ratingCancelButton}
+                    onPress={() => setShowRatingModal(false)}
+                    disabled={submittingRating}
+                  >
+                    <Text style={styles.ratingCancelButtonText}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.ratingSubmitButton, submittingRating && styles.ratingSubmitButtonDisabled]}
+                    onPress={handleSubmitRating}
+                    disabled={submittingRating}
+                  >
+                    {submittingRating ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.ratingSubmitButtonText}>Envoyer</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -539,6 +746,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
+  ratingActions: {
+    flexDirection: 'column',
+    gap: 10,
+  },
   acceptButton: {
     flex: 1,
     backgroundColor: '#e8f5e9',
@@ -595,5 +806,114 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 16,
     color: '#666',
+  },
+  rateButton: {
+    backgroundColor: '#fff3e0',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ffb74d',
+  },
+  rateButtonText: {
+    color: '#f57c00',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  ratingModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+  },
+  ratingModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  ratingModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  ratingModalClose: {
+    fontSize: 28,
+    color: '#666',
+  },
+  ratingEpicerieName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#4CAF50',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  ratingExistingNote: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 15,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  starsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginVertical: 20,
+  },
+  starButton: {
+    padding: 5,
+  },
+  starIcon: {
+    fontSize: 36,
+  },
+  ratingCommentInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 14,
+    minHeight: 100,
+    marginBottom: 20,
+  },
+  ratingModalActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  ratingCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+  },
+  ratingCancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+  },
+  ratingSubmitButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+  },
+  ratingSubmitButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  ratingSubmitButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

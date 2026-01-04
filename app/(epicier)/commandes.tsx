@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { orderService } from '../../src/services/orderService';
 import { Order } from '../../src/type';
@@ -27,6 +28,14 @@ export default function CommandesScreen() {
   useEffect(() => {
     loadOrders();
   }, []);
+
+  // Recharger les commandes à chaque fois que l'écran reçoit le focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[Commandes] Screen focused - Reloading orders');
+      loadOrders();
+    }, [])
+  );
 
   const loadOrders = async () => {
     try {
@@ -146,20 +155,20 @@ export default function CommandesScreen() {
         {item.status === 'ACCEPTED' && (
           <View style={styles.quickActions}>
             <TouchableOpacity
-              style={[styles.quickBtn, styles.acceptBtn]}
-              onPress={() => handleUpdateStatus(item.id, 'PREPARING')}
+              style={[styles.quickBtn, styles.prepareBtn]}
+              onPress={() => router.push(`/preparer-commande?orderId=${item.id}` as any)}
             >
-              <Text style={styles.quickBtnText}>👨‍🍳 Préparation</Text>
+              <Text style={styles.quickBtnText}>👨‍🍳 Préparer</Text>
             </TouchableOpacity>
           </View>
         )}
         {item.status === 'PREPARING' && (
           <View style={styles.quickActions}>
             <TouchableOpacity
-              style={[styles.quickBtn, styles.acceptBtn]}
-              onPress={() => handleUpdateStatus(item.id, 'READY')}
+              style={[styles.quickBtn, styles.prepareBtn]}
+              onPress={() => router.push(`/preparer-commande?orderId=${item.id}` as any)}
             >
-              <Text style={styles.quickBtnText}>📦 Prête</Text>
+              <Text style={styles.quickBtnText}>👨‍🍳 Continuer</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -374,6 +383,9 @@ const styles = StyleSheet.create({
   },
   acceptBtn: {
     backgroundColor: '#4CAF50',
+  },
+  prepareBtn: {
+    backgroundColor: '#2196F3',
   },
   rejectBtn: {
     backgroundColor: '#f44336',

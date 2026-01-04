@@ -20,18 +20,24 @@ export const cartService = {
         let parsed = JSON.parse(cartJson);
         console.log('[CartService.getCart] Panier parsé:', parsed.length, 'articles');
 
-        // Migration: Fix items that don't have epicerieId (from before the fix)
+        // Migration: Fix items that don't have epicerieId or itemType (from before the fix)
         const migratedCart = parsed.map((item: any) => {
+          let migratedItem = { ...item };
+
+          // Migration: ajouter itemType si manquant (anciens items)
+          if (!item.itemType) {
+            console.warn('[CartService] ⚠️ Item sans itemType détecté:', item.productNom);
+            migratedItem.itemType = 'PRODUCT'; // Par défaut, c'est un produit
+          }
+
           if (!item.epicerieId) {
             console.warn('[CartService] ⚠️ Item sans epicerieId détecté:', item.productNom);
             // Si epicerieId manque, on ne peut pas corriger sans le backend
             // Donc on le marque comme invalide
-            return {
-              ...item,
-              epicerieId: 0, // Invalide - sera rejeté à la checkout
-            };
+            migratedItem.epicerieId = 0; // Invalide - sera rejeté à la checkout
           }
-          return item;
+
+          return migratedItem;
         });
 
         return migratedCart;
@@ -60,25 +66,31 @@ export const cartService = {
   },
 
   /**
-   * Ajoute un produit au panier
+   * Ajoute un produit ou une recharge au panier
    */
   addToCart: async (product: CartItem): Promise<CartItem[]> => {
     try {
       const cart = await cartService.getCart();
 
-      // Chercher si le produit existe déjà avec la même unité
-      const existingIndex = cart.findIndex(item =>
-        item.productId === product.productId &&
-        item.unitId === product.unitId
-      );
-
-      if (existingIndex >= 0) {
-        // Produit existe déjà avec la même unité, augmenter la quantité
-        cart[existingIndex].quantity += product.quantity;
-        cart[existingIndex].totalPrice = cart[existingIndex].pricePerUnit * cart[existingIndex].quantity;
-      } else {
-        // Nouveau produit ou nouvelle unité
+      // Pour les recharges, chaque recharge est unique (pas de regroupement)
+      if (product.itemType === 'RECHARGE') {
         cart.push(product);
+      } else {
+        // Pour les produits, chercher si le produit existe déjà avec la même unité
+        const existingIndex = cart.findIndex(item =>
+          item.itemType === 'PRODUCT' &&
+          item.productId === product.productId &&
+          item.unitId === product.unitId
+        );
+
+        if (existingIndex >= 0) {
+          // Produit existe déjà avec la même unité, augmenter la quantité
+          cart[existingIndex].quantity += product.quantity;
+          cart[existingIndex].totalPrice = cart[existingIndex].pricePerUnit * cart[existingIndex].quantity;
+        } else {
+          // Nouveau produit ou nouvelle unité
+          cart.push(product);
+        }
       }
 
       await cartService.saveCart(cart);
@@ -92,6 +104,7 @@ export const cartService = {
   /**
    * Met à jour la quantité d'un produit
    * Utilise productId et optionnellement unitId pour identifier le produit
+   * Note: Les recharges ne peuvent pas avoir leur quantité modifiée (toujours 1)
    */
   updateQuantity: async (productId: number, delta: number, unitId?: number): Promise<CartItem[]> => {
     try {
@@ -101,6 +114,12 @@ export const cartService = {
           (unitId === undefined || item.unitId === unitId);
 
         if (isSameProduct) {
+          // Les recharges ne peuvent pas être modifiées, seulement supprimées
+          if (item.itemType === 'RECHARGE') {
+            return delta < 0 ? null : item;
+          }
+
+          // Pour les produits normaux
           const newQuantity = item.quantity + delta;
           if (newQuantity > 0) {
             return {

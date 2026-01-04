@@ -4,7 +4,9 @@
  */
 
 import { BarcodeScanner } from '@/src/components/epicier/BarcodeScanner';
+import { CategoryPicker } from '@/src/components/epicier/CategoryPicker';
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/src/constants/colors';
+import { getCategoryPath } from '@/src/constants/categories';
 import barcodeService from '@/src/services/barcodeService';
 import epicierProductService, {
   ProductDetailDTO,
@@ -14,7 +16,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Formik } from 'formik';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -40,17 +42,6 @@ const UNITS = [
   { label: 'Paquet', value: 'PACK' },
 ];
 
-const CATEGORIES = [
-  { id: 1, label: 'Fruits & Légumes' },
-  { id: 2, label: 'Produits laitiers' },
-  { id: 3, label: 'Viandes & Poisson' },
-  { id: 4, label: 'Boulangerie' },
-  { id: 5, label: 'Épicerie sèche' },
-  { id: 6, label: 'Boissons' },
-  { id: 7, label: 'Surgelés' },
-  { id: 8, label: 'Produits bio' },
-];
-
 interface AddEditFormValues {
   nom: string;
   description: string;
@@ -74,7 +65,11 @@ export default function AddEditProductScreen() {
   const [showUnitPicker, setShowUnitPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
-    
+  const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | undefined>();
+
+  // Ref to store Formik's setFieldValue function
+  const setFieldValueRef = useRef<((field: string, value: any) => void) | null>(null);
+
   useEffect(() => {
     if (isEditMode) {
       loadProduct();
@@ -141,29 +136,37 @@ export default function AddEditProductScreen() {
     try {
       setIsSaving(true);
 
-      const productData = {
-        nom: values.nom,
-        description: values.description,
-        prix: parseFloat(values.prix),
-        categoryId: parseInt(values.categoryId),
-        uniteVente: values.uniteVente as 'PIECE' | 'KILOGRAM' | 'GRAM' | 'LITER' | 'MILLILITER' | 'DOZEN' | 'PAIR' | 'PACK',
-        stockThreshold: parseInt(values.stockThreshold),
-        ...(isEditMode
-          ? {} // On edit, don't send stock
-          : { stockInitial: parseInt(values.stockInitial) }),
-        ...(values.codeBarreExterne
-          ? { codeBarreExterne: values.codeBarreExterne }
-          : {}),
-      };
-
       if (isEditMode && productId) {
-        await epicierProductService.updateProduct(Number(productId), productData);
+        const updateData = {
+          nom: values.nom,
+          description: values.description,
+          prix: parseFloat(values.prix),
+          categoryId: parseInt(values.categoryId),
+          uniteVente: values.uniteVente as 'PIECE' | 'KILOGRAM' | 'GRAM' | 'LITER' | 'MILLILITER' | 'DOZEN' | 'PAIR' | 'PACK',
+          stockThreshold: parseInt(values.stockThreshold),
+          ...(values.codeBarreExterne
+            ? { codeBarreExterne: values.codeBarreExterne }
+            : {}),
+        };
+        await epicierProductService.updateProduct(Number(productId), updateData);
         Toast.show({
           type: 'success',
           text1: 'Produit mis à jour',
         });
       } else {
-        await epicierProductService.createProduct(productData);
+        const createData = {
+          nom: values.nom,
+          description: values.description,
+          prix: parseFloat(values.prix),
+          categoryId: parseInt(values.categoryId),
+          uniteVente: values.uniteVente as 'PIECE' | 'KILOGRAM' | 'GRAM' | 'LITER' | 'MILLILITER' | 'DOZEN' | 'PAIR' | 'PACK',
+          stockThreshold: parseInt(values.stockThreshold),
+          stockInitial: parseInt(values.stockInitial),
+          ...(values.codeBarreExterne
+            ? { codeBarreExterne: values.codeBarreExterne }
+            : {}),
+        };
+        await epicierProductService.createProduct(createData);
         Toast.show({
           type: 'success',
           text1: 'Produit créé',
@@ -244,7 +247,11 @@ export default function AddEditProductScreen() {
           onSubmit={handleSubmit}
           enableReinitialize
         >
-          {({ values, errors, touched, handleChange, handleSubmit: formikSubmit }) => (
+          {({ values, errors, touched, handleChange, handleSubmit: formikSubmit, setFieldValue }) => {
+            // Store setFieldValue in ref for use outside Formik
+            setFieldValueRef.current = setFieldValue;
+
+            return (
             <View style={styles.formSection}>
               {/* Product Name */}
               <View style={styles.fieldGroup}>
@@ -336,8 +343,7 @@ export default function AddEditProductScreen() {
                     ]}
                   >
                     {values.categoryId
-                      ? CATEGORIES.find((c) => c.id.toString() === values.categoryId)
-                          ?.label
+                      ? getCategoryPath(parseInt(values.categoryId), selectedSubcategoryId)
                       : 'Sélectionner une catégorie'}
                   </Text>
                   <MaterialCommunityIcons
@@ -389,7 +395,7 @@ export default function AddEditProductScreen() {
 
               {/* Stock Threshold */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>Seuil d'alerte stock *</Text>
+                <Text style={styles.label}>Seuil d&apos;alerte stock *</Text>
                 <View
                   style={[
                     styles.input,
@@ -508,8 +514,21 @@ export default function AddEditProductScreen() {
                   )}
                 </TouchableOpacity>
               </View>
+
+              {/* Enhanced Category Picker */}
+              <CategoryPicker
+                visible={showCategoryPicker}
+                onClose={() => setShowCategoryPicker(false)}
+                onSelect={(categoryId, subcategoryId) => {
+                  setFieldValue('categoryId', categoryId.toString());
+                  setSelectedSubcategoryId(subcategoryId);
+                }}
+                selectedCategoryId={values.categoryId ? parseInt(values.categoryId) : undefined}
+                selectedSubcategoryId={selectedSubcategoryId}
+              />
             </View>
-          )}
+            );
+          }}
         </Formik>
       </ScrollView>
 
@@ -541,48 +560,10 @@ export default function AddEditProductScreen() {
                 <TouchableOpacity
                   style={styles.pickerItem}
                   onPress={() => {
-                    // Set value via Formik - would need context
+                    if (setFieldValueRef.current) {
+                      setFieldValueRef.current('uniteVente', item.value);
+                    }
                     setShowUnitPicker(false);
-                  }}
-                >
-                  <Text style={styles.pickerItemText}>{item.label}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      {/* Category Picker Modal */}
-      <Modal
-        visible={showCategoryPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCategoryPicker(false)}
-      >
-        <View style={styles.pickerModal}>
-          <View style={styles.pickerContent}>
-            <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Catégorie</Text>
-              <TouchableOpacity onPress={() => setShowCategoryPicker(false)}>
-                <MaterialCommunityIcons
-                  name="close"
-                  size={24}
-                  color={Colors.text}
-                />
-              </TouchableOpacity>
-            </View>
-
-            <FlatList
-              data={CATEGORIES}
-              keyExtractor={(item) => item.id.toString()}
-              scrollEnabled={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.pickerItem}
-                  onPress={() => {
-                    // Set value via Formik - would need context
-                    setShowCategoryPicker(false);
                   }}
                 >
                   <Text style={styles.pickerItemText}>{item.label}</Text>

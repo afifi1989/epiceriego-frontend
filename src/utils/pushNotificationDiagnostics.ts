@@ -56,9 +56,9 @@ export const pushNotificationDiagnostics = {
       console.log('Permissions status:', permissions.status);
       console.log('canAskAgain:', permissions.canAskAgain);
       console.log('Statut détaillé:');
-      console.log('  - denied:', permissions.denied);
+      console.log('  - denied:', (permissions as any).denied);
       console.log('  - granted:', permissions.granted);
-      console.log('  - ios.expires:', permissions.ios?.expires);
+      console.log('  - ios.expires:', (permissions.ios as any)?.expires);
 
       if (permissions.status === 'granted') {
         console.log('✅ Permissions ACCORDÉES');

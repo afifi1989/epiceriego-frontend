@@ -44,7 +44,7 @@ export const StockBadge: React.FC<StockBadgeProps> = ({
     >
       {showIcon && (
         <MaterialCommunityIcons
-          name={status.icon}
+          name={status.icon as any}
           size={sizeConfig.iconSize}
           color={Colors.textInverse}
           style={{ marginRight: Spacing.xs }}

@@ -11,6 +11,7 @@ import {
   FlatList,
   Modal,
   Linking,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,6 +29,7 @@ import {
 } from "../../../src/services/categoryService";
 import { epicerieService } from "../../../src/services/epicerieService";
 import { productService } from "../../../src/services/productService";
+import telecomRechargeService from "../../../src/services/telecomRechargeService";
 import { CartItem, Epicerie, Product, ProductUnit } from "../../../src/type";
 import { formatPrice } from "../../../src/utils/helpers";
 
@@ -67,6 +69,7 @@ export default function EpicerieDetailScreen() {
   const [imageErrorState, setImageErrorState] = useState<{
     [key: number]: boolean;
   }>({});
+  const [rechargeEnabled, setRechargeEnabled] = useState(false);
 
   // Définir les fonctions de chargement
   const loadEpicerieInfo = useCallback(async () => {
@@ -75,6 +78,15 @@ export default function EpicerieDetailScreen() {
         typeof id === "string" ? parseInt(id, 10) : parseInt(id[0], 10);
       const data = await epicerieService.getEpicerieById(epicerieId);
       setEpicerie(data);
+
+      // Vérifier si les recharges téléphoniques sont activées
+      try {
+        const rechargeStatus = await telecomRechargeService.checkRechargeStatus(epicerieId);
+        setRechargeEnabled(rechargeStatus);
+      } catch (error) {
+        console.log("Recharges non disponibles pour cette épicerie");
+        setRechargeEnabled(false);
+      }
     } catch (error) {
       console.error("Erreur lors du chargement de l'épicerie:", error);
     }
@@ -312,6 +324,7 @@ export default function EpicerieDetailScreen() {
 
       // Créer un CartItem à partir du Product
       const cartItem: CartItem = {
+        itemType: 'PRODUCT',
         productId: product.id,
         productNom: product.nom,
         epicerieId: product.epicerieId,
@@ -354,6 +367,7 @@ export default function EpicerieDetailScreen() {
 
     try {
       const cartItem: CartItem = {
+        itemType: 'PRODUCT',
         productId: selectedProductForCart.id,
         productNom: selectedProductForCart.nom,
         epicerieId: selectedProductForCart.epicerieId,
@@ -706,6 +720,192 @@ export default function EpicerieDetailScreen() {
     );
   };
 
+  // Composant de header commun pour toutes les listes
+  const renderListHeader = () => (
+    <>
+      {/* Epicerie Presentation Banner */}
+      {epicerie && (
+        <>
+          {/* Banner Image */}
+          <View style={styles.bannerSection}>
+            {epicerie.presentationPhotoUrl ? (
+              <FallbackImage
+                urls={[epicerie.presentationPhotoUrl]}
+                style={styles.bannerImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                style={[styles.bannerImage, styles.bannerImagePlaceholder]}
+              >
+                <Text style={styles.bannerPlaceholderEmoji}>🏪</Text>
+              </View>
+            )}
+            {/* Overlay gradient effect */}
+            <View style={styles.bannerOverlay} />
+
+            {/* Store Info on Banner */}
+            <View style={styles.bannerContent}>
+              <Text style={styles.bannerStoreName}>
+                {epicerie.nomEpicerie}
+              </Text>
+              <TouchableOpacity
+                onPress={openGoogleMaps}
+                style={styles.bannerLocationButton}
+              >
+                <Text style={styles.bannerAddress}>
+                  📍 {epicerie.adresse}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Store Info Card Below Banner */}
+          <View style={styles.storeInfoCard}>
+            <View style={styles.storeInfoItem}>
+              <Text style={styles.storeInfoLabel}>Produits</Text>
+              <Text style={styles.storeInfoValue}>
+                {epicerie.nombreProducts}
+              </Text>
+            </View>
+            {epicerie.description && (
+              <View style={styles.storeDescription}>
+                <Text style={styles.descriptionText}>
+                  {epicerie.description}
+                </Text>
+              </View>
+            )}
+
+            {/* Bouton Recharges téléphoniques */}
+            {rechargeEnabled && (
+              <TouchableOpacity
+                style={styles.rechargeButton}
+                onPress={() => router.push(`/recharges/${epicerie.id}`)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.rechargeButtonContent}>
+                  <Text style={styles.rechargeIcon}>📱</Text>
+                  <View style={styles.rechargeTextContainer}>
+                    <Text style={styles.rechargeButtonTitle}>Recharges téléphoniques</Text>
+                    <Text style={styles.rechargeButtonSubtitle}>Inwi, Orange, IAM, Wana</Text>
+                  </View>
+                  <Text style={styles.rechargeArrow}>→</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+        </>
+      )}
+
+      {/* Mode Selector */}
+      <View style={styles.modeSelector}>
+        <TouchableOpacity
+          style={[
+            styles.modeSelectorButton,
+            searchMode === "categories" && styles.modeSelectorButtonActive,
+          ]}
+          onPress={() => handleSearchModeChange("categories")}
+        >
+          <Text
+            style={[
+              styles.modeSelectorText,
+              searchMode === "categories" && styles.modeSelectorTextActive,
+            ]}
+          >
+            📂 {t("products.byCategories")}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.modeSelectorButton,
+            searchMode === "search" && styles.modeSelectorButtonActive,
+          ]}
+          onPress={() => handleSearchModeChange("search")}
+        >
+          <Text
+            style={[
+              styles.modeSelectorText,
+              searchMode === "search" && styles.modeSelectorTextActive,
+            ]}
+          >
+            🔍 {t("products.directSearch")}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Search Bar (only in search mode) */}
+      {searchMode === "search" && (
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder={t("products.searchPlaceholder")}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholderTextColor="#999"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={() => setSearchQuery("")}
+            >
+              <Text style={styles.clearButtonText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Breadcrumb Navigation (only in categories mode) */}
+      {searchMode === "categories" && (
+        <View style={styles.breadcrumb}>
+          <TouchableOpacity onPress={goBackToCategories}>
+            <Text
+              style={[
+                styles.breadcrumbText,
+                viewMode === "categories" && styles.breadcrumbActive,
+              ]}
+            >
+              📂 {t("products.categories")}
+            </Text>
+          </TouchableOpacity>
+
+          {(viewMode === "subcategories" || viewMode === "products") && (
+            <>
+              <Text style={styles.breadcrumbSeparator}> › </Text>
+              <TouchableOpacity onPress={goBackToSubCategories}>
+                <Text
+                  style={[
+                    styles.breadcrumbText,
+                    viewMode === "subcategories" && styles.breadcrumbActive,
+                  ]}
+                >
+                  {selectedCategory?.name}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {viewMode === "products" && (
+            <>
+              <Text style={styles.breadcrumbSeparator}> › </Text>
+              <Text style={[styles.breadcrumbText, styles.breadcrumbActive]}>
+                {selectedSubCategory?.name}
+              </Text>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* Search Results Header (only in search mode) */}
+      {searchMode === "search" && (
+        <View style={styles.searchResultsHeader}>
+          <Text style={styles.searchResultsText}>
+            {filteredProducts.length} {t("products.productsFound")}
+          </Text>
+        </View>
+      )}
+    </>
+  );
+
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -735,160 +935,6 @@ export default function EpicerieDetailScreen() {
         }}
       />
       <View style={styles.container}>
-        {/* Epicerie Presentation Banner */}
-        {epicerie && (
-          <>
-            {/* Banner Image */}
-            <View style={styles.bannerSection}>
-              {epicerie.presentationPhotoUrl ? (
-                <FallbackImage
-                  urls={[epicerie.presentationPhotoUrl]}
-                  style={styles.bannerImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View
-                  style={[styles.bannerImage, styles.bannerImagePlaceholder]}
-                >
-                  <Text style={styles.bannerPlaceholderEmoji}>🏪</Text>
-                </View>
-              )}
-              {/* Overlay gradient effect */}
-              <View style={styles.bannerOverlay} />
-
-              {/* Store Info on Banner */}
-              <View style={styles.bannerContent}>
-                <Text style={styles.bannerStoreName}>
-                  {epicerie.nomEpicerie}
-                </Text>
-                <TouchableOpacity
-                  onPress={openGoogleMaps}
-                  style={styles.bannerLocationButton}
-                >
-                  <Text style={styles.bannerAddress}>
-                    📍 {epicerie.adresse}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Store Info Card Below Banner */}
-            <View style={styles.storeInfoCard}>
-              <View style={styles.storeInfoItem}>
-                <Text style={styles.storeInfoLabel}>Produits</Text>
-                <Text style={styles.storeInfoValue}>
-                  {epicerie.nombreProducts}
-                </Text>
-              </View>
-              {epicerie.description && (
-                <View style={styles.storeDescription}>
-                  <Text style={styles.descriptionText}>
-                    {epicerie.description}
-                  </Text>
-                </View>
-              )}
-            </View>
-          </>
-        )}
-
-        {/* Mode Selector */}
-        <View style={styles.modeSelector}>
-          <TouchableOpacity
-            style={[
-              styles.modeSelectorButton,
-              searchMode === "categories" && styles.modeSelectorButtonActive,
-            ]}
-            onPress={() => handleSearchModeChange("categories")}
-          >
-            <Text
-              style={[
-                styles.modeSelectorText,
-                searchMode === "categories" && styles.modeSelectorTextActive,
-              ]}
-            >
-              📂 {t("products.byCategories")}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.modeSelectorButton,
-              searchMode === "search" && styles.modeSelectorButtonActive,
-            ]}
-            onPress={() => handleSearchModeChange("search")}
-          >
-            <Text
-              style={[
-                styles.modeSelectorText,
-                searchMode === "search" && styles.modeSelectorTextActive,
-              ]}
-            >
-              🔍 {t("products.directSearch")}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Search Bar (only in search mode) */}
-        {searchMode === "search" && (
-          <View style={styles.searchContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t("products.searchPlaceholder")}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholderTextColor="#999"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity
-                style={styles.clearButton}
-                onPress={() => setSearchQuery("")}
-              >
-                <Text style={styles.clearButtonText}>✕</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Breadcrumb Navigation (only in categories mode) */}
-        {searchMode === "categories" && (
-          <View style={styles.breadcrumb}>
-            <TouchableOpacity onPress={goBackToCategories}>
-              <Text
-                style={[
-                  styles.breadcrumbText,
-                  viewMode === "categories" && styles.breadcrumbActive,
-                ]}
-              >
-                📂 {t("products.categories")}
-              </Text>
-            </TouchableOpacity>
-
-            {(viewMode === "subcategories" || viewMode === "products") && (
-              <>
-                <Text style={styles.breadcrumbSeparator}> › </Text>
-                <TouchableOpacity onPress={goBackToSubCategories}>
-                  <Text
-                    style={[
-                      styles.breadcrumbText,
-                      viewMode === "subcategories" && styles.breadcrumbActive,
-                    ]}
-                  >
-                    {selectedCategory?.name}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {viewMode === "products" && (
-              <>
-                <Text style={styles.breadcrumbSeparator}> › </Text>
-                <Text style={[styles.breadcrumbText, styles.breadcrumbActive]}>
-                  {selectedSubCategory?.name}
-                </Text>
-              </>
-            )}
-          </View>
-        )}
-
         {/* Search Results View */}
         {searchMode === "search" && (
           <FlatList
@@ -902,13 +948,7 @@ export default function EpicerieDetailScreen() {
             scrollEventThrottle={16}
             maxToRenderPerBatch={10}
             updateCellsBatchingPeriod={50}
-            ListHeaderComponent={
-              <View style={styles.searchResultsHeader}>
-                <Text style={styles.searchResultsText}>
-                  {filteredProducts.length} {t("products.productsFound")}
-                </Text>
-              </View>
-            }
+            ListHeaderComponent={renderListHeader}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyEmoji}>🔍</Text>
@@ -934,6 +974,7 @@ export default function EpicerieDetailScreen() {
             numColumns={2}
             contentContainerStyle={styles.gridList}
             columnWrapperStyle={styles.columnWrapper}
+            ListHeaderComponent={renderListHeader}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyEmoji}>📦</Text>
@@ -954,6 +995,7 @@ export default function EpicerieDetailScreen() {
             numColumns={2}
             contentContainerStyle={styles.gridList}
             columnWrapperStyle={styles.columnWrapper}
+            ListHeaderComponent={renderListHeader}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyEmoji}>📂</Text>
@@ -978,6 +1020,7 @@ export default function EpicerieDetailScreen() {
             scrollEventThrottle={16}
             maxToRenderPerBatch={10}
             updateCellsBatchingPeriod={50}
+            ListHeaderComponent={renderListHeader}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyEmoji}>📦</Text>
@@ -1032,10 +1075,16 @@ export default function EpicerieDetailScreen() {
                 <Text style={styles.modalCloseButton}>✕</Text>
               </TouchableOpacity>
             </View>
-            <ProductUnitDisplay
-              product={selectedProductForCart}
-              onAddToCart={handleAddToCartWithUnit}
-            />
+            <ScrollView
+              style={styles.modalScrollView}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={true}
+            >
+              <ProductUnitDisplay
+                product={selectedProductForCart}
+                onAddToCart={handleAddToCartWithUnit}
+              />
+            </ScrollView>
           </View>
         </Modal>
       )}
@@ -1141,6 +1190,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#666",
     lineHeight: 20,
+  },
+  rechargeButton: {
+    marginTop: 12,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    overflow: "hidden",
+  },
+  rechargeButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+  },
+  rechargeIcon: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  rechargeTextContainer: {
+    flex: 1,
+  },
+  rechargeButtonTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 2,
+  },
+  rechargeButtonSubtitle: {
+    fontSize: 12,
+    color: "#666",
+  },
+  rechargeArrow: {
+    fontSize: 20,
+    color: "#4CAF50",
+    fontWeight: "bold",
   },
   modeSelector: {
     flexDirection: "row",
@@ -1606,5 +1690,11 @@ const styles = StyleSheet.create({
   modalCloseButton: {
     fontSize: 28,
     color: "#666",
+  },
+  modalScrollView: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    paddingBottom: 20,
   },
 });

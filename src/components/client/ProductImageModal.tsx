@@ -13,7 +13,6 @@ import {
   PanResponder,
   Animated,
 } from 'react-native';
-import { productService } from '../../services/productService';
 
 interface ProductImageModalProps {
   visible: boolean;
@@ -64,8 +63,6 @@ export const ProductImageModal: React.FC<ProductImageModalProps> = ({
     return null;
   }
 
-  const imageUrl = productService.getImageUrl(photoUrl);
-
   return (
     <Modal visible={visible} transparent={true} animationType="fade">
       <View style={styles.overlay}>
@@ -80,7 +77,7 @@ export const ProductImageModal: React.FC<ProductImageModalProps> = ({
         {/* Image avec zoom */}
         <View style={styles.imageContainer}>
           <Animated.Image
-            source={{ uri: imageUrl }}
+            source={{ uri: photoUrl }}
             style={[
               styles.image,
               {

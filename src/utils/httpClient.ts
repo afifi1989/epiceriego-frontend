@@ -28,7 +28,7 @@ if (isDevelopment) {
 
     console.log(`[HTTPClient] Fetch request: ${typeof url === 'string' ? url : url.toString()}`);
 
-    return originalFetch.apply(global, args)
+    return (originalFetch.apply(global, args as any) as Promise<Response>)
       .catch((error: any) => {
         // Erreurs courantes liées aux certificats
         const isNetworkError = error.message?.includes('Network request failed');
@@ -45,8 +45,7 @@ if (isDevelopment) {
           // Retry une fois après délai
           return new Promise((resolve, reject) => {
             setTimeout(() => {
-              originalFetch
-                .apply(global, args)
+              (originalFetch.apply(global, args as any) as Promise<Response>)
                 .then(resolve)
                 .catch((retryError: any) => {
                   console.error('[HTTPClient] Retry échoué:', retryError.message);
@@ -62,7 +61,7 @@ if (isDevelopment) {
           console.warn('[HTTPClient] Erreur:', error.message);
 
           // Retry une fois
-          return originalFetch.apply(global, args);
+          return originalFetch.apply(global, args as any) as Promise<Response>;
         }
 
         throw error;

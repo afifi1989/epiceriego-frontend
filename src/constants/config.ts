@@ -1,6 +1,6 @@
 export const API_CONFIG = {
   // URL du serveur backend HTTPS
-  BASE_URL: 'https://afifi-mostafa.com:8443/api',
+  BASE_URL: 'https://afifi-mostafa.com/api',
   TIMEOUT: 10000,
 } as const;
 export const STORAGE_KEYS = {

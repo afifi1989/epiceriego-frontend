@@ -73,7 +73,7 @@ export default function ModifierInfosScreen() {
   const handlePhotoSelected = (uri: string, base64?: string) => {
     console.log('[ModifierInfos] Photo sélectionnée');
     setSelectedPhotoUri(uri);
-    setSelectedPhotoBase64(base64 || undefined);
+    setSelectedPhotoBase64(base64 ?? null);
   };
 
   const detectLocation = async () => {
@@ -160,7 +160,7 @@ export default function ModifierInfosScreen() {
         try {
           setUploading(true);
           console.log('[ModifierInfos] Upload de la photo...');
-          await epicerieService.uploadProfilePhoto(selectedPhotoUri, selectedPhotoBase64);
+          await epicerieService.uploadProfilePhoto(selectedPhotoUri, selectedPhotoBase64 ?? undefined);
           setSelectedPhotoUri(null);
           setSelectedPhotoBase64(null);
         } catch (uploadError) {

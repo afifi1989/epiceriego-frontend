@@ -261,6 +261,32 @@ function EpicierTabsContent() {
           href: null,
         }}
       />
+      <Tabs.Screen
+              name="statistiques"
+              options={{
+                href: null,
+              }}
+            />
+
+      <Tabs.Screen
+              name="recharge-config"
+              options={{
+                href: null,
+              }}
+            />
+
+      <Tabs.Screen
+              name="recharge-offers"
+              options={{
+                href: null,
+              }}
+            />
+            <Tabs.Screen
+                          name="preparer-commande"
+                          options={{
+                            href: null,
+                          }}
+                        />
     </Tabs>
   );
 }

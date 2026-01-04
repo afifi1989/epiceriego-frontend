@@ -22,7 +22,12 @@
       "Bash(taskkill:*)",
       "Bash(git gc:*)",
       "Bash(git rm:*)",
-      "Bash(./gradlew build:*)"
+      "Bash(./gradlew build:*)",
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(timeout:*)",
+      "Bash(npm run lint:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

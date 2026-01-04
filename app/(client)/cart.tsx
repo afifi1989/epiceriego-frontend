@@ -244,15 +244,36 @@ export default function CartScreen() {
         return;
       }
 
+      // Séparer les produits et les recharges
+      const recharges = cart.filter(item => item.itemType === 'RECHARGE');
+      const products = cart.filter(item => item.itemType !== 'RECHARGE');
+
+      console.log('[CartScreen] Produits:', products.length, 'Recharges:', recharges.length);
+
       const baseOrderData = {
         epicerieId: epicerieIdFromCart,
-        items: cart.map(item => ({
-          productId: item.productId,
-          quantite: item.quantity,
-          unitId: item.unitId,
-          unitLabel: item.unitLabel,
-          requestedQuantity: item.requestedQuantity,
-        })),
+        items: cart.map((item, index) => {
+          if (item.itemType === 'RECHARGE') {
+            // Pour les recharges, créer un OrderItem spécial
+            return {
+              productId: -(1000 + index), // ID négatif unique pour identification
+              quantite: 1,
+              itemType: 'RECHARGE' as const,
+              rechargeOfferId: item.rechargeOfferId,
+              rechargePhoneNumber: item.rechargePhoneNumber,
+            };
+          } else {
+            // Pour les produits normaux
+            return {
+              productId: item.productId,
+              quantite: item.quantity,
+              unitId: item.unitId,
+              unitLabel: item.unitLabel,
+              requestedQuantity: item.requestedQuantity,
+              itemType: 'PRODUCT' as const,
+            };
+          }
+        }),
         deliveryType: deliveryType,
         adresseLivraison: adresse,
         paymentMethod: paymentMethod,
@@ -271,6 +292,12 @@ export default function CartScreen() {
       console.log('=== RÉPONSE DU SERVEUR ===');
       console.log('Commande créée:', JSON.stringify(response, null, 2));
       console.log('========================');
+
+      // Les recharges téléphoniques seront exécutées par l'épicier pendant la préparation
+      if (recharges.length > 0) {
+        console.log(`ℹ️ Cette commande contient ${recharges.length} recharge(s) téléphonique(s)`);
+        console.log('ℹ️ Les recharges seront exécutées par l\'épicier lors de la préparation de la commande');
+      }
 
       // Si paiement par carte, traiter le paiement
       if (paymentMethod === 'CARD') {
@@ -340,44 +367,63 @@ export default function CartScreen() {
     }
   };
 
-  const renderCartItem = ({ item }: { item: CartItem }) => (
-    <View style={styles.cartItem}>
-      <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{item.productNom}</Text>
-        {item.unitLabel && (
-          <Text style={styles.itemUnit}>{item.unitLabel}</Text>
+  const renderCartItem = ({ item }: { item: CartItem }) => {
+    const isRecharge = item.itemType === 'RECHARGE';
+
+    return (
+      <View style={[styles.cartItem, isRecharge && styles.rechargeItem]}>
+        {isRecharge && (
+          <View style={styles.rechargeIcon}>
+            <Text style={styles.rechargeEmoji}>📱</Text>
+          </View>
         )}
-        <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit || 0)}</Text>
-      </View>
-      <View style={styles.quantityControl}>
+        <View style={styles.itemInfo}>
+          <Text style={styles.itemName}>{item.productNom}</Text>
+          {isRecharge && item.rechargePhoneNumber && (
+            <Text style={styles.rechargePhone}>{item.rechargePhoneNumber}</Text>
+          )}
+          {!isRecharge && item.unitLabel && (
+            <Text style={styles.itemUnit}>{item.unitLabel}</Text>
+          )}
+          <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit || 0)}</Text>
+        </View>
+        {!isRecharge && (
+          <View style={styles.quantityControl}>
+            <TouchableOpacity
+              style={styles.quantityButton}
+              onPress={() => updateQuantity(item.productId, -1, item.unitId)}
+            >
+              <Text style={styles.quantityButtonText}>−</Text>
+            </TouchableOpacity>
+            <Text style={styles.quantity}>{item.quantity}</Text>
+            <TouchableOpacity
+              style={styles.quantityButton}
+              onPress={() => updateQuantity(item.productId, 1, item.unitId)}
+            >
+              <Text style={styles.quantityButtonText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {isRecharge && (
+          <View style={styles.rechargeQuantity}>
+            <Text style={styles.quantity}>x1</Text>
+          </View>
+        )}
         <TouchableOpacity
-          style={styles.quantityButton}
-          onPress={() => updateQuantity(item.productId, -1, item.unitId)}
+          style={styles.removeButton}
+          onPress={() => {
+            cartService.removeFromCart(item.productId, item.unitId);
+            setCart(cart.filter(ci => ci.productId !== item.productId || ci.unitId !== item.unitId));
+          }}
         >
-          <Text style={styles.quantityButtonText}>−</Text>
+          <Text style={styles.removeButtonText}>✕</Text>
         </TouchableOpacity>
-        <Text style={styles.quantity}>{item.quantity}</Text>
-        <TouchableOpacity
-          style={styles.quantityButton}
-          onPress={() => updateQuantity(item.productId, 1, item.unitId)}
-        >
-          <Text style={styles.quantityButtonText}>+</Text>
-        </TouchableOpacity>
+        <Text style={styles.itemTotal}>
+          {formatPrice(item.totalPrice || 0)}
+        </Text>
       </View>
-      <TouchableOpacity
-        style={styles.removeButton}
-        onPress={() => {
-          cartService.removeFromCart(item.productId, item.unitId);
-          setCart(cart.filter(ci => ci.productId !== item.productId || ci.unitId !== item.unitId));
-        }}
-      >
-        <Text style={styles.removeButtonText}>✕</Text>
-      </TouchableOpacity>
-      <Text style={styles.itemTotal}>
-        {formatPrice(item.totalPrice || 0)}
-      </Text>
-    </View>
-  );
+    );
+  };
 
   // Modal de Checkout
   const styles = StyleSheet.create({
@@ -812,6 +858,28 @@ export default function CartScreen() {
     },
     finalizeButton: {
       marginBottom: 40,
+    },
+    rechargeItem: {
+      backgroundColor: '#f0f9ff',
+      borderLeftWidth: 4,
+      borderLeftColor: '#2196F3',
+    },
+    rechargeIcon: {
+      marginRight: 8,
+    },
+    rechargeEmoji: {
+      fontSize: 24,
+    },
+    rechargePhone: {
+      fontSize: 12,
+      color: '#2196F3',
+      fontWeight: '600',
+      marginBottom: 4,
+    },
+    rechargeQuantity: {
+      marginHorizontal: 12,
+      minWidth: 60,
+      alignItems: 'center',
     },
   });
 

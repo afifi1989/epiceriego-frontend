@@ -113,7 +113,7 @@ export default function ProduitsScreen() {
     // Filtre par sous-catégorie
     if (selectedSubCategoryId) {
       filtered = filtered.filter(product =>
-        product.subCategoryId?.toString() === selectedSubCategoryId
+        product.categoryId?.toString() === selectedSubCategoryId
       );
     }
 
@@ -183,18 +183,11 @@ export default function ProduitsScreen() {
         </View>
       </View>
 
-      {(item.categoryName || item.subCategoryName) && (
+      {item.categoryName && (
         <View style={styles.categoryContainer}>
-          {item.categoryName && (
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>🏷️ {item.categoryName}</Text>
-            </View>
-          )}
-          {item.subCategoryName && (
-            <View style={styles.subCategoryBadge}>
-              <Text style={styles.subCategoryText}>📂 {item.subCategoryName}</Text>
-            </View>
-          )}
+          <View style={styles.categoryBadge}>
+            <Text style={styles.categoryText}>🏷️ {item.categoryName}</Text>
+          </View>
         </View>
       )}
 

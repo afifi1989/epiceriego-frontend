@@ -120,36 +120,26 @@ export default function RegisterScreen() {
 
       console.log('[RegisterScreen] 🔐 Appel API d\'inscription...');
 
-      // Appel API avec le token
-      const response = await authService.register(userData, fcmToken);
+      // Appel API (pas de token retourné - vérification requise)
+      const response = await authService.register(userData, null);
 
-      console.log('[RegisterScreen] ✅ Inscription réussie');
-      console.log('[RegisterScreen] Rôle:', response.role);
-      console.log('[RegisterScreen] ⏳ Attente pour assurer la sauvegarde du JWT...');
+      console.log('[RegisterScreen] ✅ Inscription réussie, vérification requise');
 
-      // Attendre un peu pour s'assurer que le JWT est bien sauvegardé en AsyncStorage
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      console.log('[RegisterScreen] ✅ JWT sauvegardé, redirection en cours...');
-
-      // Succès - Redirection selon le rôle
+      // Succès - Redirection vers la vérification
       Alert.alert(
-        'Succès ! 🎉',
-        'Votre compte a été créé avec succès !',
+        'Inscription réussie !',
+        'Nous avons envoyé des codes de vérification par email et SMS. Veuillez les saisir pour activer votre compte.',
         [
           {
             text: 'OK',
             onPress: () => {
-              if (response.role === 'CLIENT') {
-                console.log('[RegisterScreen] 📱 Redirection vers CLIENT...');
-                router.replace('/(client)');
-              } else if (response.role === 'EPICIER') {
-                console.log('[RegisterScreen] 🏪 Redirection vers EPICIER...');
-                router.replace('../(epicier)/dashboard');
-              } else if (response.role === 'LIVREUR') {
-                console.log('[RegisterScreen] 🚗 Redirection vers LIVREUR...');
-                router.replace('/(livreur)/deliveries');
-              }
+              router.push({
+                pathname: '/(auth)/verify-account',
+                params: {
+                  email: email,
+                  maskedPhone: response.maskedPhone || '',
+                },
+              });
             },
           },
         ]

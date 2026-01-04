@@ -184,6 +184,13 @@ function ClientTabsContent() {
           href: null,
         }}
       />
+
+      <Tabs.Screen
+        name="recharges"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

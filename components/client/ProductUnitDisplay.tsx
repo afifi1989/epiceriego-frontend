@@ -240,143 +240,152 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
         {/* Titre */}
         <Text style={styles.mainTitle}>Choisissez votre format</Text>
 
-        {/* Grille d'unités */}
-      <View style={styles.unitsGrid}>
-        {product.units.map((unit) => {
-          const isSelected = unit.id === selectedUnitId;
-          const stockLevel = getStockLevel(unit.stock);
-          const isInStock = unit.isAvailable && unit.stock > 0;
+        {/* Détails de l'unité sélectionnée */}
+        {selectedUnit && (
+          <View style={styles.selectedUnitDetails}>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Format sélectionné:</Text>
+              <Text style={styles.detailValue}>{selectedUnit.label}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Prix unitaire:</Text>
+              <Text style={styles.detailValue}>{selectedUnit.prix.toFixed(2)} DH</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Stock disponible:</Text>
+              <Text style={[
+                styles.detailValue,
+                { color: selectedUnit.stock > 0 ? '#4CAF50' : '#f44336' }
+              ]}>
+                {selectedUnit.stock}
+              </Text>
+            </View>
+          </View>
+        )}
 
-          return (
-            <TouchableOpacity
-              key={unit.id}
-              style={[
-                styles.unitCard,
-                isSelected && styles.unitCardSelected,
-                !isInStock && styles.unitCardDisabled,
-              ]}
-              onPress={() => {
-                setSelectedUnitId(unit.id);
-                setQuantity('1');
-              }}
-              disabled={!isInStock}
-            >
-              {/* Icône de format */}
-              <View style={styles.unitIconContainer}>
-                <Text style={styles.unitIcon}>
-                  {unit.unitType === 'PIECE' ? '📦'
-                    : unit.unitType === 'WEIGHT' ? '⚖️'
-                      : unit.unitType === 'VOLUME' ? '🧃'
-                        : '📏'}
+        {/* Séparateur */}
+        <View style={styles.separator} />
+
+        {/* Grille d'unités */}
+        <View style={styles.unitsGrid}>
+          {product.units.map((unit) => {
+            const isSelected = unit.id === selectedUnitId;
+            const stockLevel = getStockLevel(unit.stock);
+            const isInStock = unit.isAvailable && unit.stock > 0;
+
+            return (
+              <TouchableOpacity
+                key={unit.id}
+                style={[
+                  styles.unitCard,
+                  isSelected && styles.unitCardSelected,
+                  !isInStock && styles.unitCardDisabled,
+                ]}
+                onPress={() => {
+                  setSelectedUnitId(unit.id);
+                  setQuantity('1');
+                }}
+                disabled={!isInStock}
+              >
+                {/* Icône de format */}
+                <View style={styles.unitIconContainer}>
+                  <Text style={styles.unitIcon}>
+                    {unit.unitType === 'PIECE' ? '📦'
+                      : unit.unitType === 'WEIGHT' ? '⚖️'
+                        : unit.unitType === 'VOLUME' ? '🧃'
+                          : '📏'}
+                  </Text>
+                </View>
+
+                {/* Label */}
+                <Text style={[styles.unitLabel, !isInStock && styles.unitLabelDisabled]}>
+                  {unit.label}
                 </Text>
+
+                {/* Prix */}
+                <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled]}>
+                  {unit.prix.toFixed(2)} DH
+                </Text>
+
+                {/* Badge stock */}
+                {isInStock ? (
+                  <View style={[styles.stockBadge, { backgroundColor: stockLevel.color }]}>
+                    <Text style={styles.stockBadgeText}>{stockLevel.label}</Text>
+                  </View>
+                ) : (
+                  <View style={styles.stockBadgeOOS}>
+                    <Text style={styles.stockBadgeTextOOS}>Rupture</Text>
+                  </View>
+                )}
+
+                {/* Indicateur de sélection */}
+                {isSelected && (
+                  <View style={styles.checkmark}>
+                    <MaterialIcons name="check-circle" size={28} color="#4CAF50" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Séparateur visuel */}
+        <View style={styles.sectionDivider} />
+
+        {/* Section d'achat - Conteneur séparé */}
+        <View style={styles.purchaseSection}>
+          {/* Sélecteur de quantité */}
+          <View style={styles.quantitySection}>
+            <Text style={styles.sectionTitle}>Quantité</Text>
+            <View style={styles.quantityRow}>
+              <View style={styles.quantityControl}>
+                <TouchableOpacity
+                  style={styles.quantityButton}
+                  onPress={() => updateQuantity(-1)}
+                >
+                  <MaterialIcons name="remove" size={20} color="#333" />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.quantityInput}
+                  value={quantity}
+                  onChangeText={setQuantity}
+                  keyboardType="decimal-pad"
+                  placeholder="1"
+                  placeholderTextColor="#999"
+                />
+                <TouchableOpacity
+                  style={styles.quantityButton}
+                  onPress={() => updateQuantity(1)}
+                >
+                  <MaterialIcons name="add" size={20} color="#333" />
+                </TouchableOpacity>
               </View>
 
-              {/* Label */}
-              <Text style={[styles.unitLabel, !isInStock && styles.unitLabelDisabled]}>
-                {unit.label}
-              </Text>
-
-              {/* Prix */}
-              <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled]}>
-                {unit.prix.toFixed(2)} DH
-              </Text>
-
-              {/* Badge stock */}
-              {isInStock ? (
-                <View style={[styles.stockBadge, { backgroundColor: stockLevel.color }]}>
-                  <Text style={styles.stockBadgeText}>{stockLevel.label}</Text>
-                </View>
-              ) : (
-                <View style={styles.stockBadgeOOS}>
-                  <Text style={styles.stockBadgeTextOOS}>Rupture</Text>
-                </View>
-              )}
-
-              {/* Indicateur de sélection */}
-              {isSelected && (
-                <View style={styles.checkmark}>
-                  <MaterialIcons name="check-circle" size={28} color="#4CAF50" />
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Détails de l'unité sélectionnée */}
-      {selectedUnit && (
-        <View style={styles.selectedUnitDetails}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Format sélectionné:</Text>
-            <Text style={styles.detailValue}>{selectedUnit.label}</Text>
+              {/* Affichage du prix total */}
+              <View style={styles.totalPriceBox}>
+                <Text style={styles.totalPriceLabel}>Total</Text>
+                <Text style={styles.totalPrice}>{getTotalPrice().toFixed(2)} DH</Text>
+              </View>
+            </View>
           </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Prix unitaire:</Text>
-            <Text style={styles.detailValue}>{selectedUnit.prix.toFixed(2)} DH</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Stock disponible:</Text>
-            <Text style={[
-              styles.detailValue,
-              { color: selectedUnit.stock > 0 ? '#4CAF50' : '#f44336' }
-            ]}>
-              {selectedUnit.stock}
-            </Text>
-          </View>
+
+          {/* Bouton ajouter au panier */}
+          <TouchableOpacity
+            style={[
+              styles.addButton,
+              !canOrderNow() && styles.addButtonDisabled,
+            ]}
+            onPress={handleAddToCart}
+            disabled={!canOrderNow()}
+          >
+            <MaterialIcons name="add-shopping-cart" size={24} color="#fff" />
+            <Text style={styles.addButtonText}>Ajouter au panier</Text>
+          </TouchableOpacity>
+
+          {!canOrderNow() && (
+            <Text style={styles.errorText}>Stock insuffisant pour cette quantité</Text>
+          )}
         </View>
-      )}
-
-      {/* Sélecteur de quantité */}
-      <View style={styles.quantitySection}>
-        <Text style={styles.sectionTitle}>Quantité</Text>
-        <View style={styles.quantityRow}>
-          <View style={styles.quantityControl}>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => updateQuantity(-1)}
-            >
-              <MaterialIcons name="remove" size={20} color="#333" />
-            </TouchableOpacity>
-            <TextInput
-              style={styles.quantityInput}
-              value={quantity}
-              onChangeText={setQuantity}
-              keyboardType="decimal-pad"
-              placeholder="1"
-              placeholderTextColor="#999"
-            />
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => updateQuantity(1)}
-            >
-              <MaterialIcons name="add" size={20} color="#333" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Affichage du prix total */}
-          <View style={styles.totalPriceBox}>
-            <Text style={styles.totalPriceLabel}>Total</Text>
-            <Text style={styles.totalPrice}>{getTotalPrice().toFixed(2)} DH</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Bouton ajouter au panier */}
-      <TouchableOpacity
-        style={[
-          styles.addButton,
-          !canOrderNow() && styles.addButtonDisabled,
-        ]}
-        onPress={handleAddToCart}
-        disabled={!canOrderNow()}
-      >
-        <MaterialIcons name="add-shopping-cart" size={24} color="#fff" />
-        <Text style={styles.addButtonText}>Ajouter au panier</Text>
-      </TouchableOpacity>
-
-      {!canOrderNow() && (
-        <Text style={styles.errorText}>Stock insuffisant pour cette quantité</Text>
-      )}
       </View>
     </>
   );
@@ -386,6 +395,7 @@ const styles = StyleSheet.create({
   container: {
     padding: 16,
     backgroundColor: '#fff',
+    flexDirection: 'column',
   },
 
   /* === IMAGE SECTION === */
@@ -489,12 +499,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    marginTop: 0,
     marginBottom: 20,
+    width: '100%',
+    paddingBottom: 0,
+    flexShrink: 0,
   },
 
   unitCard: {
-    flex: 1,
-    minWidth: '45%',
+    width: '48%',
     backgroundColor: '#f9f9f9',
     borderRadius: 12,
     padding: 12,
@@ -502,6 +515,7 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
 
   unitCardSelected: {
@@ -582,10 +596,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f8ff',
     borderRadius: 8,
     padding: 12,
-    marginTop: 16,
-    marginBottom: 16,
+    marginBottom: 0,
     borderLeftWidth: 4,
     borderLeftColor: '#4CAF50',
+    flexShrink: 0,
+  },
+
+  separator: {
+    height: 20,
+    width: '100%',
+  },
+
+  sectionDivider: {
+    height: 1,
+    width: '100%',
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+
+  purchaseSection: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+    flexShrink: 0,
   },
 
   detailRow: {
@@ -608,7 +642,7 @@ const styles = StyleSheet.create({
 
   /* === QUANTITY SECTION === */
   quantitySection: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
 
   sectionTitle: {
