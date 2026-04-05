@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useRequirePermission } from '../../src/hooks/useRequirePermission';
 import {
   View,
   Text,
@@ -19,14 +20,17 @@ import { epicerieService } from '../../src/services/epicerieService';
 import { ShopHoursManager, ShopHours } from '../../components/epicier/ShopHoursManager';
 
 export default function ShopHoursScreen() {
+  const ready = useRequirePermission('settings:edit');
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hours, setHours] = useState<ShopHours>({});
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (ready) loadData();
+  }, [ready]);
+
+  if (!ready) return null;
 
   const loadData = async () => {
     try {

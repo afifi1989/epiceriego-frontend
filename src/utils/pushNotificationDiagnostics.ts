@@ -146,7 +146,7 @@ export const pushNotificationDiagnostics = {
         console.log('   2. Accorder les permissions quand demandé\n');
       } else {
         console.log('   1. Aller dans Paramètres du téléphone');
-        console.log('   2. Notifications > EpicerieGo');
+        console.log('   2. Notifications > AbridGO');
         console.log('   3. Activer les notifications\n');
       }
     } else {

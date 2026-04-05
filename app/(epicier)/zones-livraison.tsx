@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useRequirePermission } from '../../src/hooks/useRequirePermission';
 import {
   View,
   Text,
@@ -18,6 +19,7 @@ import { epicerieService } from '../../src/services/epicerieService';
 import { DeliveryZoneManager, DeliveryZone } from '../../components/epicier/DeliveryZoneManager';
 
 export default function DeliveryZonesScreen() {
+  const ready = useRequirePermission('settings:edit');
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,8 +28,10 @@ export default function DeliveryZonesScreen() {
   const [longitude, setLongitude] = useState<number | undefined>();
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (ready) loadData();
+  }, [ready]);
+
+  if (!ready) return null;
 
   const loadData = async () => {
     try {

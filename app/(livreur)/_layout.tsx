@@ -145,6 +145,12 @@ function LivreurTabsContent() {
           headerTitle: '👤 Mon Profil',
         }}
       />
+      <Tabs.Screen
+        name="scan-qr"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

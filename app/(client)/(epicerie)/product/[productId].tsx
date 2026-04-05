@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,7 +20,7 @@ import { formatPrice } from '../../../../src/utils/helpers';
 export default function ProductDetailScreen() {
   const { productId, epicerieId } = useLocalSearchParams<{ productId: string; epicerieId: string }>();
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,7 +49,7 @@ export default function ProductDetailScreen() {
           setEpicerieName(foundProduct.epicerieNom);
         }
       } else {
-        Alert.alert(t('common.error'), 'Produit non trouvé');
+        Alert.alert(t('common.error'), t('products.productNotFound'));
         router.back();
       }
     } catch (error) {
@@ -106,7 +106,7 @@ export default function ProductDetailScreen() {
   if (!product) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Produit non trouvé</Text>
+        <Text style={styles.errorText}>{t('products.productNotFound')}</Text>
       </View>
     );
   }
@@ -115,23 +115,17 @@ export default function ProductDetailScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title: epicerieName || product.nom,
-          headerShown: true,
-          headerBackTitle: t('common.back'),
-          headerTransparent: false,
-          headerStyle: {
-            backgroundColor: '#2196F3',
-          },
-          headerTitleStyle: {
-            color: '#fff',
-            fontSize: 18,
-            fontWeight: 'bold',
-          },
-          headerTintColor: '#fff',
-        }}
-      />
+      {/* === HEADER RETOUR === */}
+      <View style={styles.backHeader}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
+          <Text style={styles.backArrow}>←</Text>
+          <Text style={styles.backLabel}>{t('common.back')}</Text>
+        </TouchableOpacity>
+        <Text style={styles.backHeaderTitle} numberOfLines={1}>
+          {epicerieName || product.nom}
+        </Text>
+        <View style={{ width: 70 }} />
+      </View>
 
       {/* === IMAGE ZOOM MODAL === */}
       {showImageZoom && product.photoUrl && (
@@ -191,6 +185,11 @@ export default function ProductDetailScreen() {
                 <Text style={styles.categoryTagText}>{product.categoryName}</Text>
               </View>
             )}
+            {product.brandName && (
+              <View style={styles.brandTag}>
+                <Text style={styles.brandTagText}>{product.brandName}</Text>
+              </View>
+            )}
           </View>
 
           {/* === QUANTITY & FORMAT SELECTOR === */}
@@ -206,10 +205,23 @@ export default function ProductDetailScreen() {
           {/* === DESCRIPTION SECTION === */}
           {product.description && (
             <View style={styles.descriptionSection}>
-              <Text style={styles.sectionLabel}>Description</Text>
+              <Text style={styles.sectionLabel}>{t('products.description')}</Text>
               <Text style={styles.descriptionText}>
-                {product.description}
+                {product.translations?.[language]?.description || product.description}
               </Text>
+            </View>
+          )}
+
+          {/* === CHARACTERISTICS SECTION === */}
+          {product.characteristics && product.characteristics.length > 0 && (
+            <View style={styles.characteristicsSection}>
+              <Text style={styles.sectionLabel}>Caractéristiques</Text>
+              {product.characteristics.map((char, index) => (
+                <View key={char.id ?? index} style={[styles.charRow, index % 2 === 0 && styles.charRowEven]}>
+                  <Text style={styles.charKey}>{char.keyName}</Text>
+                  <Text style={styles.charValue}>{char.value}</Text>
+                </View>
+              ))}
             </View>
           )}
 
@@ -220,7 +232,7 @@ export default function ProductDetailScreen() {
         {!isAvailable && (
           <View style={styles.footer}>
             <View style={styles.outOfStockButton}>
-              <Text style={styles.outOfStockText}>❌ Rupture de stock</Text>
+              <Text style={styles.outOfStockText}>❌ {t('products.outOfStock')}</Text>
             </View>
           </View>
         )}
@@ -230,6 +242,38 @@ export default function ProductDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  backHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingRight: 8,
+    minWidth: 70,
+  },
+  backArrow: {
+    color: '#fff',
+    fontSize: 22,
+    marginRight: 4,
+  },
+  backLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  backHeaderTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    flex: 1,
+    textAlign: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
@@ -371,6 +415,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2e7d32',
   },
+  brandTag: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+  },
+  brandTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1565C0',
+  },
   /* === QUANTITY SECTION === */
   quantitySection: {
     backgroundColor: '#fff',
@@ -399,6 +458,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#555',
+  },
+  /* === CHARACTERISTICS SECTION === */
+  characteristicsSection: {
+    backgroundColor: '#fff',
+    marginTop: 8,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#f0f0f0',
+    padding: 18,
+  },
+  charRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 6,
+  },
+  charRowEven: {
+    backgroundColor: '#f8f9fa',
+  },
+  charKey: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#555',
+    flex: 1,
+  },
+  charValue: {
+    fontSize: 13,
+    color: '#222',
+    fontWeight: '500',
+    flex: 1,
+    textAlign: 'right',
   },
   spacer: {
     height: 20,

@@ -6,10 +6,12 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
   useWindowDimensions,
 } from 'react-native';
 import { useEffect, useState, useCallback } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { DeliveryCard } from '../../src/components/livreur/DeliveryCard';
 import { DailyStatsCard } from '../../src/components/livreur/DailyStatsCard';
 import { AvailabilityToggle } from '../../src/components/livreur/AvailabilityToggle';
@@ -17,6 +19,7 @@ import { livreurService } from '../../src/services/livreurService';
 import { Delivery } from '../../src/type';
 
 export default function LivreurDeliveriesScreen() {
+  const router = useRouter();
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -154,6 +157,15 @@ export default function LivreurDeliveriesScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Bouton scanner QR flottant */}
+      <TouchableOpacity
+        style={styles.scanFab}
+        onPress={() => router.push('/(livreur)/scan-qr')}
+        activeOpacity={0.85}
+      >
+        <MaterialCommunityIcons name="qrcode-scan" size={26} color="#fff" />
+      </TouchableOpacity>
+
       <FlatList
         data={deliveries}
         renderItem={renderDelivery}
@@ -229,5 +241,22 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     paddingHorizontal: 30,
+  },
+  scanFab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    zIndex: 10,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#9C27B0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#9C27B0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });

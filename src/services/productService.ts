@@ -1,7 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
-import { Product } from '../type';
+import { BarcodeProductResult, Product } from '../type';
 import api from './api';
+
+// Cache mémoire pour les produits par épicerie (TTL : 5 minutes) — utilisé par l'ancien endpoint liste
+const PRODUCTS_CACHE_TTL = 5 * 60 * 1000;
+const productsCache = new Map<number, { data: Product[]; ts: number }>();
+
+export interface ProductPage {
+  content: Product[];
+  totalElements: number;
+  totalPages: number;
+  last: boolean;
+  number: number; // page actuelle (0-indexé)
+  size: number;
+}
 
 export const productService = {
   /**
@@ -19,14 +32,56 @@ export const productService = {
   },
 
   /**
-   * Récupère les produits d'une épicerie spécifique
+   * Récupère les produits d'une épicerie spécifique (avec cache 5 min)
    */
-  getProductsByEpicerie: async (epicerieId: number): Promise<Product[]> => {
+  getProductsByEpicerie: async (epicerieId: number, forceRefresh = false, includeUnavailable = false): Promise<Product[]> => {
     try {
-      const response = await api.get<Product[]>(`/products/epicerie/${epicerieId}`);
+      const cached = productsCache.get(epicerieId);
+      if (!forceRefresh && cached && Date.now() - cached.ts < PRODUCTS_CACHE_TTL) {
+        return cached.data;
+      }
+      const params: Record<string, any> = {};
+      if (includeUnavailable) params.includeUnavailable = 'true';
+      const response = await api.get<Product[]>(`/products/epicerie/${epicerieId}`, { params });
+      productsCache.set(epicerieId, { data: response.data, ts: Date.now() });
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur';
+    }
+  },
+
+  /**
+   * Invalide le cache des produits d'une épicerie (à appeler après ajout/modif/suppression)
+   */
+  invalidateProductsCache: (epicerieId: number): void => {
+    productsCache.delete(epicerieId);
+  },
+
+  /**
+   * Récupère les produits d'une épicerie avec pagination serveur.
+   * Supporte la recherche par nom et le filtre par catégorie.
+   * Endpoint : GET /products/epicerie/{id}/paginated
+   */
+  getProductsByEpiceriePaginated: async (
+    epicerieId: number,
+    page: number = 0,
+    size: number = 20,
+    search?: string,
+    categoryIds?: number[],
+    tagIds?: number[],
+  ): Promise<ProductPage> => {
+    try {
+      const params: Record<string, any> = { page, size };
+      if (search && search.trim()) params.search = search.trim();
+      if (categoryIds && categoryIds.length > 0) params.categoryIds = categoryIds;
+      if (tagIds && tagIds.length > 0) params.tagIds = tagIds;
+      const response = await api.get<ProductPage>(
+        `/products/epicerie/${epicerieId}/paginated`,
+        { params },
+      );
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors du chargement des produits';
     }
   },
 
@@ -39,6 +94,22 @@ export const productService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Produit non trouvé';
+    }
+  },
+
+  /**
+   * Traduit automatiquement un produit du français vers AR / EN / TZ via le LLM.
+   * Retourne { fr, ar, en, tz } → { nom, description }
+   */
+  translateProduct: async (nom: string, description: string): Promise<Record<string, { nom: string; description: string }>> => {
+    try {
+      const response = await api.post<Record<string, { nom: string; description: string }>>(
+        '/products/translate',
+        { nom, description }
+      );
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Traduction automatique indisponible');
     }
   },
 
@@ -161,6 +232,19 @@ export const productService = {
   },
 
   /**
+   * Active ou désactive la disponibilité d'un produit.
+   * Endpoint dédié : PATCH /products/{id}/availability
+   */
+  toggleAvailability: async (id: number, isAvailable: boolean): Promise<Product> => {
+    try {
+      const response = await api.patch<Product>(`/products/${id}/availability`, { isAvailable });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors du changement de disponibilité';
+    }
+  },
+
+  /**
    * Supprime un produit (soft delete)
    */
   deleteProduct: async (id: number): Promise<{ message: string }> => {
@@ -225,5 +309,20 @@ export const productService = {
       console.log('Erreur getImageUrls:', error);
       return [];
     }
-  }
+  },
+
+  /**
+   * Recherche un produit par son code-barre (EAN-13, UPC, interne…).
+   * Retourne le produit avec matchedUnitId si le barcode est lié à une unité.
+   * Endpoint: GET /produits/barcode/{barcode}
+   */
+  getProductByBarcode: async (barcode: string): Promise<BarcodeProductResult> => {
+    try {
+      const encoded = encodeURIComponent(barcode.trim());
+      const response = await api.get<BarcodeProductResult>(`/produits/barcode/${encoded}`);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Produit non trouvé pour ce code-barre';
+    }
+  },
 };

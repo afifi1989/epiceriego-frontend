@@ -1,6 +1,8 @@
 import React, { createContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, type Language } from '../i18n/translations';
+import { profileService } from '../services/profileService';
+import type { SupportedLanguage } from '../type';
 
 interface LanguageContextType {
   language: Language;
@@ -54,16 +56,22 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return value;
   }, [language]);
 
-  // Changer la langue et sauvegarder
+  // Changer la langue, la persister localement et synchroniser avec le backend
   const setLanguage = async (lang: Language) => {
     try {
       console.log('[LanguageContext] 🔄 Changement de langue:', lang);
       setLanguageState(lang);
       await AsyncStorage.setItem('app_language', lang);
-      console.log('[LanguageContext] ✅ Langue sauvegardée:', lang);
+      console.log('[LanguageContext] ✅ Langue sauvegardée localement:', lang);
+
+      // Sync best-effort vers le backend (profil utilisateur).
+      // En cas d'erreur (hors-ligne, non connecté), on continue silencieusement.
+      profileService.updateLanguage(lang as SupportedLanguage).catch((err) => {
+        console.warn('[LanguageContext] ⚠️ Sync langue backend échouée (ignorée):', err);
+      });
     } catch (error) {
       console.error('[LanguageContext] ❌ Erreur sauvegarde langue:', error);
-      // Revenir à la langue précédente en cas d'erreur
+      // Revenir à la langue précédente en cas d'erreur locale
       setLanguageState(language);
     }
   };

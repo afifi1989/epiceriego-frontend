@@ -72,6 +72,11 @@ export const OrderLivreurAssignmentSection = ({
           <Text style={styles.unassignedMessage}>
             Aucun livreur assigné à cette commande
           </Text>
+          {availableLivreurs.some(l => l.isAvailable) ? null : (
+            <Text style={styles.offlineWarning}>
+              ⚠️ Aucun livreur en ligne pour le moment
+            </Text>
+          )}
           <TouchableOpacity
             style={[styles.assignButton, isLoading && styles.assignButtonDisabled]}
             onPress={onAssignClick}
@@ -88,10 +93,10 @@ export const OrderLivreurAssignmentSection = ({
         <View style={styles.noLivreursContainer}>
           <Text style={styles.noLivreursIcon}>🚚</Text>
           <Text style={styles.noLivreursMessage}>
-            Aucun livreur disponible pour cette épicerie
+            Aucun livreur assigné à votre épicerie
           </Text>
           <Text style={styles.noLivreursHint}>
-            Assignez des livreurs dans la section "Gestion des Livreurs"
+            Ajoutez des livreurs dans la section "Gestion des Livreurs"
           </Text>
         </View>
       )}
@@ -185,8 +190,15 @@ const styles = StyleSheet.create({
   unassignedMessage: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  offlineWarning: {
+    fontSize: 13,
+    color: '#FF9800',
     marginBottom: 12,
     textAlign: 'center',
+    fontWeight: '500',
   },
   assignButton: {
     backgroundColor: '#2196F3',

@@ -21,7 +21,7 @@ import {
   View,
 } from 'react-native';
 
-const FAVORITES_STORAGE_KEY = '@epiceriego_favorite_categories';
+const FAVORITES_STORAGE_KEY = '@abridgo_favorite_categories';
 const MAX_FAVORITES = 5;
 
 interface CategoryPickerProps {

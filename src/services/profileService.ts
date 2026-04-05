@@ -1,4 +1,4 @@
-import { User } from '../type';
+import { SupportedLanguage, User } from '../type';
 import api from './api';
 
 export const profileService = {
@@ -59,6 +59,31 @@ export const profileService = {
     } catch (error: any) {
       console.error('[ProfileService] Upload error:', error);
       throw error.response?.data?.message || 'Erreur lors de l\'upload de la photo';
+    }
+  },
+
+  /**
+   * Met à jour la langue préférée de l'utilisateur en base de données.
+   * Appelé silencieusement depuis LanguageContext lors d'un changement de langue.
+   * Best-effort : l'échec n'empêche pas l'utilisation de l'app.
+   */
+  updateLanguage: async (language: SupportedLanguage): Promise<void> => {
+    await api.put('/users/profile/language', { language });
+  },
+
+  /**
+   * Change le mot de passe de l'utilisateur connecté (requiert l'ancien mot de passe)
+   * Endpoint backend : PUT /users/password
+   */
+  changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    try {
+      await api.put('/users/password', {
+        currentPassword,
+        newPassword,
+        confirmPassword: newPassword,
+      });
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Impossible de modifier le mot de passe';
     }
   },
 

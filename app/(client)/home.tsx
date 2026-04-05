@@ -27,7 +27,7 @@ const CARD_WIDTH = (width - 50) / 2;
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [searchText, setSearchText] = useState('');
   const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
   const [popularEpiceries, setPopularEpiceries] = useState<Epicerie[]>([]);
@@ -52,7 +52,7 @@ export default function HomeScreen() {
    */
   useEffect(() => {
     loadHomeData();
-  }, []);
+  }, [language]);
 
   /**
    * Load all home data
@@ -478,7 +478,6 @@ export default function HomeScreen() {
       showsVerticalScrollIndicator={false}
     >
       {renderPromoBanner()}
-      {renderSearchBar()}
       {renderCategories()}
       {renderPopularEpiceries()}
       {renderTrendingProducts()}

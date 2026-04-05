@@ -15,12 +15,14 @@ import {
   View,
   Image,
 } from 'react-native';
+import { useRequirePermission } from '../../src/hooks/useRequirePermission';
 import { statsService } from '../../src/services/statsService';
 import { EpicierStats, TopProductDTO, LowStockProductDTO, DailyRevenueDTO, TopClientDTO } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
 
 export default function StatistiquesScreen() {
   const router = useRouter();
+  const ready = useRequirePermission('stats:view');
 
   // États
   const [loading, setLoading] = useState<boolean>(true);
@@ -29,8 +31,10 @@ export default function StatistiquesScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month' | 'all'>('week');
 
   useEffect(() => {
-    loadStats();
-  }, []);
+    if (ready) loadStats();
+  }, [ready]);
+
+  if (!ready) return null;
 
   /**
    * Charge les statistiques depuis l'API

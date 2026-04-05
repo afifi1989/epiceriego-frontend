@@ -6,7 +6,6 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
@@ -14,11 +13,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { Product, ProductUnit, UnitType } from '../../src/type';
 import { calculateUnitPrice, canOrder, getStockLevel } from '../../src/utils/unitCalculations';
-import { ProductImageModal } from '../../src/components/client/ProductImageModal';
-import { FallbackImage } from './FallbackImage';
-import { productService } from '../../src/services/productService';
 
 interface ProductUnitDisplayProps {
   product: Product;
@@ -29,20 +26,11 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
   product,
   onAddToCart,
 }) => {
+  const { t } = useLanguage();
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(
     product.units && product.units.length > 0 ? product.units[0].id : null
   );
   const [quantity, setQuantity] = useState<string>('1');
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [imageLoadingError, setImageLoadingError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(true);
-
-  // Réinitialiser les états d'image quand le produit change
-  React.useEffect(() => {
-    setImageLoadingError(false);
-    setImageLoading(true);
-    console.log('[ProductUnitDisplay.useEffect] Product changed, resetting image state');
-  }, [product.id, product.photoUrl]);
 
   // Sélectionner l'unité
   const selectedUnit = product.units?.find(u => u.id === selectedUnitId);
@@ -104,12 +92,12 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
 
     // Pour les produits avec unités
     if (!selectedUnit) {
-      Alert.alert('Erreur', 'Veuillez sélectionner un format');
+      Alert.alert(t('common.error'), t('products.selectFormat'));
       return;
     }
 
     if (!canOrderNow()) {
-      Alert.alert('Stock insuffisant', 'La quantité demandée dépasse le stock disponible');
+      Alert.alert(t('common.warning'), t('products.insufficientStock'));
       return;
     }
 
@@ -131,7 +119,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
         {/* Affichage legacy - sans unités */}
         <View style={styles.legacyContainer}>
           <View style={styles.priceSection}>
-            <Text style={styles.priceLabel}>Prix</Text>
+            <Text style={styles.priceLabel}>{t('products.price')}</Text>
             <Text style={styles.legacyPrice}>{product.prix.toFixed(2)} DH</Text>
           </View>
 
@@ -141,12 +129,12 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
               styles.stockText,
               { color: product.stock > 0 ? '#4CAF50' : '#f44336' }
             ]}>
-              {product.stock} en stock
+              {product.stock} {t('products.inStockUnits')}
             </Text>
           </View>
 
           <View style={styles.quantitySection}>
-            <Text style={styles.sectionTitle}>Quantité</Text>
+            <Text style={styles.sectionTitle}>{t('products.quantity')}</Text>
             <View style={styles.quantityControl}>
               <TouchableOpacity
                 style={styles.quantityButton}
@@ -175,7 +163,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
             disabled={!product.isAvailable}
           >
             <MaterialIcons name="add-shopping-cart" size={24} color="#fff" />
-            <Text style={styles.addButtonText}>Ajouter au panier</Text>
+            <Text style={styles.addButtonText}>{t('products.addToCart')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -184,75 +172,30 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
 
   return (
     <>
-      {/* Image Modal avec Zoom */}
-      {product.photoUrl && (
-        <ProductImageModal
-          visible={showImageModal}
-          photoUrl={product.photoUrl}
-          productName={product.nom}
-          onClose={() => setShowImageModal(false)}
-        />
-      )}
-
       <View style={styles.container}>
-        {/* Image du produit */}
-        {product.photoUrl && !imageLoadingError && (
-          <TouchableOpacity
-            style={styles.imageSection}
-            onPress={() => setShowImageModal(true)}
-            activeOpacity={0.7}
-          >
-            {imageLoading && (
-              <View style={styles.imageLoadingSpinner}>
-                <ActivityIndicator size="large" color="#4CAF50" />
-              </View>
-            )}
-            <FallbackImage
-              urls={product.photoUrl ? [product.photoUrl] : []}
-              style={[styles.productImage, { opacity: imageLoading ? 0.3 : 1 }]}
-              resizeMode="contain"
-              onLoadStart={() => {
-                console.log(`[ProductUnitDisplay.onLoadStart] Product: ${product.nom}`);
-                setImageLoading(true);
-              }}
-              onLoadEnd={() => {
-                console.log(`[ProductUnitDisplay.onLoadEnd] Product: ${product.nom}`);
-                setImageLoading(false);
-              }}
-              onError={(error) => {
-                console.error('[ProductUnitDisplay.onError] Image load error:', {
-                  product: product.nom,
-                  photoUrl: product.photoUrl,
-                  error: error.nativeEvent?.error || 'Unknown error'
-                });
-                setImageLoadingError(true);
-              }}
-            />
-            {!imageLoading && (
-              <View style={styles.zoomHint}>
-                <MaterialIcons name="zoom-in" size={24} color="#fff" />
-                <Text style={styles.zoomHintText}>Appuyez pour zoomer</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        )}
-
         {/* Titre */}
-        <Text style={styles.mainTitle}>Choisissez votre format</Text>
+        <Text style={styles.mainTitle}>{t('products.chooseFormat')}</Text>
 
         {/* Détails de l'unité sélectionnée */}
         {selectedUnit && (
           <View style={styles.selectedUnitDetails}>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Format sélectionné:</Text>
+              <Text style={styles.detailLabel}>{t('products.selectedFormat')}:</Text>
               <Text style={styles.detailValue}>{selectedUnit.label}</Text>
             </View>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Prix unitaire:</Text>
-              <Text style={styles.detailValue}>{selectedUnit.prix.toFixed(2)} DH</Text>
+              <Text style={styles.detailLabel}>{t('products.unitPrice')}:</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {selectedUnit.prixBarre != null && selectedUnit.prixBarre > selectedUnit.prix && (
+                  <Text style={styles.detailPrixBarre}>{selectedUnit.prixBarre.toFixed(2)} DH</Text>
+                )}
+                <Text style={[styles.detailValue, selectedUnit.prixBarre != null && selectedUnit.prixBarre > selectedUnit.prix && styles.detailValuePromo]}>
+                  {selectedUnit.prix.toFixed(2)} DH
+                </Text>
+              </View>
             </View>
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Stock disponible:</Text>
+              <Text style={styles.detailLabel}>{t('products.availableStock')}:</Text>
               <Text style={[
                 styles.detailValue,
                 { color: selectedUnit.stock > 0 ? '#4CAF50' : '#f44336' }
@@ -303,7 +246,10 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                 </Text>
 
                 {/* Prix */}
-                <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled]}>
+                {unit.prixBarre != null && unit.prixBarre > unit.prix && (
+                  <Text style={styles.unitPrixBarre}>{unit.prixBarre.toFixed(2)} DH</Text>
+                )}
+                <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled, unit.prixBarre != null && unit.prixBarre > unit.prix && styles.unitPricePromo]}>
                   {unit.prix.toFixed(2)} DH
                 </Text>
 
@@ -314,7 +260,16 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                   </View>
                 ) : (
                   <View style={styles.stockBadgeOOS}>
-                    <Text style={styles.stockBadgeTextOOS}>Rupture</Text>
+                    <Text style={styles.stockBadgeTextOOS}>{t('products.outOfStockShort')}</Text>
+                  </View>
+                )}
+
+                {/* Badge promo */}
+                {unit.prixBarre != null && unit.prixBarre > unit.prix && (
+                  <View style={styles.promoBadge}>
+                    <Text style={styles.promoBadgeText}>
+                      -{Math.round((1 - unit.prix / unit.prixBarre) * 100)}%
+                    </Text>
                   </View>
                 )}
 
@@ -336,7 +291,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
         <View style={styles.purchaseSection}>
           {/* Sélecteur de quantité */}
           <View style={styles.quantitySection}>
-            <Text style={styles.sectionTitle}>Quantité</Text>
+            <Text style={styles.sectionTitle}>{t('products.quantity')}</Text>
             <View style={styles.quantityRow}>
               <View style={styles.quantityControl}>
                 <TouchableOpacity
@@ -363,7 +318,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
 
               {/* Affichage du prix total */}
               <View style={styles.totalPriceBox}>
-                <Text style={styles.totalPriceLabel}>Total</Text>
+                <Text style={styles.totalPriceLabel}>{t('products.total')}</Text>
                 <Text style={styles.totalPrice}>{getTotalPrice().toFixed(2)} DH</Text>
               </View>
             </View>
@@ -379,11 +334,11 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
             disabled={!canOrderNow()}
           >
             <MaterialIcons name="add-shopping-cart" size={24} color="#fff" />
-            <Text style={styles.addButtonText}>Ajouter au panier</Text>
+            <Text style={styles.addButtonText}>{t('products.addToCart')}</Text>
           </TouchableOpacity>
 
           {!canOrderNow() && (
-            <Text style={styles.errorText}>Stock insuffisant pour cette quantité</Text>
+            <Text style={styles.errorText}>{t('products.insufficientStock')}</Text>
           )}
         </View>
       </View>
@@ -554,8 +509,45 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
+  unitPricePromo: {
+    color: '#e53935',
+  },
+
+  unitPrixBarre: {
+    fontSize: 12,
+    color: '#999',
+    textDecorationLine: 'line-through',
+    marginBottom: 2,
+  },
+
   unitPriceDisabled: {
     color: '#999',
+  },
+
+  promoBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: '#e53935',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+
+  promoBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  detailPrixBarre: {
+    fontSize: 12,
+    color: '#999',
+    textDecorationLine: 'line-through',
+  },
+
+  detailValuePromo: {
+    color: '#e53935',
   },
 
   stockBadge: {

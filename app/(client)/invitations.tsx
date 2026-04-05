@@ -15,9 +15,11 @@ import { useCallback } from 'react';
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { ClientInvitation } from '../../src/type';
 import { Colors, FontSizes, Spacing } from '../../src/constants/colors';
+import { useLanguage } from '../../src/context/LanguageContext';
 
 export default function ClientInvitationsScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [invitations, setInvitations] = useState<ClientInvitation[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,7 +31,7 @@ export default function ClientInvitationsScreen() {
    */
   useEffect(() => {
     const getUserId = async () => {
-      const user = await AsyncStorage.getItem('@epiceriego_user');
+      const user = await AsyncStorage.getItem('@abridgo_user');
       if (user) {
         const userData = JSON.parse(user);
         if (userData.id) {
@@ -61,7 +63,7 @@ export default function ClientInvitationsScreen() {
       setInvitations(data);
     } catch (error: any) {
       console.error('Error loading invitations:', error);
-      Alert.alert('Erreur', 'Impossible de charger les invitations');
+      Alert.alert(t('common.error'), t('invitations.loadError'));
     } finally {
       setLoading(false);
     }
@@ -81,20 +83,20 @@ export default function ClientInvitationsScreen() {
    */
   const handleAcceptInvitation = async (invitation: ClientInvitation) => {
     if (!userId) {
-      Alert.alert('Erreur', 'ID utilisateur non trouvé');
+      Alert.alert(t('common.error'), t('invitations.userIdError'));
       return;
     }
 
     Alert.alert(
-      'Accepter l\'invitation',
-      `Voulez-vous devenir client de ${invitation.epicerieName} ?`,
+      t('invitations.acceptTitle'),
+      `${t('invitations.acceptConfirm')} ${invitation.epicerieName} ?`,
       [
         {
-          text: 'Annuler',
+          text: t('common.cancel'),
           style: 'cancel',
         },
         {
-          text: 'Accepter',
+          text: t('invitations.accept'),
           onPress: async () => {
             try {
               setProcessingId(invitation.epicerieId);
@@ -105,17 +107,16 @@ export default function ClientInvitationsScreen() {
               );
 
               Alert.alert(
-                '✅ Invitation acceptée',
-                `Vous êtes maintenant client de ${invitation.epicerieName} !\n\n` +
-                'Vous pouvez maintenant commander des produits et profiter de leurs services.'
+                `✅ ${t('invitations.acceptSuccess')}`,
+                `${t('invitations.acceptSuccessMsg')} ${invitation.epicerieName}${t('invitations.acceptSuccessDesc')}`
               );
 
               await loadInvitations();
             } catch (error: any) {
               console.error('Error accepting invitation:', error);
               Alert.alert(
-                'Erreur',
-                error.message || error || 'Impossible d\'accepter l\'invitation'
+                t('common.error'),
+                error.message || error || t('invitations.acceptError')
               );
             } finally {
               setProcessingId(null);
@@ -131,20 +132,20 @@ export default function ClientInvitationsScreen() {
    */
   const handleRejectInvitation = async (invitation: ClientInvitation) => {
     if (!userId) {
-      Alert.alert('Erreur', 'ID utilisateur non trouvé');
+      Alert.alert(t('common.error'), t('invitations.userIdError'));
       return;
     }
 
     Alert.alert(
-      'Refuser l\'invitation',
-      `Êtes-vous sûr de vouloir refuser l'invitation de ${invitation.epicerieName} ?`,
+      t('invitations.rejectTitle'),
+      `${t('invitations.rejectConfirm')} ${invitation.epicerieName} ?`,
       [
         {
-          text: 'Annuler',
+          text: t('common.cancel'),
           style: 'cancel',
         },
         {
-          text: 'Refuser',
+          text: t('invitations.reject'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -156,16 +157,16 @@ export default function ClientInvitationsScreen() {
               );
 
               Alert.alert(
-                'Invitation refusée',
-                `Vous avez refusé l'invitation de ${invitation.epicerieName}.`
+                t('invitations.rejectSuccess'),
+                `${t('invitations.rejectSuccessMsg')} ${invitation.epicerieName}.`
               );
 
               await loadInvitations();
             } catch (error: any) {
               console.error('Error rejecting invitation:', error);
               Alert.alert(
-                'Erreur',
-                error.message || error || 'Impossible de refuser l\'invitation'
+                t('common.error'),
+                error.message || error || t('invitations.rejectError')
               );
             } finally {
               setProcessingId(null);
@@ -191,23 +192,23 @@ export default function ClientInvitationsScreen() {
           <View style={styles.invitationInfo}>
             <Text style={styles.storeName}>{item.epicerieName}</Text>
             <Text style={styles.invitationDate}>
-              Invité le {new Date(item.createdAt).toLocaleDateString('fr-FR')}
+              {t('invitations.invitedOn')} {new Date(item.createdAt).toLocaleDateString('fr-FR')}
             </Text>
           </View>
         </View>
 
         <View style={styles.messageBox}>
           <Text style={styles.messageText}>
-            Vous invite à devenir client et à profiter de leurs services.
+            {t('invitations.inviteMessage')}
           </Text>
         </View>
 
         <View style={styles.benefitsBox}>
-          <Text style={styles.benefitsTitle}>🎁 Avantages :</Text>
-          <Text style={styles.benefitItem}>• Commander des produits facilement</Text>
-          <Text style={styles.benefitItem}>• Suivre vos commandes en temps réel</Text>
-          <Text style={styles.benefitItem}>• Gérer vos paiements et crédits</Text>
-          <Text style={styles.benefitItem}>• Recevoir des promotions exclusives</Text>
+          <Text style={styles.benefitsTitle}>{t('invitations.benefitsTitle')}</Text>
+          <Text style={styles.benefitItem}>{t('invitations.benefit1')}</Text>
+          <Text style={styles.benefitItem}>{t('invitations.benefit2')}</Text>
+          <Text style={styles.benefitItem}>{t('invitations.benefit3')}</Text>
+          <Text style={styles.benefitItem}>{t('invitations.benefit4')}</Text>
         </View>
 
         <View style={styles.actionsContainer}>
@@ -221,7 +222,7 @@ export default function ClientInvitationsScreen() {
             ) : (
               <>
                 <Text style={styles.rejectButtonIcon}>❌</Text>
-                <Text style={styles.rejectButtonText}>Refuser</Text>
+                <Text style={styles.rejectButtonText}>{t('invitations.reject')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -236,7 +237,7 @@ export default function ClientInvitationsScreen() {
             ) : (
               <>
                 <Text style={styles.acceptButtonIcon}>✅</Text>
-                <Text style={styles.acceptButtonText}>Accepter</Text>
+                <Text style={styles.acceptButtonText}>{t('invitations.accept')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -249,7 +250,7 @@ export default function ClientInvitationsScreen() {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Chargement des invitations...</Text>
+        <Text style={styles.loadingText}>{t('invitations.loading')}</Text>
       </View>
     );
   }
@@ -259,9 +260,9 @@ export default function ClientInvitationsScreen() {
       {invitations.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyStateEmoji}>📭</Text>
-          <Text style={styles.emptyStateTitle}>Aucune invitation</Text>
+          <Text style={styles.emptyStateTitle}>{t('invitations.noInvitations')}</Text>
           <Text style={styles.emptyStateText}>
-            Vous n'avez pas d'invitation en attente pour le moment.
+            {t('invitations.noInvitationsDesc')}
           </Text>
         </View>
       ) : (

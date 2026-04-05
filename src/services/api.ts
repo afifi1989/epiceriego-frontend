@@ -17,12 +17,18 @@ const api: AxiosInstance = axios.create({
   },
   maxContentLength: Infinity,
   maxBodyLength: Infinity,
+  // Spring Boot attend des paramètres répétés pour les tableaux : categoryIds=1&categoryIds=2
+  // Axios 1.x utilise par défaut categoryIds[]=1&categoryIds[]=2 (crochets) → incompatible
+  paramsSerializer: { indexes: null },
 });
 
-// Intercepteur de requête - Ajoute le token JWT automatiquement
+// Intercepteur de requête - Ajoute le token JWT et la langue automatiquement
 api.interceptors.request.use(
   async (config) => {
-    const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+    const [token, lang] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEYS.TOKEN),
+      AsyncStorage.getItem('app_language'),
+    ]);
 
     // Ne pas modifier Content-Type si c'est FormData (multipart)
     const isFormData = config.data instanceof FormData;
@@ -31,12 +37,19 @@ api.interceptors.request.use(
       method: config.method,
       hasToken: !!token,
       isFormData: isFormData,
-      hasData: !!config.data,
-      headers: config.headers
+      lang: lang ?? 'fr',
     });
 
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Injecter la langue préférée du client pour que le backend
+    // retourne les traductions (nom produit, catégorie…) dans la bonne langue.
+    // Fallback 'fr' si non défini. Ignoré par l'épicier/livreur côté backend.
+    // Ne pas écraser si déjà défini explicitement dans la requête (ex: épicier force 'fr').
+    if (config.headers && !config.headers['Accept-Language']) {
+      config.headers['Accept-Language'] = lang ?? 'fr';
     }
 
     // Si c'est FormData, supprimer le Content-Type par défaut pour laisser axios le gérer
@@ -72,9 +85,6 @@ api.interceptors.response.use(
     console.error('[API] Code d\'erreur:', error.code);
     console.error('[API] Message:', error.message);
     console.error('[API] Status HTTP:', error.response?.status);
-    console.error('[API] Status Text:', error.response?.statusText);
-    console.error('[API] Données réponse:', error.response?.data);
-    console.error('[API] Request headers:', error.config?.headers);
     console.error('========================================');
 
     // Diagnostic pour ERR_NETWORK

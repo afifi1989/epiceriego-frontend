@@ -42,7 +42,7 @@ export default function FacturesScreen() {
    */
   useEffect(() => {
     const getEpicerieId = async () => {
-      const user = await AsyncStorage.getItem('@epiceriego_user');
+      const user = await AsyncStorage.getItem('@abridgo_user');
       if (user) {
         const userData = JSON.parse(user);
         if (userData.epicerieId) {

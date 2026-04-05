@@ -39,6 +39,10 @@ export interface SubCategory extends Category {
   categoryId?: number; // Mappé sur parentId
 }
 
+// Cache mémoire pour les catégories par épicerie (TTL : 10 minutes — données rarement modifiées)
+const CATEGORIES_CACHE_TTL = 10 * 60 * 1000;
+const categoriesCache = new Map<number, { data: Category[]; ts: number }>();
+
 export const categoryService = {
   /**
    * Récupère toutes les catégories avec leur hiérarchie complète
@@ -92,9 +96,14 @@ export const categoryService = {
   /**
    * ✨ NOUVEAU - Récupère les catégories racines d'une épicerie
    */
-  getCategoriesByEpicerie: async (epicerieId: number): Promise<Category[]> => {
+  getCategoriesByEpicerie: async (epicerieId: number, forceRefresh = false): Promise<Category[]> => {
     try {
+      const cached = categoriesCache.get(epicerieId);
+      if (!forceRefresh && cached && Date.now() - cached.ts < CATEGORIES_CACHE_TTL) {
+        return cached.data;
+      }
       const response = await api.get<Category[]>(`/categories/epicerie/${epicerieId}`);
+      categoriesCache.set(epicerieId, { data: response.data, ts: Date.now() });
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors du chargement des catégories';
@@ -158,6 +167,22 @@ export const categoryService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors du chargement des enfants';
+    }
+  },
+
+  /**
+   * Récupère l'arbre de catégories racines associées à un type d'épicerie.
+   * Utilisé par l'épicier (InfoTab) pour ne voir que les catégories pertinentes
+   * lors de la création / modification d'un produit.
+   *
+   * @param epicerieType - Valeur enum EpicerieType (ex: 'BOULANGERIE_PATISSERIE')
+   */
+  getCategoriesByType: async (epicerieType: string): Promise<Category[]> => {
+    try {
+      const response = await api.get<Category[]>(`/categories/by-type/${epicerieType}`);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors du chargement des catégories';
     }
   },
 

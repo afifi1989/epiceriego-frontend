@@ -2,6 +2,7 @@
 // app/(epicier)/dashboard.tsx
 // Dashboard complet pour l'épicier
 // ============================================
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -14,17 +15,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { usePermissions } from '../../src/hooks/usePermissions';
+import { STORAGE_KEYS } from '../../src/constants/config';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
-import { Epicerie, Order } from '../../src/type';
+import { Epicerie, LoginResponse, Order } from '../../src/type';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../src/utils/helpers';
 
 export default function EpicierDashboardScreen() {
   const router = useRouter();
-  
+
   // États
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loginData, setLoginData] = useState<LoginResponse | null>(null);
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [stats, setStats] = useState({
@@ -33,8 +37,12 @@ export default function EpicierDashboardScreen() {
     todayRevenue: 0,
     productsCount: 0,
   });
+  const { can } = usePermissions(loginData);
 
   useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.USER).then(raw => {
+      if (raw) setLoginData(JSON.parse(raw));
+    });
     loadDashboardData();
   }, []);
 
@@ -150,7 +158,6 @@ export default function EpicierDashboardScreen() {
       {/* En-tête avec infos épicerie */}
       {epicerie && (
         <View style={styles.header}>
-          <Text style={styles.headerEmoji}>🏪</Text>
           <Text style={styles.headerTitle}>{epicerie.nomEpicerie}</Text>
           <Text style={styles.headerSubtitle}>{epicerie.adresse}</Text>
         </View>
@@ -191,36 +198,52 @@ export default function EpicierDashboardScreen() {
             <Text style={styles.actionText}>Produits</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/(epicier)/statistiques')}
-          >
-            <Text style={styles.actionEmoji}>📊</Text>
-            <Text style={styles.actionText}>Statistiques</Text>
-          </TouchableOpacity>
+          {can('stats:view') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/statistiques')}
+            >
+              <Text style={styles.actionEmoji}>📊</Text>
+              <Text style={styles.actionText}>Statistiques</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('livreurs:manage') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/livreurs')}
+            >
+              <Text style={styles.actionEmoji}>🚚</Text>
+              <Text style={styles.actionText}>Livreurs</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('settings:edit') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/profil')}
+            >
+              <Text style={styles.actionEmoji}>⚙️</Text>
+              <Text style={styles.actionText}>Paramètres</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('stock:adjust') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/approvisionnement')}
+            >
+              <Text style={styles.actionEmoji}>🏷️</Text>
+              <Text style={styles.actionText}>Approvisionner</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/(epicier)/livreurs')}
+            style={[styles.actionButton, styles.actionButtonHighlight]}
+            onPress={() => router.push('/(epicier)/vente-directe')}
           >
-            <Text style={styles.actionEmoji}>🚚</Text>
-            <Text style={styles.actionText}>Livreurs</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/(epicier)/profil')}
-          >
-            <Text style={styles.actionEmoji}>⚙️</Text>
-            <Text style={styles.actionText}>Paramètres</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/(epicier)/recharge-offers')}
-          >
-            <Text style={styles.actionEmoji}>📱</Text>
-            <Text style={styles.actionText}>Recharges</Text>
+            <Text style={styles.actionEmoji}>🛒</Text>
+            <Text style={styles.actionText}>Vente Directe</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -437,6 +460,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  actionButtonHighlight: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1.5,
+    borderColor: '#4CAF50',
   },
   actionEmoji: {
     fontSize: 40,

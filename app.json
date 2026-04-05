@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "epiceriego-app",
-    "slug": "epiceriego-app",
+    "name": "AbridGO",
+    "slug": "abridgo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "epiceriegoapp",
+    "scheme": "abridgo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -25,7 +25,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.aitayach.epiceriegoapp",
+      "package": "com.aitayach.abridgo",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",

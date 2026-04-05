@@ -25,18 +25,21 @@ export const authService = {
   },
 
   /**
-   * Connexion d'un utilisateur existant
+   * Connexion d'un utilisateur existant.
+   * @param login Email (CLIENT/LIVREUR) ou identifiant ALXXXXX (EPICIER)
+   * @param password Mot de passe
+   * @param fcmToken Token Firebase (optionnel)
    */
   login: async (
-    email: string,
+    login: string,
     password: string,
     fcmToken: string | null = null
   ): Promise<LoginResponse> => {
     try {
-      console.log('[authService.login] Tentative de connexion avec:', { email, hasPassword: !!password });
+      console.log('[authService.login] Tentative de connexion avec:', { login, hasPassword: !!password });
 
       const response = await api.post<LoginResponse>('/auth/login', {
-        email,
+        login,
         password,
         fcmToken,
       });
@@ -56,6 +59,14 @@ export const authService = {
         // Stocker le nom de l'épicerie pour les livreurs
         if (response.data.epicerieName) {
           await AsyncStorage.setItem('epicerieName', response.data.epicerieName);
+        }
+
+        // Synchroniser la langue préférée stockée en base avec le device.
+        // La langue du device a la priorité si elle a été définie manuellement.
+        const localLang = await AsyncStorage.getItem('app_language');
+        if (!localLang && response.data.preferredLanguage) {
+          await AsyncStorage.setItem('app_language', response.data.preferredLanguage);
+          console.log('[authService.login] Langue chargée depuis le profil:', response.data.preferredLanguage);
         }
 
         console.log('[authService.login] Données sauvegardées avec succès');
@@ -79,7 +90,7 @@ export const authService = {
         };
       }
 
-      throw error.response?.data?.message || 'Email ou mot de passe incorrect';
+      throw error.response?.data?.message || 'Identifiant ou mot de passe incorrect';
     }
   },
 
@@ -137,6 +148,22 @@ export const authService = {
       return await AsyncStorage.getItem(STORAGE_KEYS.ROLE);
     } catch (error) {
       return null;
+    }
+  },
+
+  /**
+   * Change le mot de passe (1ère connexion collaborateur)
+   * Efface le flag mustChangePassword localement après succès
+   */
+  changePassword: async (newPassword: string): Promise<void> => {
+    await api.post('/auth/change-password', { newPassword });
+
+    // Mettre à jour le flag dans AsyncStorage
+    const userStr = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      user.mustChangePassword = false;
+      await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
     }
   },
 };

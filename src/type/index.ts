@@ -1,3 +1,79 @@
+// ============================================
+// SYSTÈME MULTI-LANGUE (i18n dynamique)
+// ============================================
+
+/** Codes langue supportés par l'application */
+export type SupportedLanguage = 'fr' | 'ar' | 'en' | 'tz';
+
+/** Métadonnées des langues disponibles */
+export const SUPPORTED_LANGUAGES: {
+  code: SupportedLanguage;
+  label: string;
+  flag: string;
+  dir: 'ltr' | 'rtl';
+}[] = [
+  { code: 'fr', label: 'Français',     flag: '🇫🇷', dir: 'ltr' },
+  { code: 'ar', label: 'العربية',       flag: '🇲🇦', dir: 'rtl' },
+  { code: 'en', label: 'English',      flag: '🇬🇧', dir: 'ltr' },
+  { code: 'tz', label: 'ⵜⴰⵎⴰⵣⵉⵖⵜ',   flag: '🏳',  dir: 'ltr' },
+];
+
+/** Traduction d'un seul contenu (nom + description) dans une langue */
+export interface ProductTranslation {
+  nom: string;
+  description: string;
+}
+
+/** Map complète des traductions d'un produit ou d'une catégorie */
+export type ProductTranslations = Record<SupportedLanguage, ProductTranslation>;
+
+/** Valeur initiale vide pour ProductTranslations */
+export const EMPTY_TRANSLATIONS: ProductTranslations = {
+  fr: { nom: '', description: '' },
+  ar: { nom: '', description: '' },
+  en: { nom: '', description: '' },
+  tz: { nom: '', description: '' },
+};
+
+// ============================================
+// TYPE D'ÉPICERIE
+// ============================================
+
+export type EpicerieType =
+  | 'EPICERIE_GENERALE'
+  | 'BOULANGERIE_PATISSERIE'
+  | 'BOUCHERIE_CHARCUTERIE'
+  | 'FRUITS_LEGUMES'
+  | 'POISSONNERIE'
+  | 'BOISSONS'
+  | 'BIO_NATURE'
+  | 'EPICERIE_FINE'
+  | 'SUPERETTE'
+  | 'AUTRE';
+
+export interface EpicerieTypeInfo {
+  value: EpicerieType;
+  label: string;
+  icon: string;
+}
+
+export const EPICERIE_TYPES: EpicerieTypeInfo[] = [
+  { value: 'EPICERIE_GENERALE',       label: 'Épicerie générale',       icon: '🛒' },
+  { value: 'BOULANGERIE_PATISSERIE',  label: 'Boulangerie / Pâtisserie', icon: '🥖' },
+  { value: 'BOUCHERIE_CHARCUTERIE',   label: 'Boucherie / Charcuterie',  icon: '🥩' },
+  { value: 'FRUITS_LEGUMES',          label: 'Fruits & Légumes',         icon: '🥦' },
+  { value: 'POISSONNERIE',            label: 'Poissonnerie',             icon: '🐟' },
+  { value: 'BOISSONS',                label: 'Boissons / Cave',          icon: '🧃' },
+  { value: 'BIO_NATURE',              label: 'Bio & Nature',             icon: '🌿' },
+  { value: 'EPICERIE_FINE',           label: 'Épicerie fine',            icon: '🫙' },
+  { value: 'SUPERETTE',               label: 'Supérette',                icon: '🏪' },
+  { value: 'AUTRE',                   label: 'Autre',                    icon: '📦' },
+];
+
+// ============================================
+// UTILISATEUR
+// ============================================
+
 export interface User {
   id: number;
   email: string;
@@ -7,6 +83,8 @@ export interface User {
   adresse?: string;
   latitude?: number;
   longitude?: number;
+  /** Langue préférée persistée en base — utilisée par le backend pour traduire les réponses */
+  preferredLanguage?: SupportedLanguage;
 }
 
 export interface LoginResponse {
@@ -18,7 +96,55 @@ export interface LoginResponse {
   epicerieId?: number;
   epicerieName?: string;
   livreurId?: number;
+  collaboratorRole?: string; // MANAGER | GESTIONNAIRE | CAISSIER
+  mustChangePassword?: boolean;
+  /** Langue préférée du client retournée par le backend au login */
+  preferredLanguage?: SupportedLanguage;
+  /** Identifiant de connexion épicier (format ALXXXXX). Null pour CLIENT/LIVREUR. */
+  identifiant?: string;
 }
+
+// ── Collaborateurs ────────────────────────────────────────────────────────────
+
+export type CollaboratorRole = 'MANAGER' | 'GESTIONNAIRE' | 'CAISSIER';
+export type CollaboratorStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'REVOKED';
+
+export interface Collaborateur {
+  id: number;
+  userId?: number;
+  nom?: string;
+  email?: string;
+  telephone?: string;
+  /** Identifiant de connexion épicier (format ALXXXXX) */
+  identifiant?: string;
+  collaboratorRole: CollaboratorRole;
+  status: CollaboratorStatus;
+  epicerieId: number;
+  invitedAt?: string;
+  acceptedAt?: string;
+  suspendedAt?: string;
+  suspensionReason?: string;
+}
+
+export interface CollaboratorDirectCreateRequest {
+  nom: string;
+  email: string;
+  telephone?: string;
+  collaboratorRole: CollaboratorRole;
+}
+
+export const COLLABORATOR_ROLE_CONFIG: Record<CollaboratorRole, { label: string; color: string; icon: string }> = {
+  MANAGER:      { label: 'Manager',      color: '#e53935', icon: '⭐' },
+  GESTIONNAIRE: { label: 'Gestionnaire', color: '#F57C00', icon: '📦' },
+  CAISSIER:     { label: 'Caissier',     color: '#1976D2', icon: '💳' },
+};
+
+export const COLLABORATOR_STATUS_CONFIG: Record<CollaboratorStatus, { label: string; color: string }> = {
+  ACTIVE:    { label: 'Actif',       color: '#43A047' },
+  PENDING:   { label: 'En attente',  color: '#F57C00' },
+  SUSPENDED: { label: 'Suspendu',    color: '#e53935' },
+  REVOKED:   { label: 'Révoqué',     color: '#9E9E9E' },
+};
 
 export interface RegisterRequest {
   email: string;
@@ -29,8 +155,16 @@ export interface RegisterRequest {
   adresse: string;
   latitude?: number;
   longitude?: number;
+  // Pour EPICIER — personne morale
   nomEpicerie?: string;
   descriptionEpicerie?: string;
+  emailEpicerie?: string;
+  telephoneEpicerie?: string;
+  // Pour EPICIER — représentant légal
+  prenomGerant?: string;
+  nomGerant?: string;
+  // Pour EPICIER — type de boutique
+  epicerieType?: EpicerieType;
 }
 
 export interface Epicerie {
@@ -52,7 +186,13 @@ export interface Epicerie {
   isActive: boolean;
   isOpen?: boolean;
   nombreProducts: number;
-  deliveryZones?: string; // JSON string of delivery zones
+  deliveryZones?: string;
+  averageRating?: number;
+  totalRatings?: number;
+  // Type de boutique
+  epicerieType?: EpicerieType;
+  epicerieTypeLabel?: string;
+  epicerieTypeIcon?: string;
 }
 
 // Product Units Types
@@ -69,6 +209,7 @@ export interface ProductUnit {
   quantity: number;        // 1 for piece, 0.5 for 500g, etc.
   label: string;           // "À l'unité", "500g", "1kg"
   prix: number;
+  prixBarre?: number;      // Prix original barré (avant remise), si présent = promo active
   stock: number;
   isAvailable: boolean;
   displayOrder: number;
@@ -84,6 +225,7 @@ export interface ProductUnitRequest {
   quantity: number;
   label: string;
   prix: number;
+  prixBarre?: number;      // Prix barré optionnel (promo)
   stock: number;
   isAvailable?: boolean;
   displayOrder?: number;
@@ -95,15 +237,51 @@ export interface CategoryPathItem {
   level: number;
 }
 
+export interface Brand {
+  id: number;
+  name: string;
+  logoUrl?: string;
+  isActive: boolean;
+  displayOrder: number;
+}
+
+export interface ProductCharacteristic {
+  id: number;
+  keyName: string;
+  value: string;
+  displayOrder: number;
+}
+
+// ── Tags ───────────────────────────────────────────────────────────────────
+
+export type TagScope = 'PRODUCT' | 'CATEGORY' | 'BOTH';
+
+export interface Tag {
+  id: number;
+  name: string;
+  slug: string;
+  color?: string;
+  iconUrl?: string;
+  scope: TagScope;
+  isSystem: boolean;
+  isActive: boolean;
+  displayOrder: number;
+  translations?: Record<string, string>;
+}
+
 export interface Product {
   id: number;
+  /** Nom dans la langue du client (retourné par le backend via Accept-Language) */
   nom: string;
+  /** Description dans la langue du client */
   description?: string;
   prix: number;              // Legacy - ignore si units
+  prixBarre?: number;        // Prix barré legacy (promo), ignoré si units
   stock: number;             // Legacy - ignore si units
   photoUrl?: string;
   categorie?: string; // Deprecated: use categoryId
   categoryId?: number;
+  /** Nom de la catégorie dans la langue du client */
   categoryName?: string;
   parentCategoryId?: number | null;
   categoryLevel?: number;
@@ -116,12 +294,27 @@ export interface Product {
   units?: ProductUnit[];      // Array of available units
   totalStock?: number;        // Total across all units
   inStock?: boolean;          // Has any unit with stock?
+
+  // Brand & Characteristics
+  brandId?: number;
+  brandName?: string;
+  brandLogoUrl?: string;
+  characteristics?: ProductCharacteristic[];
+
+  // Tags
+  tags?: Tag[];
+
+  /**
+   * Toutes les traductions du produit — uniquement dans le contexte admin (épicier).
+   * Non présent dans les réponses côté client.
+   */
+  translations?: ProductTranslations;
 }
 
-export type CartItemType = 'PRODUCT' | 'RECHARGE';
+export type CartItemType = 'PRODUCT';
 
 export interface CartItem {
-  itemType: CartItemType;        // Type d'item: produit ou recharge
+  itemType: CartItemType;        // Type d'item
   productId: number;
   productNom: string;
   epicerieId: number;            // Store épicerie ID from product
@@ -132,12 +325,6 @@ export interface CartItem {
   pricePerUnit: number;
   totalPrice: number;
   photoUrl?: string;
-
-  // Champs spécifiques pour les recharges téléphoniques
-  rechargeOfferId?: number;      // ID de l'offre de recharge
-  rechargePhoneNumber?: string;  // Numéro à recharger
-  rechargeOperator?: TelecomOperator; // Opérateur télécom
-  rechargeDescription?: string;  // Description de l'offre
 }
 
 export interface OrderItem {
@@ -146,11 +333,7 @@ export interface OrderItem {
   unitId?: number;                // ID of selected unit
   unitLabel?: string;             // Label of selected unit (e.g., "500g", "1kg")
   requestedQuantity?: number;     // Pour weight-based (1.0kg, 0.5L)
-
-  // Champs pour les recharges téléphoniques
   itemType?: CartItemType;        // Type d'item (PRODUCT par défaut)
-  rechargeOfferId?: number;       // ID de l'offre de recharge
-  rechargePhoneNumber?: string;   // Numéro à recharger
 }
 
 export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
@@ -221,12 +404,7 @@ export interface OrderItemDetail {
   unitType?: string;
   productUnit?: ProductUnit;
 
-  // Champs pour les recharges téléphoniques
   itemType?: CartItemType;
-  rechargeOfferId?: number;
-  rechargePhoneNumber?: string;
-  rechargeOperator?: TelecomOperator;
-  rechargeDescription?: string;
 
   // Préparation de commande
   status?: OrderItemStatus;
@@ -454,89 +632,6 @@ export interface EpicierStats {
 }
 
 // ============================================
-// TYPES POUR RECHARGES TÉLÉPHONIQUES
-// ============================================
-
-export enum TelecomOperator {
-  INWI = 'INWI',
-  ORANGE = 'ORANGE',
-  IAM = 'IAM',
-  WANA = 'WANA'
-}
-
-export enum RechargeOfferType {
-  SIMPLE = 'SIMPLE',
-  INTERNET = 'INTERNET',
-  APPELS = 'APPELS',
-  MIXTE = 'MIXTE',
-  INTERNATIONAL = 'INTERNATIONAL'
-}
-
-export enum RechargeTransactionStatus {
-  PENDING = 'PENDING',
-  PROCESSING = 'PROCESSING',
-  SUCCESS = 'SUCCESS',
-  FAILED = 'FAILED',
-  REFUNDED = 'REFUNDED',
-  CANCELLED = 'CANCELLED'
-}
-
-export interface TelecomRechargeOffer {
-  id: number;
-  epicerieId: number;
-  operator: TelecomOperator;
-  operatorDisplayName?: string;
-  offerType: RechargeOfferType;
-  offerTypeDisplayName?: string;
-  amount: number;
-  price: number;
-  description: string;
-  validityDays?: number;
-  enabled: boolean;
-  stockAvailable?: number;
-  operatorProductCode?: string;
-}
-
-export interface TelecomRechargeConfig {
-  id?: number;
-  epicerieId: number;
-  enabled: boolean;
-  commissionPercentage: number;
-  autoApproval: boolean;
-  maxAmountPerDay?: number;
-}
-
-export interface RechargeTransaction {
-  id: number;
-  orderItemId: number;
-  transactionReference: string;
-  phoneNumber: string;
-  amount: number;
-  status: RechargeTransactionStatus;
-  statusDisplayName?: string;
-  operatorTransactionId?: string;
-  errorMessage?: string;
-  refunded: boolean;
-  refundAmount?: number;
-  retryCount: number;
-  maxRetries: number;
-  createdAt: string;
-  processedAt?: string;
-
-  // Infos de l'offre
-  operator: TelecomOperator;
-  operatorName?: string;
-  offerType?: string;
-  offerDescription?: string;
-}
-
-export interface RechargeOrderRequest {
-  orderItemId: number;
-  offerId: number;
-  phoneNumber: string;
-}
-
-// ============================================
 // TYPES POUR VÉRIFICATION D'INSCRIPTION
 // ============================================
 
@@ -552,6 +647,8 @@ export interface RegistrationVerificationResponse {
   bothVerified?: boolean;
   attemptsRemaining?: number;
   resendCooldownSeconds?: number;
+  /** Identifiant de connexion épicier généré (format ALXXXXX). Présent si rôle EPICIER. */
+  identifiant?: string;
 }
 
 export interface VerifyEmailCodeRequest {
@@ -568,4 +665,61 @@ export interface UnverifiedLoginResponse {
   verified: false;
   message: string;
   email: string;
+}
+
+// ============================================
+// TYPES POUR LES CODES-BARRES PRODUITS
+// ============================================
+
+export interface ProductBarcode {
+  id: number;
+  barcode: string;
+  barcodeType: string;
+  barcodeFormat: string;
+  isPrimary: boolean;
+  description?: string;
+  scanCount: number;
+  isActive: boolean;
+  /** ID de l'unité de vente associée (null si barcode lié au produit global) */
+  unitId?: number;
+  unitLabel?: string;
+  unitPrix?: number;
+  createdAt?: string;
+  lastScannedAt?: string;
+}
+
+/**
+ * Résultat d'une recherche de produit par code-barre.
+ * Contient le produit complet + l'ID de l'unité identifiée par le scan.
+ */
+export interface BarcodeProductResult {
+  /** Produit trouvé */
+  id: number;
+  nom: string;
+  description?: string;
+  photoUrl?: string;
+  epicerieId: number;
+  epicerieNom?: string;
+  units?: ProductUnit[];
+  /** ID de l'unité correspondant au code-barre scanné (null si non lié) */
+  matchedUnitId?: number;
+}
+
+// ============================================
+// TYPES POUR LE SYSTÈME QR CODE
+// ============================================
+
+export interface QrTokenResponse {
+  orderId: number;
+  qrToken: string;
+  deliveryType: 'PICKUP' | 'HOME_DELIVERY';
+}
+
+export interface QrValidateResponse {
+  success: boolean;
+  orderId: number;
+  newStatus: string;
+  deliveryType: 'PICKUP' | 'HOME_DELIVERY';
+  clientNom: string;
+  epicerieNom: string;
 }

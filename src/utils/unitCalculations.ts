@@ -11,8 +11,9 @@ export const calculateUnitPrice = (
   unit: ProductUnit,
   requestedQuantity: number
 ): number => {
-  const unitsNeeded = requestedQuantity / unit.quantity;
-  return unit.prix * unitsNeeded;
+  // requestedQuantity = nombre de formats que le client veut (ex: 2 paquets de 500g)
+  // unit.prix = prix d'UN format — donc total = prix × quantité demandée
+  return unit.prix * requestedQuantity;
 };
 
 /**
@@ -22,8 +23,8 @@ export const canOrder = (
   unit: ProductUnit,
   requestedQuantity: number
 ): boolean => {
-  const unitsNeeded = requestedQuantity / unit.quantity;
-  return unit.stock >= unitsNeeded && unit.isAvailable;
+  // requestedQuantity = nombre de formats commandés, stock = nombre de formats disponibles
+  return unit.stock >= requestedQuantity && unit.isAvailable;
 };
 
 /**
@@ -33,7 +34,7 @@ export const calculateUnitsNeeded = (
   unit: ProductUnit,
   requestedQuantity: number
 ): number => {
-  return Math.ceil(requestedQuantity / unit.quantity);
+  return requestedQuantity;
 };
 
 /**

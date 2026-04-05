@@ -1,18 +1,25 @@
 /**
- * Modal pour afficher l'image produit en grand avec zoom
+ * Modal pour afficher l'image produit en grand avec zoom interactif
+ * Support du pinch-to-zoom et pan
  */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Modal,
   View,
   TouchableOpacity,
-  Image,
   StyleSheet,
   Text,
-  PanResponder,
   Animated,
+  Dimensions,
 } from 'react-native';
+import {
+  GestureHandlerRootView,
+  PinchGestureHandler,
+  PanGestureHandler,
+  TapGestureHandler,
+  State,
+} from 'react-native-gesture-handler';
 
 interface ProductImageModalProps {
   visible: boolean;
@@ -21,42 +28,137 @@ interface ProductImageModalProps {
   onClose: () => void;
 }
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 export const ProductImageModal: React.FC<ProductImageModalProps> = ({
   visible,
   photoUrl,
   productName,
   onClose,
 }) => {
-  const [scale] = useState(new Animated.Value(1));
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
 
-  // Zoomer
-  const handleZoomIn = () => {
-    const newZoom = Math.min(zoomLevel + 0.5, 3);
-    setZoomLevel(newZoom);
-    Animated.spring(scale, {
-      toValue: newZoom,
-      useNativeDriver: true,
-    }).start();
+  const [currentScale, setCurrentScale] = useState(1);
+  const lastScale = useRef(1);
+  const lastTranslateX = useRef(0);
+  const lastTranslateY = useRef(0);
+
+  // Gestion du pinch-to-zoom
+  const onPinchEvent = Animated.event(
+    [{ nativeEvent: { scale: scale } }],
+    { useNativeDriver: true }
+  );
+
+  const onPinchStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      const newScale = Math.min(Math.max(lastScale.current * event.nativeEvent.scale, 1), 5);
+      lastScale.current = newScale;
+      setCurrentScale(newScale);
+
+      scale.setValue(newScale);
+    }
   };
 
-  // Dé-zoomer
-  const handleZoomOut = () => {
-    const newZoom = Math.max(zoomLevel - 0.5, 1);
-    setZoomLevel(newZoom);
+  // Gestion du pan (déplacement)
+  const onPanEvent = Animated.event(
+    [{ nativeEvent: { translationX: translateX, translationY: translateY } }],
+    { useNativeDriver: true }
+  );
+
+  const onPanStateChange = (event: any) => {
+    if (event.nativeEvent.oldState === State.ACTIVE) {
+      lastTranslateX.current += event.nativeEvent.translationX;
+      lastTranslateY.current += event.nativeEvent.translationY;
+
+      translateX.setOffset(lastTranslateX.current);
+      translateY.setOffset(lastTranslateY.current);
+      translateX.setValue(0);
+      translateY.setValue(0);
+    }
+  };
+
+  // Double tap pour zoomer/dézoomer
+  const onDoubleTap = (event: any) => {
+    if (event.nativeEvent.state === State.ACTIVE) {
+      const newScale = currentScale > 1 ? 1 : 2.5;
+
+      Animated.parallel([
+        Animated.spring(scale, {
+          toValue: newScale,
+          useNativeDriver: true,
+        }),
+        Animated.spring(translateX, {
+          toValue: newScale === 1 ? 0 : lastTranslateX.current,
+          useNativeDriver: true,
+        }),
+        Animated.spring(translateY, {
+          toValue: newScale === 1 ? 0 : lastTranslateY.current,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      if (newScale === 1) {
+        lastTranslateX.current = 0;
+        lastTranslateY.current = 0;
+        translateX.setOffset(0);
+        translateY.setOffset(0);
+      }
+
+      lastScale.current = newScale;
+      setCurrentScale(newScale);
+    }
+  };
+
+  // Zoomer avec boutons
+  const handleZoomIn = () => {
+    const newScale = Math.min(lastScale.current + 0.5, 5);
     Animated.spring(scale, {
-      toValue: newZoom,
+      toValue: newScale,
       useNativeDriver: true,
     }).start();
+    lastScale.current = newScale;
+    setCurrentScale(newScale);
+  };
+
+  // Dé-zoomer avec boutons
+  const handleZoomOut = () => {
+    const newScale = Math.max(lastScale.current - 0.5, 1);
+    Animated.spring(scale, {
+      toValue: newScale,
+      useNativeDriver: true,
+    }).start();
+
+    if (newScale === 1) {
+      Animated.parallel([
+        Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
+        Animated.spring(translateY, { toValue: 0, useNativeDriver: true }),
+      ]).start();
+      lastTranslateX.current = 0;
+      lastTranslateY.current = 0;
+      translateX.setOffset(0);
+      translateY.setOffset(0);
+    }
+
+    lastScale.current = newScale;
+    setCurrentScale(newScale);
   };
 
   // Réinitialiser le zoom
   const handleResetZoom = () => {
-    setZoomLevel(1);
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-    }).start();
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true }),
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: true }),
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true }),
+    ]).start();
+
+    lastScale.current = 1;
+    lastTranslateX.current = 0;
+    lastTranslateY.current = 0;
+    translateX.setOffset(0);
+    translateY.setOffset(0);
+    setCurrentScale(1);
   };
 
   if (!photoUrl) {
@@ -65,7 +167,7 @@ export const ProductImageModal: React.FC<ProductImageModalProps> = ({
 
   return (
     <Modal visible={visible} transparent={true} animationType="fade">
-      <View style={styles.overlay}>
+      <GestureHandlerRootView style={styles.overlay}>
         {/* En-tête */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>{productName}</Text>
@@ -74,18 +176,42 @@ export const ProductImageModal: React.FC<ProductImageModalProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* Image avec zoom */}
+        {/* Image avec zoom interactif */}
         <View style={styles.imageContainer}>
-          <Animated.Image
-            source={{ uri: photoUrl }}
-            style={[
-              styles.image,
-              {
-                transform: [{ scale }],
-              },
-            ]}
-            resizeMode="contain"
-          />
+          <TapGestureHandler
+            onHandlerStateChange={onDoubleTap}
+            numberOfTaps={2}
+          >
+            <Animated.View style={styles.imageWrapper}>
+              <PanGestureHandler
+                onGestureEvent={onPanEvent}
+                onHandlerStateChange={onPanStateChange}
+                enabled={currentScale > 1}
+              >
+                <Animated.View style={styles.imageWrapper}>
+                  <PinchGestureHandler
+                    onGestureEvent={onPinchEvent}
+                    onHandlerStateChange={onPinchStateChange}
+                  >
+                    <Animated.Image
+                      source={{ uri: photoUrl }}
+                      style={[
+                        styles.image,
+                        {
+                          transform: [
+                            { scale: scale },
+                            { translateX: translateX },
+                            { translateY: translateY },
+                          ],
+                        },
+                      ]}
+                      resizeMode="contain"
+                    />
+                  </PinchGestureHandler>
+                </Animated.View>
+              </PanGestureHandler>
+            </Animated.View>
+          </TapGestureHandler>
         </View>
 
         {/* Contrôles de zoom */}
@@ -93,24 +219,24 @@ export const ProductImageModal: React.FC<ProductImageModalProps> = ({
           <TouchableOpacity
             style={[styles.zoomButton, styles.zoomOutButton]}
             onPress={handleZoomOut}
-            disabled={zoomLevel <= 1}
+            disabled={currentScale <= 1}
           >
             <Text style={styles.zoomButtonText}>−</Text>
           </TouchableOpacity>
 
           <View style={styles.zoomLevel}>
-            <Text style={styles.zoomLevelText}>{(zoomLevel * 100).toFixed(0)}%</Text>
+            <Text style={styles.zoomLevelText}>{(currentScale * 100).toFixed(0)}%</Text>
           </View>
 
           <TouchableOpacity
             style={[styles.zoomButton, styles.zoomInButton]}
             onPress={handleZoomIn}
-            disabled={zoomLevel >= 3}
+            disabled={currentScale >= 5}
           >
             <Text style={styles.zoomButtonText}>+</Text>
           </TouchableOpacity>
 
-          {zoomLevel > 1 && (
+          {currentScale > 1 && (
             <TouchableOpacity
               style={[styles.zoomButton, styles.resetButton]}
               onPress={handleResetZoom}
@@ -123,10 +249,10 @@ export const ProductImageModal: React.FC<ProductImageModalProps> = ({
         {/* Instructions */}
         <View style={styles.footer}>
           <Text style={styles.instructionText}>
-            Utilisez les boutons pour zoomer • Appuyez en dehors pour fermer
+            Pincez pour zoomer • Double-tap pour zoomer • Glissez pour déplacer
           </Text>
         </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 };
@@ -170,11 +296,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    overflow: 'hidden',
+  },
+  imageWrapper: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.65,
   },
   image: {
-    width: '100%',
-    height: '100%',
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT * 0.65,
   },
   zoomControls: {
     flexDirection: 'row',

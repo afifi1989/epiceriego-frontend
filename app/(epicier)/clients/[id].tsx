@@ -40,7 +40,7 @@ export default function ClientDetailScreen() {
    */
   useEffect(() => {
     const getEpicerieId = async () => {
-      const user = await AsyncStorage.getItem('@epiceriego_user');
+      const user = await AsyncStorage.getItem('@abridgo_user');
       if (user) {
         const userData = JSON.parse(user);
         if (userData.epicerieId) {
@@ -112,23 +112,29 @@ export default function ClientDetailScreen() {
    * Mark invoice as paid
    */
   const handleMarkInvoiceAsPaid = (invoiceId: number) => {
-    Alert.prompt(
+    Alert.alert(
       'Marquer comme payée',
-      'Entrez une référence de paiement (optionnel)',
+      'Confirmer que cette facture a été payée en espèces ou sur place ?',
       [
-        { text: 'Annuler', onPress: () => {} },
         {
-          text: 'Marquer comme payée',
-          onPress: async (reference: any) => {
+          text: 'Annuler',
+          style: 'cancel',
+          onPress: () => {}
+        },
+        {
+          text: 'Confirmer',
+          style: 'default',
+          onPress: async () => {
             try {
               await invoiceService.markInvoiceAsPaid(
                 invoiceId,
-                reference || 'Paiement en espèces'
+                'Paiement en espèces'
               );
               Alert.alert('Succès', 'Facture marquée comme payée');
               await loadClientDetails();
             } catch (error) {
-              Alert.alert('Erreur', 'Impossible de marquer la facture');
+              console.error('Error marking invoice as paid:', error);
+              Alert.alert('Erreur', 'Impossible de marquer la facture comme payée');
             }
           },
         },

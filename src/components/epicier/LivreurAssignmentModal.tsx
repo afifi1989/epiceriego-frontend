@@ -48,48 +48,61 @@ export const LivreurAssignmentModal = ({
           {/* Liste des livreurs */}
           <ScrollView style={styles.livreursList} showsVerticalScrollIndicator={false}>
             {livreurs.length > 0 ? (
-              livreurs.map(livreur => (
-                <TouchableOpacity
-                  key={livreur.id}
-                  style={[
-                    styles.livreurItem,
-                    selectedLivreurId === livreur.id && styles.livreurItemSelected,
-                  ]}
-                  onPress={() => onSelect(livreur)}
-                  disabled={isLoading}
-                >
-                  {/* Checkbox */}
-                  <View
+              livreurs.map(livreur => {
+                const isOffline = !livreur.isAvailable;
+                const isSelected = selectedLivreurId === livreur.id;
+                return (
+                  <TouchableOpacity
+                    key={livreur.id}
                     style={[
-                      styles.checkbox,
-                      selectedLivreurId === livreur.id && styles.checkboxSelected,
+                      styles.livreurItem,
+                      isSelected && styles.livreurItemSelected,
+                      isOffline && styles.livreurItemDisabled,
                     ]}
+                    onPress={() => !isOffline && onSelect(livreur)}
+                    disabled={isLoading || isOffline}
+                    activeOpacity={isOffline ? 1 : 0.7}
                   >
-                    {selectedLivreurId === livreur.id && (
-                      <Text style={styles.checkmark}>✓</Text>
-                    )}
-                  </View>
-
-                  {/* Info du livreur */}
-                  <View style={styles.livreurInfo}>
-                    <Text style={styles.livreurNom}>👤 {livreur.nom}</Text>
-                    <Text style={styles.livreurDetails}>{livreur.telephone}</Text>
-                    <View style={styles.statusRow}>
-                      <View
-                        style={[
-                          styles.statusDot,
-                          {
-                            backgroundColor: livreur.isAvailable ? '#4CAF50' : '#999',
-                          },
-                        ]}
-                      />
-                      <Text style={styles.statusText}>
-                        {livreur.isAvailable ? 'Disponible' : 'Occupé'}
-                      </Text>
+                    {/* Checkbox */}
+                    <View
+                      style={[
+                        styles.checkbox,
+                        isSelected && styles.checkboxSelected,
+                        isOffline && styles.checkboxDisabled,
+                      ]}
+                    >
+                      {isSelected && (
+                        <Text style={styles.checkmark}>✓</Text>
+                      )}
                     </View>
-                  </View>
-                </TouchableOpacity>
-              ))
+
+                    {/* Info du livreur */}
+                    <View style={styles.livreurInfo}>
+                      <Text style={[styles.livreurNom, isOffline && styles.textDisabled]}>
+                        👤 {livreur.nom}
+                      </Text>
+                      <Text style={[styles.livreurDetails, isOffline && styles.textDisabled]}>
+                        {livreur.telephone}
+                      </Text>
+                      <View style={styles.statusRow}>
+                        <View
+                          style={[
+                            styles.statusDot,
+                            { backgroundColor: livreur.isAvailable ? '#4CAF50' : '#f44336' },
+                          ]}
+                        />
+                        <Text style={[styles.statusText, { color: livreur.isAvailable ? '#4CAF50' : '#f44336' }]}>
+                          {livreur.isAvailable ? '🟢 En ligne' : '🔴 Hors ligne'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {isOffline && (
+                      <Text style={styles.offlineTag}>Indisponible</Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })
             ) : (
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyIcon}>🚚</Text>
@@ -175,6 +188,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3F2FD',
     borderColor: '#2196F3',
   },
+  livreurItemDisabled: {
+    backgroundColor: '#f0f0f0',
+    opacity: 0.6,
+  },
   checkbox: {
     width: 24,
     height: 24,
@@ -188,6 +205,10 @@ const styles = StyleSheet.create({
   checkboxSelected: {
     backgroundColor: '#2196F3',
     borderColor: '#2196F3',
+  },
+  checkboxDisabled: {
+    backgroundColor: '#e0e0e0',
+    borderColor: '#ccc',
   },
   checkmark: {
     color: '#fff',
@@ -221,6 +242,19 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 12,
     color: '#666',
+  },
+  textDisabled: {
+    color: '#aaa',
+  },
+  offlineTag: {
+    fontSize: 10,
+    color: '#f44336',
+    fontWeight: '600',
+    backgroundColor: '#ffebee',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   emptyContainer: {
     alignItems: 'center',

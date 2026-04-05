@@ -387,9 +387,16 @@ export const clientManagementService = {
         // Continue with default values (balanceDue = 0, totalAdvances = 0)
       }
 
-      // Calculate available credit: creditLimit - balanceDue + totalAdvances
-      const availableCredit = creditLimit - balanceDue + totalAdvances;
-      console.log('[getCreditInfo] Calculation: creditLimit:', creditLimit, '- balanceDue:', balanceDue, '+ totalAdvances:', totalAdvances, '= availableCredit:', availableCredit);
+      // NOTE: account.balanceDue from API = totalDebt - totalAdvances (NET balance)
+      // We need rawDebt = raw unpaid invoices = balanceDue + totalAdvances
+      const rawDebt = balanceDue + totalAdvances;
+
+      // availableCredit = max(creditLimit, totalAdvances) - rawDebt
+      // - If advance > creditLimit : effective ceiling = totalAdvances
+      // - If advance <= creditLimit : effective ceiling = creditLimit
+      const effectiveLimit = Math.max(creditLimit, totalAdvances);
+      const availableCredit = effectiveLimit - rawDebt;
+      console.log('[getCreditInfo] rawDebt:', rawDebt, '| effectiveLimit:', effectiveLimit, '| availableCredit:', availableCredit);
 
       return {
         allowCredit: true,

@@ -20,7 +20,7 @@ import { passwordResetService } from '../../src/services/passwordResetService';
 export default function ForgotPasswordScreen() {
   const router = useRouter();
 
-  // États
+  // États — accepte un email OU un identifiant ALXXXXX
   const [email, setEmail] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -28,16 +28,19 @@ export default function ForgotPasswordScreen() {
    * Envoie les codes OTP
    */
   const handleSendCodes = async (): Promise<void> => {
+    const value = email.trim();
+
     // Validation basique
-    if (!email) {
-      Alert.alert('Erreur', 'Veuillez saisir votre email');
+    if (!value) {
+      Alert.alert('Erreur', 'Veuillez saisir votre email ou identifiant');
       return;
     }
 
-    // Validation email
+    // Validation : email valide OU identifiant ALXXXXX
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      Alert.alert('Erreur', 'Email invalide');
+    const identifiantRegex = /^AL\d{5}$/;
+    if (!emailRegex.test(value) && !identifiantRegex.test(value)) {
+      Alert.alert('Erreur', 'Saisissez un email valide ou un identifiant (ex: AL00001)');
       return;
     }
 
@@ -98,7 +101,7 @@ export default function ForgotPasswordScreen() {
           <Text style={styles.emoji}>🔐</Text>
           <Text style={styles.title}>Mot de passe oublié</Text>
           <Text style={styles.subtitle}>
-            Saisissez votre email pour recevoir les codes de vérification
+            Saisissez votre email ou identifiant pour recevoir les codes de vérification
           </Text>
         </View>
 
@@ -113,11 +116,11 @@ export default function ForgotPasswordScreen() {
 
           <TextInput
             style={styles.input}
-            placeholder="Email"
+            placeholder="Email ou identifiant (AL00001)"
             placeholderTextColor="#999"
             value={email}
             onChangeText={setEmail}
-            keyboardType="email-address"
+            keyboardType="default"
             autoCapitalize="none"
             autoCorrect={false}
           />

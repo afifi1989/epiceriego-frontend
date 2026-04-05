@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import AbridGOLogo from '../../src/components/shared/AbridGOLogo';
 
 const { width, height } = Dimensions.get('window');
 
@@ -23,11 +24,11 @@ interface OnboardingSlide {
 const slides: OnboardingSlide[] = [
   {
     id: '1',
-    title: 'Bienvenue à EpicerieGo! 👋',
+    title: 'Bienvenue à AbridGO! 👋',
     description:
       'Découvrez une nouvelle façon de faire vos courses. Achetez directement auprès de vos épiceries locales en quelques clics.',
     emoji: '🛒',
-    bgColor: '#4CAF50',
+    bgColor: '#1B2A4A',
   },
   {
     id: '2',
@@ -103,10 +104,14 @@ export default function OnboardingScreen() {
     router.push('/(auth)/login');
   };
 
-  const renderSlide = ({ item }: { item: OnboardingSlide }) => (
+  const renderSlide = ({ item, index }: { item: OnboardingSlide; index: number }) => (
     <View style={[styles.slide, { backgroundColor: item.bgColor }]}>
       <View style={styles.slideContent}>
-        <Text style={styles.largeEmoji}>{item.emoji}</Text>
+        {index === 0 ? (
+          <AbridGOLogo size={180} />
+        ) : (
+          <Text style={styles.largeEmoji}>{item.emoji}</Text>
+        )}
 
         <Text style={styles.title}>{item.title}</Text>
 

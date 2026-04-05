@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useRequirePermission } from '../../src/hooks/useRequirePermission';
 import {
   View,
   Text,
@@ -19,6 +20,7 @@ import { ProfilePhotoUpload } from '../../components/epicier/ProfilePhotoUpload'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ModifierInfosScreen() {
+  const ready = useRequirePermission('settings:edit');
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,8 +44,10 @@ export default function ModifierInfosScreen() {
   });
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (ready) loadData();
+  }, [ready]);
+
+  if (!ready) return null;
 
   const loadData = async () => {
     try {

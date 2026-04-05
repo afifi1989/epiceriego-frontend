@@ -12,6 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { orderService } from '../../src/services/orderService';
 import { Order } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
@@ -180,7 +181,17 @@ export default function CommandesScreen() {
             >
               <Text style={styles.quickBtnText}>✅ Commande Prête</Text>
             </TouchableOpacity>
-            <Text style={styles.readyText}>En attente de livreur ou client</Text>
+            {item.deliveryType === 'PICKUP' ? (
+              <TouchableOpacity
+                style={[styles.quickBtn, styles.scanBtn]}
+                onPress={() => router.push('/(epicier)/scan-qr')}
+              >
+                <MaterialCommunityIcons name="qrcode-scan" size={14} color="#fff" style={{ marginRight: 4 }} />
+                <Text style={styles.quickBtnText}>Scanner QR</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.readyText}>En attente de livreur</Text>
+            )}
           </View>
         )}
         <TouchableOpacity
@@ -204,6 +215,24 @@ export default function CommandesScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Bouton scanner QR flottant — valider les retraits PICKUP */}
+      <TouchableOpacity
+        style={styles.scanFab}
+        onPress={() => router.push('/(epicier)/scan-qr')}
+        activeOpacity={0.85}
+      >
+        <MaterialCommunityIcons name="qrcode-scan" size={26} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Bouton vente directe flottant */}
+      <TouchableOpacity
+        style={styles.posFab}
+        onPress={() => router.push('/(epicier)/vente-directe')}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.posFabText}>🛒</Text>
+      </TouchableOpacity>
+
       <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[styles.filterBtn, filter === 'ALL' && styles.filterBtnActive]}
@@ -268,6 +297,43 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
+  },
+  scanFab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    zIndex: 10,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#2196F3',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  posFab: {
+    position: 'absolute',
+    bottom: 94,
+    right: 20,
+    zIndex: 10,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#4CAF50',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  posFabText: {
+    fontSize: 26,
   },
   filterContainer: {
     flexDirection: 'row',
@@ -393,6 +459,11 @@ const styles = StyleSheet.create({
   infoBtn: {
     backgroundColor: '#2196F3',
     opacity: 0.7,
+  },
+  scanBtn: {
+    backgroundColor: '#7B1FA2',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   quickBtnText: {
     color: '#fff',

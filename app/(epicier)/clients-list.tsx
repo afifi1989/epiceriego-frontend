@@ -47,7 +47,7 @@ export default function ClientsScreen() {
    */
   useEffect(() => {
     const getEpicerieId = async () => {
-      const user = await AsyncStorage.getItem('@epiceriego_user');
+      const user = await AsyncStorage.getItem('@abridgo_user');
       if (user) {
         const userData = JSON.parse(user);
         if (userData.epicerieId) {
@@ -78,29 +78,39 @@ export default function ClientsScreen() {
     try {
       setLoading(true);
 
-      // Load clients
-      const clientList = await clientManagementService.getEpicerieClients(
-        epicerieId,
-        0,
-        100
-      );
+      // Load clients with their account information (includes balanceDue, totalAdvances, etc.)
+      const clientsWithAccounts = await clientManagementService.getClientsWithAccounts(epicerieId);
 
       // Load invoice stats
       const invoiceStats = await invoiceService.getInvoiceStats(epicerieId);
 
-      // Enrich clients with financial data
-      const enrichedClients: ClientWithDetails[] = clientList.map(client => ({
-        ...client,
-        totalDebt: 0,
-        totalAdvances: 0,
-        numberOfOrders: 0,
+      // Map to ClientWithDetails format
+      const enrichedClients: ClientWithDetails[] = clientsWithAccounts.map(client => ({
+        id: 0, // Not used in current implementation
+        clientId: client.clientId,
+        epicerieId: client.epicerieId,
+        status: client.status || 'ACCEPTED',
+        createdAt: '', // Not needed for list view
+        clientNom: client.clientName || '', // Map clientName to clientNom
+        clientEmail: client.clientEmail || '',
+        allowCredit: client.allowCredit || false,
+        creditLimit: client.creditLimit || 0,
+        totalDebt: client.balanceDue || 0,
+        totalAdvances: client.totalAdvances || 0,
+        numberOfOrders: 0, // TODO: add this to backend response
       }));
+
+      // Calculate total advances from all clients
+      const totalAdvances = enrichedClients.reduce(
+        (sum, client) => sum + (client.totalAdvances || 0),
+        0
+      );
 
       setClients(enrichedClients);
       setStats({
         totalClients: enrichedClients.length,
         totalDebt: invoiceStats.totalUnpaid || 0,
-        totalAdvances: 0, // A calculer à partir des paiements
+        totalAdvances: totalAdvances,
         unpaidInvoices: 0, // A calculer
       });
     } catch (error) {
@@ -124,8 +134,8 @@ export default function ClientsScreen() {
    * Handle search
    */
   const filteredClients = clients.filter(client =>
-    client.clientNom.toLowerCase().includes(searchText.toLowerCase()) ||
-    client.clientEmail.toLowerCase().includes(searchText.toLowerCase())
+    (client.clientNom?.toLowerCase() || '').includes(searchText.toLowerCase()) ||
+    (client.clientEmail?.toLowerCase() || '').includes(searchText.toLowerCase())
   );
 
   /**

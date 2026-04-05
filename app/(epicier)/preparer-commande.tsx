@@ -13,8 +13,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { orderService } from '../../src/services/orderService';
 import { orderPreparationService } from '../../src/services/orderPreparationService';
-import { rechargeService } from '../../src/services/rechargeService';
-import { Order, OrderItemDetail, OrderItemStatus, RechargeTransaction } from '../../src/type';
+import { Order, OrderItemDetail, OrderItemStatus } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
 
 export default function PreparerCommandeScreen() {
@@ -23,11 +22,6 @@ export default function PreparerCommandeScreen() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [processingItemId, setProcessingItemId] = useState<number | null>(null);
-  const [rechargeStatuses, setRechargeStatuses] = useState<Record<number, {
-    hasTransaction: boolean;
-    status: string;
-    transaction?: RechargeTransaction;
-  }>>({});
 
   useEffect(() => {
     loadOrder();
@@ -43,82 +37,12 @@ export default function PreparerCommandeScreen() {
 
       const data = await orderService.getOrderById(parseInt(orderId as string));
       setOrder(data);
-
-      // Charger les statuts des recharges
-      await loadRechargeStatuses(data);
     } catch (error: any) {
       console.error('Erreur chargement commande:', error);
       Alert.alert('Erreur', error.message || 'Impossible de charger la commande');
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadRechargeStatuses = async (orderData: Order) => {
-    const rechargeItems = orderData.items.filter(item => item.itemType === 'RECHARGE');
-    console.log('[loadRechargeStatuses] Found recharge items:', rechargeItems.length);
-
-    const statuses: Record<number, any> = {};
-
-    for (const item of rechargeItems) {
-      try {
-        console.log(`[loadRechargeStatuses] Loading status for item ${item.id}`);
-        const status = await rechargeService.getRechargeStatus(item.id);
-        console.log(`[loadRechargeStatuses] Status for item ${item.id}:`, status);
-        statuses[item.id] = status;
-      } catch (error) {
-        console.error(`[loadRechargeStatuses] Erreur chargement statut recharge ${item.id}:`, error);
-        statuses[item.id] = { hasTransaction: false, status: 'NONE' };
-      }
-    }
-
-    console.log('[loadRechargeStatuses] Final statuses:', statuses);
-    setRechargeStatuses(statuses);
-  };
-
-  const handleExecuteRecharge = async (itemId: number) => {
-    if (!order) return;
-
-    Alert.alert(
-      'Exécuter la recharge',
-      'Confirmer l\'exécution de cette recharge téléphonique ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Exécuter',
-          onPress: async () => {
-            try {
-              setProcessingItemId(itemId);
-              const transaction = await rechargeService.executeRecharge(itemId);
-
-              // Mettre à jour le statut de la recharge
-              setRechargeStatuses(prev => ({
-                ...prev,
-                [itemId]: {
-                  hasTransaction: true,
-                  status: transaction.status,
-                  transaction: transaction,
-                },
-              }));
-
-              if (transaction.status === 'SUCCESS') {
-                Alert.alert('✅ Succès', 'La recharge a été effectuée avec succès');
-                // Marquer automatiquement l'item comme complété
-                await handleMarkComplete(itemId);
-              } else if (transaction.status === 'FAILED') {
-                Alert.alert('❌ Échec', transaction.errorMessage || 'La recharge a échoué');
-              } else {
-                Alert.alert('⏳ En cours', 'La recharge est en cours de traitement');
-              }
-            } catch (error: any) {
-              Alert.alert('Erreur', error.message || 'Impossible d\'exécuter la recharge');
-            } finally {
-              setProcessingItemId(null);
-            }
-          },
-        },
-      ]
-    );
   };
 
   const handleMarkComplete = async (itemId: number) => {
@@ -336,13 +260,6 @@ export default function PreparerCommandeScreen() {
           {order.items.map((item) => {
             const itemStatus = getItemStatus(item);
             const isProcessing = processingItemId === item.id;
-            const isRecharge = item.itemType === 'RECHARGE';
-
-            // Debug logs
-            console.log(`[Item ${item.id}] Type: ${item.itemType}, IsRecharge: ${isRecharge}, Status: ${itemStatus}`);
-            if (isRecharge) {
-              console.log(`[Recharge ${item.id}] RechargeStatus:`, rechargeStatuses[item.id]);
-            }
 
             return (
               <View key={item.id} style={styles.itemCard}>
@@ -350,196 +267,51 @@ export default function PreparerCommandeScreen() {
                 <View style={styles.itemHeader}>
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>
-                      {item.itemType === 'RECHARGE' ? '📱 ' : ''}
                       {item.productNom}
                     </Text>
-                    {item.itemType === 'RECHARGE' ? (
-                      <Text style={styles.itemDetail}>
-                        {item.rechargePhoneNumber} • {item.rechargeOperator}
-                      </Text>
-                    ) : (
-                      <Text style={styles.itemDetail}>
-                        Quantité: {item.quantite}
-                        {item.unitLabel ? ` ${item.unitLabel}` : ''}
-                      </Text>
-                    )}
+                    <Text style={styles.itemDetail}>
+                      Quantité: {item.quantite}
+                      {item.unitLabel ? ` ${item.unitLabel}` : ''}
+                    </Text>
                     <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
                   </View>
 
-                  {/* Status Badge - seulement pour les produits normaux */}
-                  {!isRecharge && (
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        {
-                          backgroundColor:
-                            itemStatus === 'COMPLETED'
-                              ? '#4CAF50'
-                              : itemStatus === 'UNAVAILABLE'
-                              ? '#f44336'
-                              : '#FF9800',
-                        },
-                      ]}
-                    >
-                      <MaterialCommunityIcons
-                        name={
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      {
+                        backgroundColor:
                           itemStatus === 'COMPLETED'
-                            ? 'check-circle'
+                            ? '#4CAF50'
                             : itemStatus === 'UNAVAILABLE'
-                            ? 'close-circle'
-                            : 'clock-outline'
-                        }
-                        size={16}
-                        color="#fff"
-                      />
-                      <Text style={styles.statusText}>
-                        {itemStatus === 'COMPLETED'
-                          ? 'Prêt'
+                            ? '#f44336'
+                            : '#FF9800',
+                      },
+                    ]}
+                  >
+                    <MaterialCommunityIcons
+                      name={
+                        itemStatus === 'COMPLETED'
+                          ? 'check-circle'
                           : itemStatus === 'UNAVAILABLE'
-                          ? 'Indispo'
-                          : 'En attente'}
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* Status Badge pour RECHARGES - basé sur la transaction */}
-                  {isRecharge && (() => {
-                    const rechargeStatus = rechargeStatuses[item.id];
-                    const txStatus = rechargeStatus?.status;
-
-                    if (txStatus === 'SUCCESS') {
-                      return (
-                        <View style={[styles.statusBadge, { backgroundColor: '#4CAF50' }]}>
-                          <MaterialCommunityIcons name="check-circle" size={16} color="#fff" />
-                          <Text style={styles.statusText}>Effectuée</Text>
-                        </View>
-                      );
-                    }
-
-                    if (txStatus === 'FAILED') {
-                      return (
-                        <View style={[styles.statusBadge, { backgroundColor: '#f44336' }]}>
-                          <MaterialCommunityIcons name="alert-circle" size={16} color="#fff" />
-                          <Text style={styles.statusText}>Échouée</Text>
-                        </View>
-                      );
-                    }
-
-                    if (txStatus === 'PROCESSING' || txStatus === 'PENDING') {
-                      return (
-                        <View style={[styles.statusBadge, { backgroundColor: '#FF9800' }]}>
-                          <MaterialCommunityIcons name="clock-outline" size={16} color="#fff" />
-                          <Text style={styles.statusText}>En cours</Text>
-                        </View>
-                      );
-                    }
-
-                    // Pas encore exécutée
-                    return (
-                      <View style={[styles.statusBadge, { backgroundColor: '#9C27B0' }]}>
-                        <MaterialCommunityIcons name="cellphone" size={16} color="#fff" />
-                        <Text style={styles.statusText}>À exécuter</Text>
-                      </View>
-                    );
-                  })()}
+                          ? 'close-circle'
+                          : 'clock-outline'
+                      }
+                      size={16}
+                      color="#fff"
+                    />
+                    <Text style={styles.statusText}>
+                      {itemStatus === 'COMPLETED'
+                        ? 'Prêt'
+                        : itemStatus === 'UNAVAILABLE'
+                        ? 'Indispo'
+                        : 'En attente'}
+                    </Text>
+                  </View>
                 </View>
 
-                {/* Actions pour RECHARGES */}
-                {isRecharge && (
-                  <View style={styles.itemActions}>
-                    {(() => {
-                      const rechargeStatus = rechargeStatuses[item.id];
-                      console.log(`[Recharge ${item.id}] Rendering actions, status:`, rechargeStatus);
-
-                      if (!rechargeStatus || !rechargeStatus.hasTransaction) {
-                        // Pas encore de transaction - afficher bouton d'exécution
-                        console.log(`[Recharge ${item.id}] Showing execute button`);
-                        return (
-                          <TouchableOpacity
-                            style={[styles.actionBtn, styles.rechargeBtn, { flex: 1 }]}
-                            onPress={() => handleExecuteRecharge(item.id)}
-                            disabled={isProcessing}
-                          >
-                            {isProcessing ? (
-                              <ActivityIndicator size="small" color="#fff" />
-                            ) : (
-                              <>
-                                <MaterialCommunityIcons name="cellphone-arrow-down" size={18} color="#fff" />
-                                <Text style={styles.actionBtnText}>Exécuter la recharge</Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-                        );
-                      }
-
-                      const txStatus = rechargeStatus.status;
-
-                      if (txStatus === 'SUCCESS') {
-                        // Recharge réussie
-                        return (
-                          <View style={[styles.rechargeStatusCard, styles.rechargeSuccess]}>
-                            <MaterialCommunityIcons name="check-circle" size={20} color="#4CAF50" />
-                            <Text style={styles.rechargeStatusText}>Recharge effectuée avec succès</Text>
-                          </View>
-                        );
-                      }
-
-                      if (txStatus === 'FAILED') {
-                        // Recharge échouée - possibilité de réessayer
-                        return (
-                          <View style={{ flex: 1 }}>
-                            <View style={[styles.rechargeStatusCard, styles.rechargeFailed]}>
-                              <MaterialCommunityIcons name="alert-circle" size={20} color="#f44336" />
-                              <Text style={styles.rechargeStatusText}>
-                                {rechargeStatus.transaction?.errorMessage || 'Échec de la recharge'}
-                              </Text>
-                            </View>
-                            <TouchableOpacity
-                              style={[styles.actionBtn, styles.retryBtn, { marginTop: 8 }]}
-                              onPress={() => handleExecuteRecharge(item.id)}
-                              disabled={isProcessing}
-                            >
-                              <MaterialCommunityIcons name="refresh" size={18} color="#fff" />
-                              <Text style={styles.actionBtnText}>Réessayer</Text>
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      }
-
-                      if (txStatus === 'PROCESSING' || txStatus === 'PENDING') {
-                        // En cours
-                        return (
-                          <View style={[styles.rechargeStatusCard, styles.rechargeProcessing]}>
-                            <ActivityIndicator size="small" color="#FF9800" />
-                            <Text style={styles.rechargeStatusText}>Recharge en cours...</Text>
-                          </View>
-                        );
-                      }
-
-                      // Par défaut, afficher le bouton d'exécution
-                      console.log(`[Recharge ${item.id}] Unknown status: ${txStatus}, showing execute button`);
-                      return (
-                        <TouchableOpacity
-                          style={[styles.actionBtn, styles.rechargeBtn, { flex: 1 }]}
-                          onPress={() => handleExecuteRecharge(item.id)}
-                          disabled={isProcessing}
-                        >
-                          {isProcessing ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <>
-                              <MaterialCommunityIcons name="cellphone-arrow-down" size={18} color="#fff" />
-                              <Text style={styles.actionBtnText}>Exécuter la recharge</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })()}
-                  </View>
-                )}
-
-                {/* Actions pour PRODUITS normaux */}
-                {!isRecharge && itemStatus === 'PENDING' && (
+                {/* Actions pour PRODUITS */}
+                {itemStatus === 'PENDING' && (
                   <View style={styles.itemActions}>
                     <TouchableOpacity
                       style={[styles.actionBtn, styles.completeBtn]}
@@ -814,44 +586,10 @@ const styles = StyleSheet.create({
   unavailableBtn: {
     backgroundColor: '#f44336',
   },
-  rechargeBtn: {
-    backgroundColor: '#9C27B0',
-  },
-  retryBtn: {
-    backgroundColor: '#FF9800',
-  },
   actionBtnText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
-  },
-  rechargeStatusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 10,
-    gap: 10,
-  },
-  rechargeSuccess: {
-    backgroundColor: '#E8F5E9',
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-  },
-  rechargeFailed: {
-    backgroundColor: '#FFEBEE',
-    borderWidth: 1,
-    borderColor: '#f44336',
-  },
-  rechargeProcessing: {
-    backgroundColor: '#FFF3E0',
-    borderWidth: 1,
-    borderColor: '#FF9800',
-  },
-  rechargeStatusText: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
-    flex: 1,
   },
   footer: {
     backgroundColor: '#fff',

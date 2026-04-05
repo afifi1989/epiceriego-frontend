@@ -1,0 +1,22 @@
+<svg width="1024" height="1024" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g4" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0f4c2a"/>
+      <stop offset="100%" stop-color="#1a6b3e"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="200" height="200" rx="44" fill="url(#g4)"/>
+  <!-- Road perspective halo -->
+  <path d="M20 175 Q100 80 180 175" fill="none" stroke="#2ECC71" stroke-width="12" stroke-linecap="round" opacity="0.3"/>
+  <!-- Left road edge -->
+  <path d="M30 178 Q100 90 100 60" fill="none" stroke="#2ECC71" stroke-width="14" stroke-linecap="round"/>
+  <!-- Right road edge -->
+  <path d="M170 178 Q100 90 100 60" fill="none" stroke="#2ECC71" stroke-width="14" stroke-linecap="round"/>
+  <!-- Center dashes -->
+  <path d="M100 160 Q100 130 100 110" fill="none" stroke="white" stroke-width="5" stroke-linecap="round" stroke-dasharray="12 10"/>
+  <!-- Vanishing point pin (gold) -->
+  <circle cx="100" cy="52" r="14" fill="#C9A227"/>
+  <!-- Inner dot (white) -->
+  <circle cx="100" cy="52" r="7" fill="white"/>
+</svg>

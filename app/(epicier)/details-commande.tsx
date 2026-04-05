@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   SafeAreaView,
 } from 'react-native';
+import * as Sharing from 'expo-sharing';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,6 +34,7 @@ export default function DetailsCommandeScreen() {
   const [selectedLivreurId, setSelectedLivreurId] = useState<number | null>(null);
   const [showLivreurModal, setShowLivreurModal] = useState(false);
   const [assigningLivreur, setAssigningLivreur] = useState(false);
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -50,8 +52,8 @@ export default function DetailsCommandeScreen() {
       const data = await orderService.getOrderById(parseInt(orderId as string));
       setOrder(data);
 
-      // Charger les livreurs assignés
-      const livreurs = await epicierLivreurService.getAssignedLivreurs();
+      // Charger tous les livreurs (en ligne et hors ligne) — les hors ligne sont désactivés dans la modal
+      const livreurs = await epicierLivreurService.getAllLivreurs();
       setAssignedLivreurs(
         livreurs && Array.isArray(livreurs) ? livreurs : []
       );
@@ -93,6 +95,36 @@ export default function DetailsCommandeScreen() {
       Alert.alert('Erreur', error.message || 'Impossible d\'assigner le livreur');
     } finally {
       setAssigningLivreur(false);
+    }
+  };
+
+  const canPrintInvoice = () =>
+    order?.status === 'READY' || order?.status === 'DELIVERED';
+
+  const isPaid = () =>
+    order?.paymentMethod === 'CASH' ||
+    order?.paymentMethod === 'CARD' ||
+    order?.paymentMethod === 'MOBILE';
+
+  const handleDownloadInvoice = async () => {
+    if (!order) return;
+    setDownloadingInvoice(true);
+    try {
+      const localUri = await orderService.downloadInvoicePdf(order.id);
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(localUri, { mimeType: 'application/pdf', UTI: 'com.adobe.pdf' });
+      } else {
+        Alert.alert(
+          'Facture téléchargée',
+          `Le fichier a été sauvegardé.\nChemin : ${localUri}`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error: any) {
+      Alert.alert('Erreur', error?.message || 'Impossible de télécharger la facture.');
+    } finally {
+      setDownloadingInvoice(false);
     }
   };
 
@@ -225,8 +257,8 @@ export default function DetailsCommandeScreen() {
           </View>
         </View>
 
-        {/* Assignation Livreur */}
-        {order.status === 'READY' && (
+        {/* Assignation Livreur — uniquement pour les livraisons à domicile */}
+        {order.status === 'READY' && order.deliveryType === 'HOME_DELIVERY' && (
           <OrderLivreurAssignmentSection
             currentLivreur={
               assignedLivreurs.find(l => l.nom === order.livreurNom) || null
@@ -246,41 +278,18 @@ export default function DetailsCommandeScreen() {
               <View key={item.id} style={styles.itemCard}>
                 <View style={styles.itemHeader}>
                   <Text style={styles.itemName}>
-                    {item.itemType === 'RECHARGE' ? '📱 ' : ''}
                     {item.productNom}
                   </Text>
                   <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
                 </View>
                 <View style={styles.itemDetails}>
-                  {item.itemType === 'RECHARGE' ? (
-                    <>
-                      {item.rechargePhoneNumber && (
-                        <Text style={styles.itemDetail}>
-                          ☎️ Numéro: {item.rechargePhoneNumber}
-                        </Text>
-                      )}
-                      {item.rechargeOperator && (
-                        <Text style={styles.itemDetail}>
-                          📡 Opérateur: {item.rechargeOperator}
-                        </Text>
-                      )}
-                      {item.rechargeDescription && (
-                        <Text style={styles.itemDetail}>
-                          💰 {item.rechargeDescription}
-                        </Text>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.itemDetail}>
-                        Quantité: {item.quantite}
-                        {item.unitLabel ? ` ${item.unitLabel}` : ''}
-                      </Text>
-                      <Text style={styles.itemDetail}>
-                        Prix unitaire: {formatPrice(item.prixUnitaire)}
-                      </Text>
-                    </>
-                  )}
+                  <Text style={styles.itemDetail}>
+                    Quantité: {item.quantite}
+                    {item.unitLabel ? ` ${item.unitLabel}` : ''}
+                  </Text>
+                  <Text style={styles.itemDetail}>
+                    Prix unitaire: {formatPrice(item.prixUnitaire)}
+                  </Text>
                 </View>
               </View>
             ))}
@@ -306,10 +315,43 @@ export default function DetailsCommandeScreen() {
           <Text style={styles.sectionTitle}>💳 Paiement</Text>
           <View style={styles.infoBox}>
             <Text style={styles.infoValue}>
-              {order.paymentMethod === 'CARD' ? 'Carte bancaire' : 'Espèces'}
+              {order.paymentMethod === 'CARD'           ? 'Carte bancaire'  :
+               order.paymentMethod === 'MOBILE'         ? 'Paiement mobile' :
+               order.paymentMethod === 'CLIENT_ACCOUNT' ? 'Compte client'   : 'Espèces'}
             </Text>
           </View>
         </View>
+
+        {/* Facture */}
+        {canPrintInvoice() && (
+          <View style={[styles.section, styles.invoiceSection]}>
+            <View style={styles.invoiceHeader}>
+              <Text style={styles.sectionTitle}>🧾 Facture</Text>
+              <View style={[styles.payBadge, isPaid() ? styles.paidBadge : styles.unpaidBadge]}>
+                <Text style={[styles.payBadgeText, isPaid() ? styles.paidText : styles.unpaidText]}>
+                  {isPaid() ? '✓ PAYÉ' : '⏳ NON PAYÉ'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.invoiceDesc}>
+              FAC-{String(order.id).padStart(6, '0')} — {order.clientNom} — {order.total.toFixed(2)} DH
+            </Text>
+            <TouchableOpacity
+              style={[styles.invoiceBtn, downloadingInvoice && styles.invoiceBtnDisabled]}
+              onPress={handleDownloadInvoice}
+              disabled={downloadingInvoice}
+            >
+              {downloadingInvoice ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <MaterialIcons name="picture-as-pdf" size={18} color="#fff" />
+                  <Text style={styles.invoiceBtnText}>Télécharger la facture PDF</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Dates */}
         <View style={styles.section}>
@@ -342,6 +384,16 @@ export default function DetailsCommandeScreen() {
             <Text style={styles.actionButtonText}>
               {order.status === 'ACCEPTED' ? 'Préparer la commande' : 'Continuer la préparation'}
             </Text>
+          </TouchableOpacity>
+        )}
+
+        {order.status === 'READY' && order.deliveryType === 'PICKUP' && (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.scanQrButton]}
+            onPress={() => router.push('/(epicier)/scan-qr')}
+          >
+            <MaterialIcons name="qr-code-scanner" size={20} color="#fff" />
+            <Text style={styles.actionButtonText}>Scanner le QR du client</Text>
           </TouchableOpacity>
         )}
 
@@ -563,6 +615,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CAF50',
     shadowColor: '#4CAF50',
   },
+  scanQrButton: {
+    backgroundColor: '#7B1FA2',
+    shadowColor: '#7B1FA2',
+  },
   actionButtonDisabled: {
     backgroundColor: '#ccc',
   },
@@ -570,5 +626,48 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
+  },
+
+  // ── Facture ────────────────────────────────────────────
+  invoiceSection: {
+    backgroundColor: '#e3f2fd',
+    borderWidth: 1,
+    borderColor: '#90caf9',
+  },
+  invoiceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  invoiceDesc: {
+    fontSize: 12,
+    color: '#555',
+    marginBottom: 12,
+  },
+  payBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  paidBadge:   { backgroundColor: '#e8f5e9' },
+  unpaidBadge: { backgroundColor: '#fff3e0' },
+  payBadgeText: { fontSize: 11, fontWeight: '700' },
+  paidText:    { color: '#2e7d32' },
+  unpaidText:  { color: '#e65100' },
+  invoiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1565C0',
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  invoiceBtnDisabled: { backgroundColor: '#90caf9' },
+  invoiceBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

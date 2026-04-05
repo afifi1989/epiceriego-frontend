@@ -117,7 +117,7 @@ function ClientTabsContent() {
         name="favoris"
         options={{
           title: t('client.tabs.favorites'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>⭐</Text>,
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>❤️</Text>,
           headerTitle: t('client.headers.favorites'),
           headerRight: () => <NotificationBadge />,
         }}
@@ -138,9 +138,17 @@ function ClientTabsContent() {
         }}
       />
       <Tabs.Screen
+              name="aide-support"
+              options={{
+                href: null,
+              }}
+            />
+      <Tabs.Screen
         name="(epicerie)"
         options={{
           href: null,
+          headerTitle: t('client.headers.epiceries'),
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -154,6 +162,8 @@ function ClientTabsContent() {
         name="notifications"
         options={{
           href: null,
+          headerTitle: t('client.headers.notifications') || 'Notifications',
+          headerRight: () => <NotificationBadge />,
         }}
       />
 
@@ -161,6 +171,8 @@ function ClientTabsContent() {
         name="invitations"
         options={{
           href: null,
+          headerTitle: t('client.headers.invitations') || 'Invitations',
+          headerRight: () => <NotificationBadge />,
         }}
       />
 
@@ -168,6 +180,8 @@ function ClientTabsContent() {
         name="factures-paiements"
         options={{
           href: null,
+          headerTitle: t('client.headers.invoices') || 'Factures & Paiements',
+          headerRight: () => <NotificationBadge />,
         }}
       />
 
@@ -175,6 +189,8 @@ function ClientTabsContent() {
         name="settings"
         options={{
           href: null,
+          headerTitle: t('client.headers.settings') || 'Paramètres',
+          headerRight: () => <NotificationBadge />,
         }}
       />
 
@@ -182,15 +198,11 @@ function ClientTabsContent() {
         name="(commandes)"
         options={{
           href: null,
+          headerTitle: t('client.headers.orders') || 'Mes Commandes',
+          headerRight: () => <NotificationBadge />,
         }}
       />
 
-      <Tabs.Screen
-        name="recharges"
-        options={{
-          href: null,
-        }}
-      />
     </Tabs>
   );
 }

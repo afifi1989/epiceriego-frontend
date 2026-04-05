@@ -63,20 +63,35 @@ export const epicierLivreurService = {
   },
 
   /**
-   * Récupère la liste des livreurs assignés à l'épicerie
+   * Récupère la liste des livreurs assignés à l'épicerie (disponibles uniquement)
    */
   getAssignedLivreurs: async (): Promise<AssignedLivreur[]> => {
     try {
       const response = await api.get<AssignedLivreur[]>('/livreurs/epicerie/available');
-      // Ensure each livreur has an id field (use userId if id is missing)
       const livreurs = response.data.map(livreur => ({
         ...livreur,
         id: livreur.id || livreur.userId || Math.random(),
       }));
-      console.log('[getAssignedLivreurs] ✅ Livreurs assignés transformés:', livreurs);
       return livreurs;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors du chargement des livreurs assignés';
+    }
+  },
+
+  /**
+   * Récupère TOUS les livreurs assignés à l'épicerie (en ligne et hors ligne)
+   * Utilisé pour la modal d'assignation (les hors ligne sont affichés mais désactivés)
+   */
+  getAllLivreurs: async (): Promise<AssignedLivreur[]> => {
+    try {
+      const response = await api.get<AssignedLivreur[]>('/livreurs/epicerie');
+      const livreurs = response.data.map(livreur => ({
+        ...livreur,
+        id: livreur.id || livreur.userId || Math.random(),
+      }));
+      return livreurs;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors du chargement des livreurs';
     }
   },
 

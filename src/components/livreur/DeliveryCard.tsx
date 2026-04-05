@@ -21,10 +21,18 @@ export const DeliveryCard = ({
       case 'pending':
       case 'en attente':
         return '#FF9800';
+      case 'preparing':
+      case 'en préparation':
+        return '#FF9800';
+      case 'ready':
+      case 'prête':
+        return '#4CAF50';
       case 'in_progress':
+      case 'in_delivery':
       case 'en cours':
         return '#2196F3';
       case 'completed':
+      case 'delivered':
       case 'complétée':
         return '#4CAF50';
       case 'cancelled':
@@ -40,10 +48,18 @@ export const DeliveryCard = ({
       case 'pending':
       case 'en attente':
         return '⏳ En attente';
+      case 'preparing':
+      case 'en préparation':
+        return '🍳 En préparation';
+      case 'ready':
+      case 'prête':
+        return '✅ Prête à récupérer';
       case 'in_progress':
+      case 'in_delivery':
       case 'en cours':
         return '🚚 En cours';
       case 'completed':
+      case 'delivered':
       case 'complétée':
         return '✅ Complétée';
       case 'cancelled':
@@ -110,13 +126,18 @@ export const DeliveryCard = ({
       {/* Boutons d'action */}
       {(delivery.status.toLowerCase() === 'pending' ||
         delivery.status.toLowerCase() === 'en attente' ||
+        delivery.status.toLowerCase() === 'preparing' ||
+        delivery.status.toLowerCase() === 'en préparation' ||
         delivery.status.toLowerCase() === 'ready' ||
         delivery.status.toLowerCase() === 'prête' ||
         delivery.status.toLowerCase() === 'in_progress' ||
+        delivery.status.toLowerCase() === 'in_delivery' ||
         delivery.status.toLowerCase() === 'en cours') && (
         <View style={styles.actionsRow}>
           {(delivery.status.toLowerCase() === 'pending' ||
             delivery.status.toLowerCase() === 'en attente' ||
+            delivery.status.toLowerCase() === 'preparing' ||
+            delivery.status.toLowerCase() === 'en préparation' ||
             delivery.status.toLowerCase() === 'ready' ||
             delivery.status.toLowerCase() === 'prête') && onStartPress && (
             <TouchableOpacity

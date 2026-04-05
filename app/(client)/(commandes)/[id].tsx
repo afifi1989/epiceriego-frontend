@@ -16,6 +16,197 @@ import { orderService } from '../../../src/services/orderService';
 import { Order } from '../../../src/type';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../../src/utils/helpers';
 
+// ─── Stepper d'avancement de commande ────────────────────────────────────────
+
+const STEPS_DELIVERY = ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'IN_DELIVERY', 'DELIVERED'];
+const STEPS_PICKUP   = ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED'];
+
+const STEP_ICONS: Record<string, string> = {
+  PENDING:     '🕐',
+  ACCEPTED:    '✅',
+  PREPARING:   '👨‍🍳',
+  READY:       '📦',
+  IN_DELIVERY: '🚚',
+  DELIVERED:   '🎉',
+};
+
+function OrderProgressStepper({
+  status,
+  deliveryType,
+}: {
+  status: string;
+  deliveryType: string;
+}) {
+  const { t } = useLanguage();
+
+  if (status === 'CANCELLED') {
+    return (
+      <View style={stepperStyles.cancelledBox}>
+        <Text style={stepperStyles.cancelledText}>❌  {t('orderDetail.cancelled')}</Text>
+      </View>
+    );
+  }
+
+  const steps = deliveryType === 'PICKUP' ? STEPS_PICKUP : STEPS_DELIVERY;
+  const currentIndex = steps.indexOf(status);
+
+  return (
+    <View style={stepperStyles.wrapper}>
+      <View style={stepperStyles.row}>
+        {steps.map((step, index) => {
+          const isDone    = index < currentIndex;
+          const isCurrent = index === currentIndex;
+
+          return (
+            <React.Fragment key={step}>
+              {/* Trait de connexion */}
+              {index > 0 && (
+                <View
+                  style={[
+                    stepperStyles.line,
+                    (isDone || isCurrent) && stepperStyles.lineActive,
+                  ]}
+                />
+              )}
+
+              {/* Étape */}
+              <View style={stepperStyles.stepCol}>
+                <View
+                  style={[
+                    stepperStyles.dot,
+                    isDone    && stepperStyles.dotDone,
+                    isCurrent && stepperStyles.dotCurrent,
+                  ]}
+                >
+                  {isDone ? (
+                    <Text style={stepperStyles.dotCheck}>✓</Text>
+                  ) : (
+                    <Text style={[
+                      stepperStyles.dotIcon,
+                      isCurrent && stepperStyles.dotIconCurrent,
+                    ]}>
+                      {STEP_ICONS[step]}
+                    </Text>
+                  )}
+                </View>
+                <Text
+                  numberOfLines={2}
+                  style={[
+                    stepperStyles.stepLabel,
+                    isDone    && stepperStyles.stepLabelDone,
+                    isCurrent && stepperStyles.stepLabelCurrent,
+                  ]}
+                >
+                  {getStatusLabel(step)}
+                </Text>
+              </View>
+            </React.Fragment>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const stepperStyles = StyleSheet.create({
+  wrapper: {
+    backgroundColor: '#fff',
+    marginHorizontal: 15,
+    marginTop: -10,
+    marginBottom: 5,
+    borderRadius: 12,
+    padding: 16,
+    paddingBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  line: {
+    flex: 1,
+    height: 3,
+    backgroundColor: '#e0e0e0',
+    marginTop: 16,
+    borderRadius: 2,
+  },
+  lineActive: {
+    backgroundColor: '#4CAF50',
+  },
+  stepCol: {
+    alignItems: 'center',
+    width: 52,
+  },
+  dot: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#e0e0e0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  dotDone: {
+    backgroundColor: '#4CAF50',
+  },
+  dotCurrent: {
+    backgroundColor: '#fff',
+    borderWidth: 3,
+    borderColor: '#4CAF50',
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  dotCheck: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  dotIcon: {
+    fontSize: 14,
+  },
+  dotIconCurrent: {
+    fontSize: 16,
+  },
+  stepLabel: {
+    fontSize: 9,
+    color: '#aaa',
+    textAlign: 'center',
+    lineHeight: 12,
+  },
+  stepLabelDone: {
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  stepLabelCurrent: {
+    color: '#333',
+    fontWeight: '700',
+    fontSize: 10,
+  },
+  cancelledBox: {
+    backgroundColor: '#fff5f5',
+    marginHorizontal: 15,
+    marginTop: -10,
+    marginBottom: 5,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ffcccc',
+  },
+  cancelledText: {
+    fontSize: 15,
+    color: '#DC143C',
+    fontWeight: '700',
+  },
+});
+
 export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -97,29 +288,29 @@ export default function OrderDetailsScreen() {
     const targetStatus = 'DELIVERED';
 
     const actionLabel = order.deliveryType === 'PICKUP'
-      ? 'Confirmer la récupération de la commande ?'
-      : 'Confirmer la réception de la commande ?';
+      ? t('orderDetail.confirmPickup')
+      : t('orderDetail.confirmDelivery');
 
     Alert.alert(
-      'Confirmation',
+      t('orderDetail.confirmation'),
       actionLabel,
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('orders.cancel'), style: 'cancel' },
         {
-          text: 'Confirmer',
+          text: t('orderDetail.confirm'),
           onPress: async () => {
             try {
               setStatusUpdating(true);
               const updatedOrder = await orderService.updateOrderStatus(orderId, targetStatus);
               setOrder(updatedOrder);
               Alert.alert(
-                'Succès',
+                t('common.success'),
                 order.deliveryType === 'PICKUP'
-                  ? 'Commande marquée comme récupérée'
-                  : 'Commande marquée comme livrée'
+                  ? t('orderDetail.markedAsPickedUp')
+                  : t('orderDetail.markedAsDelivered')
               );
             } catch (error: any) {
-              Alert.alert(t('common.error'), error.message || 'Erreur lors de la mise à jour');
+              Alert.alert(t('common.error'), error.message || t('orderDetail.updateError'));
             } finally {
               setStatusUpdating(false);
             }
@@ -154,6 +345,9 @@ export default function OrderDetailsScreen() {
           <Text style={styles.statusText}>{getStatusLabel(order.status)}</Text>
         </View>
       </View>
+
+      {/* Stepper d'avancement */}
+      <OrderProgressStepper status={order.status} deliveryType={order.deliveryType} />
 
       {/* Résumé de la commande */}
       <View style={styles.section}>
@@ -203,7 +397,7 @@ export default function OrderDetailsScreen() {
 
       {/* Type de livraison et actions */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📦 Mode de livraison</Text>
+        <Text style={styles.sectionTitle}>📦 {t('orderDetail.deliveryMode')}</Text>
         <View style={styles.deliveryTypeBox}>
           <View style={styles.deliveryTypeInfo}>
             <Text style={styles.deliveryTypeIcon}>
@@ -211,43 +405,27 @@ export default function OrderDetailsScreen() {
             </Text>
             <View style={styles.deliveryTypeText}>
               <Text style={styles.deliveryTypeLabel}>
-                {order.deliveryType === 'PICKUP' ? 'Retrait en épicerie' : 'Livraison à domicile'}
+                {order.deliveryType === 'PICKUP' ? t('orderDetail.storePickup') : t('orderDetail.homeDelivery')}
               </Text>
               <Text style={styles.deliveryTypeSubtext}>
                 {order.deliveryType === 'PICKUP'
-                  ? 'Venez récupérer votre commande à l\'épicerie'
-                  : 'Le livreur vous livrera à domicile'}
+                  ? t('orderDetail.storePickupDesc')
+                  : t('orderDetail.homeDeliveryDesc')}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Bouton d'action selon le statut et le type de livraison */}
-        {order.status === 'READY' && order.deliveryType === 'PICKUP' && (
+        {/* Bouton QR Code — RETRAIT : uniquement à l'état PRÊT
+                            LIVRAISON : à l'état PRÊT ou EN_LIVRAISON */}
+        {(order.status === 'READY' ||
+          (order.status === 'IN_DELIVERY' && order.deliveryType === 'HOME_DELIVERY')
+        ) && (
           <TouchableOpacity
-            style={[styles.actionButton, styles.pickupButton]}
-            onPress={handleMarkPickedUpOrDelivered}
-            disabled={statusUpdating}
+            style={[styles.actionButton, styles.qrButton]}
+            onPress={() => router.push(`/(client)/(commandes)/qr-code?id=${order.id}`)}
           >
-            {statusUpdating ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.actionButtonText}>✅ Confirmer la récupération</Text>
-            )}
-          </TouchableOpacity>
-        )}
-
-        {order.status === 'IN_DELIVERY' && order.deliveryType === 'HOME_DELIVERY' && (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.deliveryButton]}
-            onPress={handleMarkPickedUpOrDelivered}
-            disabled={statusUpdating}
-          >
-            {statusUpdating ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.actionButtonText}>✅ Confirmer la réception</Text>
-            )}
+            <Text style={styles.actionButtonText}>📱 {t('orderDetail.showQrCode')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -264,7 +442,7 @@ export default function OrderDetailsScreen() {
               )}
               <Text style={styles.itemQuantity}>{t('cart.quantity')}: {item.quantite}</Text>
               {item.prixUnitaire && (
-                <Text style={styles.itemUnitPrice}>{t('orders.unitPrice')}: {formatPrice(item.prixUnitaire)}</Text>
+                <Text style={styles.itemUnitPrice}>{t('orderDetail.unitPrice')}: {formatPrice(item.prixUnitaire)}</Text>
               )}
             </View>
             <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
@@ -463,6 +641,9 @@ const styles = StyleSheet.create({
   },
   deliveryButton: {
     backgroundColor: '#2196F3',
+  },
+  qrButton: {
+    backgroundColor: '#FF9800',
   },
   actionButtonText: {
     color: '#fff',

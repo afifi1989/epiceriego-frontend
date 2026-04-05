@@ -4,7 +4,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,6 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { cartService } from '../../src/services/cartService';
 import { clientManagementService } from '../../src/services/clientManagementService';
@@ -23,6 +26,7 @@ import { formatPrice } from '../../src/utils/helpers';
 export default function CartScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const insets = useSafeAreaInsets();
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [adresse, setAdresse] = useState('');
@@ -209,11 +213,10 @@ export default function CartScreen() {
         return;
       }
 
-      const orderTotal = getTotal();
-      if (creditInfo.availableCredit < orderTotal) {
+      if (creditInfo.availableCredit <= 0) {
         Alert.alert(
           t('common.error'),
-          `${t('cart.insufficientCredit')}\n${t('cart.availableCredit')}: ${formatPrice(creditInfo.availableCredit)}\nTotal: ${formatPrice(orderTotal)}`
+          `${t('cart.insufficientCredit')}\n${t('cart.availableCredit')}: ${formatPrice(creditInfo.availableCredit)}`
         );
         return;
       }
@@ -239,41 +242,21 @@ export default function CartScreen() {
 
         Alert.alert(
           t('common.error'),
-          'Les articles de votre panier sont obsolètes. Veuillez ajouter les produits à nouveau.'
+          t('cartExtra.obsoleteItems')
         );
         return;
       }
 
-      // Séparer les produits et les recharges
-      const recharges = cart.filter(item => item.itemType === 'RECHARGE');
-      const products = cart.filter(item => item.itemType !== 'RECHARGE');
-
-      console.log('[CartScreen] Produits:', products.length, 'Recharges:', recharges.length);
-
       const baseOrderData = {
         epicerieId: epicerieIdFromCart,
-        items: cart.map((item, index) => {
-          if (item.itemType === 'RECHARGE') {
-            // Pour les recharges, créer un OrderItem spécial
-            return {
-              productId: -(1000 + index), // ID négatif unique pour identification
-              quantite: 1,
-              itemType: 'RECHARGE' as const,
-              rechargeOfferId: item.rechargeOfferId,
-              rechargePhoneNumber: item.rechargePhoneNumber,
-            };
-          } else {
-            // Pour les produits normaux
-            return {
-              productId: item.productId,
-              quantite: item.quantity,
-              unitId: item.unitId,
-              unitLabel: item.unitLabel,
-              requestedQuantity: item.requestedQuantity,
-              itemType: 'PRODUCT' as const,
-            };
-          }
-        }),
+        items: cart.map((item) => ({
+          productId: item.productId,
+          quantite: item.quantity,
+          unitId: item.unitId,
+          unitLabel: item.unitLabel,
+          requestedQuantity: item.requestedQuantity,
+          itemType: 'PRODUCT' as const,
+        })),
         deliveryType: deliveryType,
         adresseLivraison: adresse,
         paymentMethod: paymentMethod,
@@ -292,12 +275,6 @@ export default function CartScreen() {
       console.log('=== RÉPONSE DU SERVEUR ===');
       console.log('Commande créée:', JSON.stringify(response, null, 2));
       console.log('========================');
-
-      // Les recharges téléphoniques seront exécutées par l'épicier pendant la préparation
-      if (recharges.length > 0) {
-        console.log(`ℹ️ Cette commande contient ${recharges.length} recharge(s) téléphonique(s)`);
-        console.log('ℹ️ Les recharges seront exécutées par l\'épicier lors de la préparation de la commande');
-      }
 
       // Si paiement par carte, traiter le paiement
       if (paymentMethod === 'CARD') {
@@ -368,47 +345,41 @@ export default function CartScreen() {
   };
 
   const renderCartItem = ({ item }: { item: CartItem }) => {
-    const isRecharge = item.itemType === 'RECHARGE';
+    const handleProductClick = () => {
+      if (item.productId && item.epicerieId) {
+        router.push(`/(client)/(epicerie)/product/${item.productId}?epicerieId=${item.epicerieId}`);
+      }
+    };
 
     return (
-      <View style={[styles.cartItem, isRecharge && styles.rechargeItem]}>
-        {isRecharge && (
-          <View style={styles.rechargeIcon}>
-            <Text style={styles.rechargeEmoji}>📱</Text>
-          </View>
-        )}
-        <View style={styles.itemInfo}>
+      <View style={styles.cartItem}>
+        <TouchableOpacity
+          style={styles.itemInfo}
+          onPress={handleProductClick}
+          activeOpacity={0.7}
+        >
           <Text style={styles.itemName}>{item.productNom}</Text>
-          {isRecharge && item.rechargePhoneNumber && (
-            <Text style={styles.rechargePhone}>{item.rechargePhoneNumber}</Text>
-          )}
-          {!isRecharge && item.unitLabel && (
+          {item.unitLabel && (
             <Text style={styles.itemUnit}>{item.unitLabel}</Text>
           )}
           <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit || 0)}</Text>
+          <Text style={styles.seeDetailsText}>👉 {t('products.seeMore')}</Text>
+        </TouchableOpacity>
+        <View style={styles.quantityControl}>
+          <TouchableOpacity
+            style={styles.quantityButton}
+            onPress={() => updateQuantity(item.productId, -1, item.unitId)}
+          >
+            <Text style={styles.quantityButtonText}>−</Text>
+          </TouchableOpacity>
+          <Text style={styles.quantity}>{item.quantity}</Text>
+          <TouchableOpacity
+            style={styles.quantityButton}
+            onPress={() => updateQuantity(item.productId, 1, item.unitId)}
+          >
+            <Text style={styles.quantityButtonText}>+</Text>
+          </TouchableOpacity>
         </View>
-        {!isRecharge && (
-          <View style={styles.quantityControl}>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => updateQuantity(item.productId, -1, item.unitId)}
-            >
-              <Text style={styles.quantityButtonText}>−</Text>
-            </TouchableOpacity>
-            <Text style={styles.quantity}>{item.quantity}</Text>
-            <TouchableOpacity
-              style={styles.quantityButton}
-              onPress={() => updateQuantity(item.productId, 1, item.unitId)}
-            >
-              <Text style={styles.quantityButtonText}>+</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        {isRecharge && (
-          <View style={styles.rechargeQuantity}>
-            <Text style={styles.quantity}>x1</Text>
-          </View>
-        )}
         <TouchableOpacity
           style={styles.removeButton}
           onPress={() => {
@@ -462,6 +433,12 @@ export default function CartScreen() {
       fontSize: 14,
       color: '#4CAF50',
       fontWeight: '600',
+    },
+    seeDetailsText: {
+      fontSize: 12,
+      color: '#4CAF50',
+      fontWeight: '600',
+      marginTop: 4,
     },
     quantityControl: {
       flexDirection: 'row',
@@ -857,29 +834,14 @@ export default function CartScreen() {
       fontSize: 14,
     },
     finalizeButton: {
-      marginBottom: 40,
+      marginBottom: 0,
     },
-    rechargeItem: {
-      backgroundColor: '#f0f9ff',
-      borderLeftWidth: 4,
-      borderLeftColor: '#2196F3',
-    },
-    rechargeIcon: {
-      marginRight: 8,
-    },
-    rechargeEmoji: {
-      fontSize: 24,
-    },
-    rechargePhone: {
-      fontSize: 12,
-      color: '#2196F3',
-      fontWeight: '600',
-      marginBottom: 4,
-    },
-    rechargeQuantity: {
-      marginHorizontal: 12,
-      minWidth: 60,
-      alignItems: 'center',
+    finalizeContainer: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      backgroundColor: '#fff',
+      borderTopWidth: 1,
+      borderTopColor: '#e0e0e0',
     },
   });
 
@@ -919,6 +881,11 @@ export default function CartScreen() {
         transparent={false}
         onRequestClose={() => setShowCheckoutModal(false)}
       >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
+        >
         <View style={styles.modalContainer}>
           {/* Header */}
           <View style={styles.modalHeader}>
@@ -1084,21 +1051,21 @@ export default function CartScreen() {
                       style={[
                         styles.optionButton,
                         paymentMethod === 'CLIENT_ACCOUNT' && styles.optionButtonActive,
-                        (!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit < getTotal())) && styles.optionButtonDisabled,
+                        (!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit <= 0)) && styles.optionButtonDisabled,
                       ]}
                       onPress={() => {
-                        if (creditInfo?.allowCredit && creditInfo.availableCredit >= getTotal()) {
+                        if (creditInfo?.allowCredit && creditInfo.availableCredit > 0) {
                           setPaymentMethod('CLIENT_ACCOUNT');
                         }
                       }}
-                      disabled={!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit < getTotal())}
+                      disabled={!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit <= 0)}
                     >
                       <Text style={styles.optionEmoji}>💰</Text>
                       <Text
                         style={[
                           styles.optionButtonText,
                           paymentMethod === 'CLIENT_ACCOUNT' && styles.optionButtonTextActive,
-                          (!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit < getTotal())) && styles.optionButtonTextDisabled,
+                          (!creditInfo?.allowCredit || (creditInfo && creditInfo.availableCredit <= 0)) && styles.optionButtonTextDisabled,
                         ]}
                       >
                         {t('cart.clientAccount')}
@@ -1114,7 +1081,7 @@ export default function CartScreen() {
                           <Text style={styles.creditInfoText}>
                             {t('cart.availableCredit')}: {formatPrice(creditInfo.availableCredit)}
                           </Text>
-                          {creditInfo.availableCredit < getTotal() && (
+                          {creditInfo.availableCredit <= 0 && (
                             <Text style={styles.creditWarningText}>
                               {t('cart.insufficientCredit')}
                             </Text>
@@ -1288,22 +1255,28 @@ export default function CartScreen() {
                   )}
                 </View>
 
-                {/* Bouton Finaliser */}
-                <TouchableOpacity
-                  style={[styles.continueButton, styles.finalizeButton]}
-                  onPress={handleOrder}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.continueButtonText}>{t('cart.finalizeOrder')}</Text>
-                  )}
-                </TouchableOpacity>
               </View>
             )}
           </ScrollView>
+
+          {/* Bouton Finaliser — fixé en bas, toujours visible */}
+          {checkoutStep === 'payment' && (
+            <View style={[styles.finalizeContainer, { paddingBottom: insets.bottom + 12 }]}>
+              <TouchableOpacity
+                style={[styles.continueButton, styles.finalizeButton]}
+                onPress={handleOrder}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.continueButtonText}>{t('cart.finalizeOrder')}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

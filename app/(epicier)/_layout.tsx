@@ -4,12 +4,16 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { STORAGE_KEYS } from '../../src/constants/config';
+import { getUserProfile } from '../../src/hooks/usePermissions';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
+import { LoginResponse } from '../../src/type';
 
 // Composant interne pour gérer le layout authentifié
-function EpicierTabsContent() {
+function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const profile = getUserProfile(loginData);
+  const canManageLivreurs = profile === 'owner' || profile === 'manager';
 
   // ✅ Initialiser les push notifications pour les épiciers authentifiés
   useEffect(() => {
@@ -113,6 +117,7 @@ function EpicierTabsContent() {
           title: 'Livreurs',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🚚</Text>,
           headerTitle: '🚚 Gérer les Livreurs',
+          href: canManageLivreurs ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -120,7 +125,7 @@ function EpicierTabsContent() {
         options={{
           title: 'Profil',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>👤</Text>,
-          headerTitle: '👤 Mon Profil',
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -269,24 +274,51 @@ function EpicierTabsContent() {
             />
 
       <Tabs.Screen
-              name="recharge-config"
-              options={{
-                href: null,
-              }}
-            />
-
-      <Tabs.Screen
-              name="recharge-offers"
-              options={{
-                href: null,
-              }}
-            />
-            <Tabs.Screen
                           name="preparer-commande"
                           options={{
                             href: null,
                           }}
                         />
+      <Tabs.Screen
+        name="scan-qr"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="approvisionnement"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="fiche-produit"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="vente-directe"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="collaborateurs"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="profil-epicerie"
+        options={{
+          href: null,
+          headerTitle: '🏪 Mon Épicerie',
+          headerStyle: { backgroundColor: '#2196F3' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      />
     </Tabs>
   );
 }
@@ -295,6 +327,7 @@ function EpicierTabsContent() {
 export default function EpicierLayout() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [loginData, setLoginData] = useState<LoginResponse | null>(null);
 
   // 🔐 Vérifier l'authentification AVANT d'afficher le layout
   useEffect(() => {
@@ -310,6 +343,10 @@ export default function EpicierLayout() {
           setUserRole(role);
           return;
         }
+
+        // Charger les données login pour les permissions
+        const raw = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+        if (raw) setLoginData(JSON.parse(raw));
 
         console.log('[EpicierLayout] ✅ Authentification valide');
         setIsAuthenticated(true);
@@ -339,5 +376,5 @@ export default function EpicierLayout() {
   }
 
   // ✅ Afficher le contenu authentifié
-  return <EpicierTabsContent />;
+  return <EpicierTabsContent loginData={loginData} />;
 }

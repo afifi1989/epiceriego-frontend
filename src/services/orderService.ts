@@ -1,5 +1,8 @@
 import api from './api';
-import { CreateOrderRequest, Order, DeliveryInfo, UpdateDeliveryInfoRequest } from '../type';
+import { CreateOrderRequest, Order, DeliveryInfo, UpdateDeliveryInfoRequest, QrTokenResponse, QrValidateResponse } from '../type';
+import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS, API_CONFIG } from '../constants/config';
 
 export const orderService = {
   /**
@@ -127,5 +130,81 @@ export const orderService = {
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors de la mise à jour des informations de livraison';
     }
+  },
+
+  /**
+   * Récupère (ou génère) le token QR d'une commande (client uniquement)
+   */
+  getQrToken: async (orderId: number): Promise<QrTokenResponse> => {
+    try {
+      const response = await api.get<QrTokenResponse>(`/orders/${orderId}/qr-token`);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Impossible de récupérer le QR Code';
+    }
+  },
+
+  /**
+   * Valide un QR Code scanné (épicier pour PICKUP, livreur pour HOME_DELIVERY)
+   */
+  validateQrCode: async (qrToken: string): Promise<QrValidateResponse> => {
+    try {
+      const response = await api.post<QrValidateResponse>('/orders/qr/validate', { qrToken });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'QR Code invalide';
+    }
+  },
+
+  /**
+   * Vente directe en magasin (Point of Sale).
+   * Crée une commande immédiatement DELIVERED + PICKUP pour un client présent.
+   */
+  createDirectSale: async (payload: {
+    clientId: number;
+    items: { productId: number; unitId?: number; quantite: number; requestedQuantity?: number }[];
+    paymentMethod: 'CASH' | 'CARD' | 'CLIENT_ACCOUNT';
+    notes?: string;
+  }): Promise<Order> => {
+    try {
+      const response = await api.post<Order>('/orders/direct-sale', payload);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Erreur lors de la vente directe');
+    }
+  },
+
+  /**
+   * Envoie le reçu d'une commande par email au client.
+   */
+  sendReceiptByEmail: async (orderId: number): Promise<void> => {
+    try {
+      await api.post(`/orders/${orderId}/send-receipt`);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Impossible d\'envoyer le reçu par email');
+    }
+  },
+
+  /**
+   * Télécharge la facture PDF d'une commande (READY ou DELIVERED).
+   * Sauvegarde le fichier localement et retourne l'URI local.
+   */
+  downloadInvoicePdf: async (orderId: number): Promise<string> => {
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+    if (!token) throw new Error('Non authentifié');
+
+    const fileUri = FileSystem.documentDirectory + `facture-FAC-${String(orderId).padStart(6, '0')}.pdf`;
+
+    const result = await FileSystem.downloadAsync(
+      `${API_CONFIG.BASE_URL}/orders/${orderId}/invoice/download`,
+      fileUri,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    if (!result || result.status !== 200) {
+      throw new Error('Impossible de télécharger la facture');
+    }
+
+    return result.uri;
   },
 };
