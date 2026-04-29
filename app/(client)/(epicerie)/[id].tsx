@@ -10,6 +10,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image,
   Modal,
   Linking,
   ScrollView,
@@ -35,14 +36,26 @@ import { epicerieService } from "../../../src/services/epicerieService";
 import { productService, ProductPage } from "../../../src/services/productService";
 import { authService } from "../../../src/services/authService";
 import { ParsedProduct } from "../../../src/services/chatbotService";
+import { useEpicerieClientStatus } from "../../../src/hooks/useEpicerieClientStatus";
 import { CartItem, Epicerie, Product, ProductUnit, Tag } from "../../../src/type";
 import { tagService } from "../../../src/services/tagService";
 import { formatPrice } from "../../../src/utils/helpers";
+import { useCurrency } from "../../../src/context/CurrencyContext";
+import { loyaltyService, LoyaltyBalance } from "../../../src/services/loyaltyService";
+import { promotionService, Promotion } from "../../../src/services/promotionService";
+import { PromoProductBadge } from "../../../src/features/promotions/components";
+import {
+  activePromosForEpicerie,
+  bestPromoForCategory,
+  bestPromoForProduct,
+  effectivePriceForProduct,
+} from "../../../src/features/promotions/utils";
 
 export default function EpicerieDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { t } = useLanguage();
+  const { setCurrency } = useCurrency();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -66,9 +79,28 @@ export default function EpicerieDetailScreen() {
   const [showBannerModal, setShowBannerModal] = useState(false);
   const [showChatbot, setShowChatbot] = useState(false);
   const [clientId, setClientId] = useState<number | null>(null);
+  // Gates the WhatsApp + AI chatbot entry points. Resolved once we know both the
+  // current user and the epicerie id. Fail-closed on error (see the hook).
+  const { isClient: isClientOfEpicerie, ready: clientStatusReady } = useEpicerieClientStatus(
+    clientId,
+    typeof id === "string" ? parseInt(id, 10) : id ? parseInt(id[0], 10) : null,
+  );
+  const canUseAssistedOrdering = clientStatusReady && isClientOfEpicerie;
   const [viewMode, setViewMode] = useState<"card" | "list" | "grid">("card");
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [loyaltyBalance, setLoyaltyBalance] = useState<LoyaltyBalance | null>(null);
+  const [activePromos, setActivePromos] = useState<Promotion[]>([]);
+
+  // Load loyalty balance when store loads
+  useEffect(() => {
+    if (id && canUseAssistedOrdering) {
+      const epicerieId = typeof id === 'string' ? parseInt(id, 10) : parseInt(id[0], 10);
+      loyaltyService.getMyBalanceAtStore(epicerieId)
+        .then(b => b.isActive ? setLoyaltyBalance(b) : null)
+        .catch(() => {});
+    }
+  }, [id, canUseAssistedOrdering]);
 
   // ── Chargement ────────────────────────────────────────────────────────────
 
@@ -84,6 +116,15 @@ export default function EpicerieDetailScreen() {
       console.error("Erreur chargement épicerie:", error);
     }
   }, [getEpicerieId]);
+
+  // Propage la devise de l'épicerie au CurrencyContext pour que tous les
+  // composants enfants (panier, fiche produit, modales) formatent les
+  // prix dans la bonne devise. Reset à la sortie pour ne pas polluer
+  // l'écran suivant si le client revient à la liste des épiceries.
+  useEffect(() => {
+    setCurrency(epicerie?.currency ?? null);
+    return () => setCurrency(null);
+  }, [epicerie?.currency, setCurrency]);
 
   const loadProducts = useCallback(async (
     page: number,
@@ -132,6 +173,15 @@ export default function EpicerieDetailScreen() {
     }
   }, [getEpicerieId]);
 
+  const loadActivePromos = useCallback(async () => {
+    try {
+      const promos = await promotionService.getAllActivePromotions();
+      setActivePromos(activePromosForEpicerie(promos, getEpicerieId()));
+    } catch {
+      setActivePromos([]);
+    }
+  }, [getEpicerieId]);
+
   const handleTagToggle = useCallback((tagId: number) => {
     setSelectedTagIds((prev) => {
       const next = prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId];
@@ -162,6 +212,7 @@ export default function EpicerieDetailScreen() {
       loadEpicerieInfo();
       loadCategories();
       loadTags();
+      loadActivePromos();
       loadProducts(0, "", undefined, false);
     }
   }, [id]);
@@ -301,6 +352,7 @@ export default function EpicerieDetailScreen() {
 
   const handleChatbotAddToCart = async (products: ParsedProduct[]) => {
     try {
+      let addedCount = 0;
       for (const p of products) {
         if (p.isMatched && p.matchedProductId && p.matchedProductUnitId) {
           await cartService.addToCart({
@@ -315,11 +367,16 @@ export default function EpicerieDetailScreen() {
             pricePerUnit: p.matchedPrice || 0,
             totalPrice: (p.matchedPrice || 0) * p.quantity,
           });
+          addedCount++;
         }
       }
       const updatedCart = await cartService.getCart();
       setCart(updatedCart);
-      Alert.alert("✅", `${products.length} ${t("epicerieDetail.addedToCartSuccess")}`);
+      if (addedCount > 0) {
+        Alert.alert("✅", `${addedCount} ${t("epicerieDetail.addedToCartSuccess")}`);
+      } else {
+        Alert.alert(t("common.error"), t("epicerieDetail.addToCartError"));
+      }
     } catch {
       Alert.alert(t("common.error"), t("epicerieDetail.addToCartError"));
     }
@@ -375,122 +432,113 @@ export default function EpicerieDetailScreen() {
   // ── Rendu produit — mode CARTE (défaut) ───────────────────────────────────
 
   const renderProductCard = ({ item }: { item: Product }) => {
-    const imageUrls = item.photoUrl ? [item.photoUrl] : [];
-    const isLoading = imageLoadingState[item.id] || false;
-    const isError = imageErrorState[item.id] || false;
-
-    const getStockBadge = () => {
-      if (item.stock === 0)  return { label: `✗ ${t("products.outOfStockShort")}`, color: "#F44336", bg: "rgba(244,67,54,0.12)" };
-      if (item.stock < 3)   return { label: `⚠ ${item.stock}`, color: "#F44336", bg: "rgba(244,67,54,0.12)" };
-      if (item.stock <= 10) return { label: `⚡ ${item.stock}`, color: "#FF6F00", bg: "rgba(255,111,0,0.12)" };
-      return                       { label: `✓ En stock`, color: "#2E7D32", bg: "rgba(46,125,50,0.12)" };
-    };
-    const stock = getStockBadge();
+    const stockVal = item.totalStock ?? item.stock ?? 0;
+    const stockColor = stockVal <= 0 ? '#e53935' : stockVal <= 5 ? '#f57c00' : '#388e3c';
+    const stockBg    = stockVal <= 0 ? '#ffebee' : stockVal <= 5 ? '#fff3e0' : '#e8f5e9';
+    const isOos = stockVal <= 0;
+    const promo = bestPromoForProduct(activePromos, item);
+    const price = effectivePriceForProduct(item, promo);
 
     return (
       <TouchableOpacity
-        style={styles.bigCard}
+        style={styles.epicCardWrapper}
         onPress={() => goToProductDetail(item)}
         activeOpacity={0.95}
       >
-        {/* ── Image 80% ─────────────────────────────────────────── */}
-        <View style={styles.bigCardImage}>
-          {isLoading && (
-            <View style={styles.bigCardSpinner}>
-              <ActivityIndicator size="large" color="#4CAF50" />
-            </View>
-          )}
-          {item.photoUrl && !isError ? (
-            <TouchableOpacity
-              style={{ flex: 1 }}
-              onPress={(e) => { e.stopPropagation(); setSelectedImageProduct(item); setShowImageModal(true); }}
-              activeOpacity={0.9}
-            >
-              <FallbackImage
-                urls={imageUrls}
-                style={[styles.bigCardImg, { opacity: isLoading ? 0.4 : 1 }]}
-                resizeMode="cover"
-                onLoadStart={() => setImageLoadingState((p) => ({ ...p, [item.id]: true }))}
-                onLoadEnd={() => setImageLoadingState((p) => ({ ...p, [item.id]: false }))}
-                onError={() => setImageErrorState((p) => ({ ...p, [item.id]: true }))}
-              />
-            </TouchableOpacity>
+        {/* Image */}
+        <View style={styles.epicCardImageBox}>
+          {item.photoUrl ? (
+            <Image source={{ uri: item.photoUrl }} style={styles.epicCardImg} resizeMode="cover" />
           ) : (
-            <View style={styles.bigCardPlaceholder}>
-              <Text style={{ fontSize: 72 }}>📦</Text>
-            </View>
+            <Text style={styles.epicCardImgPlaceholder}>📦</Text>
           )}
-
-          {/* Badge stock en haut à droite */}
-          <View style={[styles.bigCardStock, { backgroundColor: stock.bg }]}>
-            <Text style={[styles.bigCardStockText, { color: stock.color }]}>{stock.label}</Text>
-          </View>
-
-          {/* Label catégorie en bas à gauche de l'image */}
-          {(item.categoryName || item.categorie) && (
-            <View style={styles.bigCardCatChip}>
-              <Text style={styles.bigCardCatIcon}>
-                {getCategoryIcon(item.categoryName || item.categorie || "")}
-              </Text>
-              <Text style={styles.bigCardCatLabel} numberOfLines={1}>
-                {item.categoryName || item.categorie}
-              </Text>
+          {promo && (
+            <View style={styles.epicCardPromoBadge}>
+              <PromoProductBadge promo={promo} compact />
             </View>
           )}
         </View>
 
-        {/* ── Infos 20% ─────────────────────────────────────────── */}
-        <View style={styles.bigCardInfo}>
-          {/* Ligne 1 : nom + prix */}
-          <View style={styles.bigCardInfoRow}>
-            <View style={{ flex: 1, paddingRight: 8 }}>
-              <Text style={styles.bigCardName} numberOfLines={1}>{item.nom}</Text>
-              {item.brandName && (
-                <View style={styles.brandBadge}>
-                  <Text style={styles.brandBadgeText} numberOfLines={1}>{item.brandName}</Text>
-                </View>
-              )}
-              {item.tags && item.tags.length > 0 && (
-                <View style={styles.productTagsRow}>
-                  {item.tags.slice(0, 3).map((tag) => (
-                    <View key={tag.id} style={[styles.productTagBadge, { backgroundColor: tag.color || '#607D8B' }]}>
-                      <Text style={styles.productTagBadgeText}>{tag.name}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              {item.prixBarre != null && item.prixBarre > item.prix && (
-                <Text style={styles.bigCardPrixBarre}>{formatPrice(item.prixBarre)}</Text>
-              )}
-              <Text style={[styles.bigCardPrice, item.prixBarre != null && item.prixBarre > item.prix && styles.bigCardPricePromo]}>
-                {formatPrice(item.prix)}
-              </Text>
+        {/* Header : nom + prix */}
+        <View style={styles.epicCardHeader}>
+          <View style={{ flex: 1, marginRight: 10 }}>
+            <Text style={styles.epicCardName} numberOfLines={1}>{item.nom}</Text>
+            {item.description ? (
+              <Text style={styles.epicCardDesc} numberOfLines={2}>{item.description}</Text>
+            ) : null}
+            {promo && promo.titre ? (
+              <Text style={styles.epicCardPromoTitle} numberOfLines={1}>🎉 {promo.titre}</Text>
+            ) : null}
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            {price.hasDiscount && price.original != null && (
+              <Text style={styles.epicCardPrixBarre}>{formatPrice(price.original)}</Text>
+            )}
+            <Text style={[styles.epicCardPrice, price.hasDiscount && { color: '#e53935' }]}>
+              {formatPrice(price.display)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Catégorie */}
+        {item.categoryName ? (
+          <View style={styles.epicCardCatRow}>
+            <View style={styles.epicCardCatBadge}>
+              <Text style={styles.epicCardCatText}>{item.categoryName}</Text>
             </View>
           </View>
-          {/* Ligne 2 : bouton détails + bouton ajouter */}
-          <View style={styles.bigCardInfoRow}>
-            <TouchableOpacity
-              style={styles.bigCardDetailsBtn}
-              onPress={(e) => { e.stopPropagation(); goToProductDetail(item); }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.bigCardDetailsBtnText}>Voir les détails →</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.bigCardBtn, item.stock === 0 && styles.bigCardBtnOos]}
-              onPress={(e) => { e.stopPropagation(); if (item.stock > 0) handleAddToCart(item); }}
-              disabled={item.stock === 0}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name={item.stock === 0 ? "close" : "cart"}
-                size={22}
-                color="#fff"
-              />
-            </TouchableOpacity>
+        ) : null}
+
+        {/* Tags */}
+        {item.tags && item.tags.length > 0 ? (
+          <View style={styles.epicCardTagsRow}>
+            {item.tags.map((t) => (
+              <View key={t.id} style={[styles.epicCardTagChip, { borderColor: t.color || '#607D8B', backgroundColor: (t.color || '#607D8B') + '15' }]}>
+                <Text style={[styles.epicCardTagText, { color: '#333' }]}>{t.name}</Text>
+              </View>
+            ))}
           </View>
+        ) : null}
+
+        {/* Marque */}
+        {item.brandName ? (
+          <View style={styles.epicCardBrandRow}>
+            <Text style={styles.epicCardBrandText}>{item.brandName}</Text>
+          </View>
+        ) : null}
+
+        {/* Méta : stock + variantes */}
+        <View style={styles.epicCardMeta}>
+          <View style={[styles.epicCardMetaBadge, { backgroundColor: stockBg }]}>
+            <Text style={[styles.epicCardMetaText, { color: stockColor }]}>
+              {isOos ? 'Rupture de stock' : `Stock: ${stockVal}`}
+            </Text>
+          </View>
+          {item.units && item.units.length > 0 ? (
+            <View style={styles.epicCardMetaBadge}>
+              <Text style={styles.epicCardMetaText}>{item.units.length} variante{item.units.length > 1 ? 's' : ''}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* Actions : détails + ajouter au panier */}
+        <View style={styles.epicCardActions}>
+          <TouchableOpacity
+            style={styles.epicCardDetailsBtn}
+            onPress={(e) => { e.stopPropagation(); goToProductDetail(item); }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.epicCardDetailsBtnText}>Voir les détails</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.epicCardCartBtn, isOos && styles.epicCardCartBtnOos]}
+            onPress={(e) => { e.stopPropagation(); if (!isOos) handleAddToCart(item); }}
+            disabled={isOos}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={isOos ? "close" : "cart"} size={20} color="#fff" />
+            {!isOos && <Text style={styles.epicCardCartBtnText}>Ajouter</Text>}
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
@@ -502,6 +550,8 @@ export default function EpicerieDetailScreen() {
     const imageUrls = item.photoUrl ? [item.photoUrl] : [];
     const isLoading = imageLoadingState[item.id] || false;
     const isError = imageErrorState[item.id] || false;
+    const promo = bestPromoForProduct(activePromos, item);
+    const price = effectivePriceForProduct(item, promo);
 
     return (
       <TouchableOpacity
@@ -544,6 +594,11 @@ export default function EpicerieDetailScreen() {
           ) : (
             <Text style={styles.productEmojiInContainer}>📦</Text>
           )}
+          {promo && (
+            <View style={styles.listPromoBadge}>
+              <PromoProductBadge promo={promo} compact />
+            </View>
+          )}
         </TouchableOpacity>
 
         <View style={styles.productInfo}>
@@ -556,11 +611,14 @@ export default function EpicerieDetailScreen() {
           <Text style={styles.productCategory}>
             {item.categoryName || item.categorie || t("products.uncategorized")}
           </Text>
-          {item.prixBarre != null && item.prixBarre > item.prix && (
-            <Text style={styles.productPrixBarre}>{formatPrice(item.prixBarre)}</Text>
+          {promo?.titre ? (
+            <Text style={styles.productPromoTitle} numberOfLines={1}>🎉 {promo.titre}</Text>
+          ) : null}
+          {price.hasDiscount && price.original != null && (
+            <Text style={styles.productPrixBarre}>{formatPrice(price.original)}</Text>
           )}
-          <Text style={[styles.productPrice, item.prixBarre != null && item.prixBarre > item.prix && styles.productPricePromo]}>
-            {formatPrice(item.prix)}
+          <Text style={[styles.productPrice, price.hasDiscount && styles.productPricePromo]}>
+            {formatPrice(price.display)}
           </Text>
           <Text style={styles.productStock}>{t("products.stock")}: {item.stock}</Text>
           <Text style={styles.seeMoreText}>👉 {t("products.seeMore")}</Text>
@@ -584,6 +642,8 @@ export default function EpicerieDetailScreen() {
     const imageUrls = item.photoUrl ? [item.photoUrl] : [];
     const isLoading = imageLoadingState[item.id] || false;
     const isError = imageErrorState[item.id] || false;
+    const promo = bestPromoForProduct(activePromos, item);
+    const price = effectivePriceForProduct(item, promo);
 
     const getStockBadge = () => {
       if (item.stock === 0)   return { label: `✗ ${t("products.outOfStockShort")}`,  color: "#F44336", bg: "#FFEBEE" };
@@ -632,6 +692,12 @@ export default function EpicerieDetailScreen() {
             </View>
           )}
 
+          {promo && (
+            <View style={styles.gridPromoBadge}>
+              <PromoProductBadge promo={promo} compact />
+            </View>
+          )}
+
           {/* Overlay actions au bas de l'image */}
           <View style={styles.gridOverlay}>
             <TouchableOpacity
@@ -677,13 +743,17 @@ export default function EpicerieDetailScreen() {
             </View>
           )}
 
+          {promo?.titre ? (
+            <Text style={styles.gridPromoTitle} numberOfLines={1}>🎉 {promo.titre}</Text>
+          ) : null}
+
           <View style={styles.gridBottomRow}>
             <View>
-              {item.prixBarre != null && item.prixBarre > item.prix && (
-                <Text style={styles.gridPrixBarre}>{formatPrice(item.prixBarre)}</Text>
+              {price.hasDiscount && price.original != null && (
+                <Text style={styles.gridPrixBarre}>{formatPrice(price.original)}</Text>
               )}
-              <Text style={[styles.gridProductPrice, item.prixBarre != null && item.prixBarre > item.prix && styles.gridProductPricePromo]}>
-                {formatPrice(item.prix)}
+              <Text style={[styles.gridProductPrice, price.hasDiscount && styles.gridProductPricePromo]}>
+                {formatPrice(price.display)}
               </Text>
             </View>
             <View style={[styles.gridStockBadge, { backgroundColor: stock.bg }]}>
@@ -752,6 +822,20 @@ export default function EpicerieDetailScreen() {
                 </View>
               </View>
             )}
+            {loyaltyBalance && loyaltyBalance.balance > 0 && (
+              <TouchableOpacity
+                style={styles.loyaltyBadge}
+                onPress={() => router.push({ pathname: '/(client)/fidelite-detail' as any, params: { epicerieId: String(getEpicerieId()) } })}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.loyaltyBadgeIcon}>⭐</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.loyaltyBadgeLabel}>{loyaltyBalance.programName ?? 'Fidelite'}</Text>
+                  <Text style={styles.loyaltyBadgePoints}>{loyaltyBalance.balance} {loyaltyBalance.programType === 'STAMPS' ? 'tampons' : 'points'}</Text>
+                </View>
+                <Text style={{ fontSize: 22, color: '#F57C00', fontWeight: '700' }}>›</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={openGoogleMaps} style={styles.addressSection} activeOpacity={0.7}>
               <Text style={styles.addressLabel}>📍 {t("epicerieDetail.address")}</Text>
               <Text style={styles.addressText}>{epicerie.adresse}</Text>
@@ -765,6 +849,26 @@ export default function EpicerieDetailScreen() {
               <View style={styles.storeDescription}>
                 <Text style={styles.descriptionText}>{epicerie.description}</Text>
               </View>
+            )}
+            {canUseAssistedOrdering && epicerie.whatsappEnabled && epicerie.whatsappPhone && (
+              <TouchableOpacity
+                style={styles.whatsappInfoRow}
+                onPress={() => {
+                  const phone = epicerie.whatsappPhone!.replace(/[^0-9+]/g, "").replace("+", "");
+                  const message = encodeURIComponent(
+                    `Bonjour, je souhaite passer une commande chez ${epicerie.nomEpicerie} #EID:${epicerie.id}`
+                  );
+                  Linking.openURL(`https://wa.me/${phone}?text=${message}`);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.whatsappInfoIcon}>💬</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.whatsappInfoLabel}>Commander par WhatsApp</Text>
+                  <Text style={styles.whatsappInfoHint}>Envoyez votre liste par texte ou audio</Text>
+                </View>
+                <Text style={styles.whatsappInfoArrow}>›</Text>
+              </TouchableOpacity>
             )}
           </View>
         </>
@@ -873,21 +977,21 @@ export default function EpicerieDetailScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagsBar} contentContainerStyle={styles.tagsBarContent}>
             {availableTags.map((tag) => {
               const isSelected = selectedTagIds.includes(tag.id);
+              const c = tag.color || '#607D8B';
               return (
                 <TouchableOpacity
                   key={tag.id}
                   style={[
                     styles.tagChip,
-                    { borderColor: tag.color || '#607D8B' },
-                    isSelected && { backgroundColor: tag.color || '#607D8B' },
+                    { borderColor: c, backgroundColor: isSelected ? c : c + '15' },
                   ]}
                   onPress={() => handleTagToggle(tag.id)}
                   activeOpacity={0.7}
                 >
-                  {isSelected && <Text style={styles.tagChipCheck}>✓ </Text>}
+                  {isSelected && <Text style={[styles.tagChipCheck, { color: '#fff' }]}>{'✓ '}</Text>}
                   <Text style={[
                     styles.tagChipText,
-                    { color: isSelected ? '#fff' : (tag.color || '#607D8B') },
+                    { color: isSelected ? '#fff' : '#333' },
                   ]}>{tag.name}</Text>
                 </TouchableOpacity>
               );
@@ -1004,10 +1108,34 @@ export default function EpicerieDetailScreen() {
           </View>
         )}
 
-        {/* Bouton chatbot flottant */}
-        {epicerie && clientId && (
+        {/* Bouton WhatsApp flottant — réservé aux clients enregistrés de cette épicerie */}
+        {epicerie && canUseAssistedOrdering && epicerie.whatsappEnabled && epicerie.whatsappPhone && (
           <TouchableOpacity
-            style={[styles.chatbotButton, cart.length > 0 && styles.chatbotButtonWithCart]}
+            style={[
+              styles.whatsappFab,
+              cart.length > 0 && styles.whatsappFabWithCart,
+            ]}
+            onPress={() => {
+              const phone = epicerie.whatsappPhone!.replace(/[^0-9+]/g, "").replace("+", "");
+              const message = encodeURIComponent(
+                `Bonjour, je souhaite commander chez ${epicerie.nomEpicerie} #EID:${epicerie.id}`
+              );
+              Linking.openURL(`https://wa.me/${phone}?text=${message}`);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.whatsappFabIcon}>💬</Text>
+            <Text style={styles.whatsappFabLabel}>WhatsApp</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Bouton chatbot flottant — réservé aux clients enregistrés de cette épicerie */}
+        {epicerie && clientId && canUseAssistedOrdering && (
+          <TouchableOpacity
+            style={[
+              styles.chatbotButton,
+              cart.length > 0 && { bottom: 110 },
+            ]}
             onPress={() => setShowChatbot(true)}
             activeOpacity={0.8}
           >
@@ -1084,6 +1212,7 @@ export default function EpicerieDetailScreen() {
                 )
                 .map((cat) => {
                   const isSelected = selectedCategoryId === cat.id;
+                  const catPromo = bestPromoForCategory(activePromos, cat.id);
                   return (
                     <TouchableOpacity
                       key={cat.id}
@@ -1096,6 +1225,13 @@ export default function EpicerieDetailScreen() {
                       <View style={[styles.catGridIcon, isSelected && styles.catGridIconActive]}>
                         <Text style={styles.catGridEmoji}>{getCategoryIcon(cat.name)}</Text>
                       </View>
+                      {catPromo && (
+                        <View style={styles.catGridPromoBadge}>
+                          <Text style={styles.catGridPromoText}>
+                            -{Math.round(catPromo.reductionPercentage)}%
+                          </Text>
+                        </View>
+                      )}
                       <Text style={[styles.catGridName, isSelected && styles.catGridNameActive]} numberOfLines={2}>
                         {cat.name}
                       </Text>
@@ -1128,7 +1264,11 @@ export default function EpicerieDetailScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollContent}>
-              <ProductUnitDisplay product={selectedProductForCart} onAddToCart={handleAddToCartWithUnit} />
+              <ProductUnitDisplay
+                product={selectedProductForCart}
+                onAddToCart={handleAddToCartWithUnit}
+                promo={bestPromoForProduct(activePromos, selectedProductForCart)}
+              />
             </ScrollView>
           </View>
         </Modal>
@@ -1268,34 +1408,36 @@ const styles = StyleSheet.create({
 
   /* === TAGS BAR === */
   tagsBar: {
-    maxHeight: 42,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
     backgroundColor: "#fafafa",
   },
   tagsBarContent: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 6,
+    paddingVertical: 10,
+    gap: 8,
     flexDirection: "row",
     alignItems: "center",
   },
   tagChip: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    borderWidth: 1.5,
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    minHeight: 36,
   },
   tagChipCheck: {
-    fontSize: 11,
-    color: "#fff",
+    fontSize: 13,
     fontWeight: "700",
+    lineHeight: 16,
   },
   tagChipText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
+    lineHeight: 16,
   },
 
   /* === PRODUCT TAG BADGES === */
@@ -1593,6 +1735,18 @@ const styles = StyleSheet.create({
   },
   gridProductPricePromo: { color: "#e53935" },
   gridPrixBarre: { fontSize: 11, color: "#999", textDecorationLine: "line-through" },
+  gridPromoBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    zIndex: 2,
+  },
+  gridPromoTitle: {
+    fontSize: 10,
+    color: "#C62828",
+    fontWeight: "700",
+    marginTop: 2,
+  },
   gridStockBadge: {
     borderRadius: 6,
     paddingHorizontal: 6,
@@ -1628,6 +1782,8 @@ const styles = StyleSheet.create({
   productPrice: { fontSize: 17, fontWeight: "bold", color: "#4CAF50", marginBottom: 3 },
   productPricePromo: { color: "#e53935" },
   productPrixBarre: { fontSize: 12, color: "#999", textDecorationLine: "line-through", marginBottom: 1 },
+  productPromoTitle: { fontSize: 11, color: "#C62828", fontWeight: "700", marginBottom: 2 },
+  listPromoBadge: { position: "absolute", top: 4, left: 4, zIndex: 2 },
   productStock: { fontSize: 11, color: "#ccc", marginBottom: 3 },
   seeMoreText: { fontSize: 11, color: "#4CAF50", fontWeight: "600" },
   addButton: {
@@ -1636,6 +1792,175 @@ const styles = StyleSheet.create({
     shadowColor: "#4CAF50", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3, elevation: 3,
   },
   addButtonOos: { backgroundColor: "#e0e0e0", shadowOpacity: 0 },
+
+  /* === CARTE EPICIER-STYLE (mode card) === */
+  epicCardWrapper: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 15,
+    marginHorizontal: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  epicCardImageBox: {
+    width: '100%',
+    height: 140,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  epicCardImg: {
+    width: '100%',
+    height: '100%',
+  },
+  epicCardImgPlaceholder: {
+    fontSize: 48,
+  },
+  epicCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  epicCardName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  epicCardDesc: {
+    fontSize: 13,
+    color: '#777',
+    lineHeight: 18,
+  },
+  epicCardPrice: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  epicCardPrixBarre: {
+    fontSize: 13,
+    color: '#999',
+    textDecorationLine: 'line-through',
+    marginBottom: 2,
+  },
+  epicCardPromoBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 2,
+  },
+  epicCardPromoTitle: {
+    fontSize: 12,
+    color: '#C62828',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  epicCardCatRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  epicCardCatBadge: {
+    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  epicCardCatText: {
+    fontSize: 12,
+    color: '#2e7d32',
+    fontWeight: '600',
+  },
+  epicCardTagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 8,
+  },
+  epicCardTagChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  epicCardTagText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  epicCardBrandRow: {
+    marginBottom: 8,
+  },
+  epicCardBrandText: {
+    fontSize: 12,
+    color: '#9C27B0',
+    fontWeight: '600',
+    fontStyle: 'italic',
+  },
+  epicCardMeta: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  epicCardMetaBadge: {
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  epicCardMetaText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  epicCardActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  epicCardDetailsBtn: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  epicCardDetailsBtnText: {
+    fontSize: 13,
+    color: '#555',
+    fontWeight: '600',
+  },
+  epicCardCartBtn: {
+    flex: 1,
+    backgroundColor: '#4CAF50',
+    paddingVertical: 10,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  epicCardCartBtnOos: {
+    backgroundColor: '#bdbdbd',
+    shadowOpacity: 0,
+  },
+  epicCardCartBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
 
   /* === VIDE === */
   emptyContainer: { alignItems: "center", marginTop: 50, paddingHorizontal: 20 },
@@ -1663,6 +1988,30 @@ const styles = StyleSheet.create({
   },
   cartButtonText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
 
+  /* === WHATSAPP INFO ROW === */
+  whatsappInfoRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#E8F5E9", borderRadius: 10,
+    padding: 12, marginTop: 10,
+  },
+  whatsappInfoIcon: { fontSize: 24 },
+  whatsappInfoLabel: { fontSize: 14, fontWeight: "700", color: "#25D366" },
+  whatsappInfoHint: { fontSize: 12, color: "#666", marginTop: 2 },
+  whatsappInfoArrow: { fontSize: 24, color: "#25D366", fontWeight: "bold" },
+
+  /* === WHATSAPP FAB === */
+  whatsappFab: {
+    position: "absolute", bottom: 20, left: 16,
+    backgroundColor: "#25D366", borderRadius: 28,
+    paddingVertical: 10, paddingHorizontal: 16,
+    flexDirection: "row", alignItems: "center",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 8,
+    gap: 7,
+  },
+  whatsappFabWithCart: { bottom: 110 },
+  whatsappFabIcon: { fontSize: 22 },
+  whatsappFabLabel: { color: "#fff", fontSize: 13, fontWeight: "bold" },
+
   /* === CHATBOT === */
   chatbotButton: {
     position: "absolute", bottom: 20, right: 16,
@@ -1672,7 +2021,6 @@ const styles = StyleSheet.create({
     shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 8,
     gap: 7,
   },
-  chatbotButtonWithCart: { bottom: 110 },
   chatbotButtonText: { fontSize: 22 },
   chatbotButtonLabel: { color: "#fff", fontSize: 13, fontWeight: "bold" },
 
@@ -1766,7 +2114,29 @@ const styles = StyleSheet.create({
     backgroundColor: "#4CAF50", justifyContent: "center", alignItems: "center",
   },
   catGridCheckText: { fontSize: 11, color: "#fff", fontWeight: "bold" },
+  catGridPromoBadge: {
+    position: "absolute", top: 6, left: 6,
+    backgroundColor: "#E53935",
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 8,
+    shadowColor: "#E53935",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  catGridPromoText: { fontSize: 10, color: "#fff", fontWeight: "900", letterSpacing: 0.3 },
 
   /* === DIVERS === */
   centerContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  /* === LOYALTY BADGE === */
+  loyaltyBadge: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#fff8e1", borderRadius: 10, padding: 12,
+    marginTop: 10, borderWidth: 1, borderColor: "#ffe082",
+  },
+  loyaltyBadgeIcon: { fontSize: 22 },
+  loyaltyBadgeLabel: { fontSize: 11, color: "#e65100", fontWeight: "600" },
+  loyaltyBadgePoints: { fontSize: 18, fontWeight: "900", color: "#e65100" },
 });

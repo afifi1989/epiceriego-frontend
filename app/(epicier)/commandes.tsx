@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { orderService } from '../../src/services/orderService';
+import { offlineService } from '../../src/services/offline';
 import { Order } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
 
@@ -40,10 +41,17 @@ export default function CommandesScreen() {
 
   const loadOrders = async () => {
     try {
-      const data = await orderService.getEpicerieOrders();
-      setOrders(data);
+      const data = await offlineService.fetchWithCache<Order[]>({
+        namespace: 'orders',
+        key: 'epicerie-orders',
+        fetcher: () => orderService.getEpicerieOrders(),
+        forceRefresh: refreshing,
+      });
+      if (data) setOrders(data);
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible de charger les commandes');
+      if (offlineService.isOnline()) {
+        Alert.alert('Erreur', 'Impossible de charger les commandes');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -57,8 +65,21 @@ export default function CommandesScreen() {
 
   const handleUpdateStatus = async (orderId: number, newStatus: string) => {
     try {
-      await orderService.updateOrderStatus(orderId, newStatus);
-      Alert.alert('✅', 'Statut mis à jour');
+      const result = await offlineService.writeOrQueue({
+        domain: 'orders',
+        method: 'PUT',
+        endpoint: `/orders/${orderId}/status`,
+        payload: { status: newStatus },
+        invalidateCache: ['orders'],
+        description: `Commande #${orderId} → ${newStatus}`,
+      });
+      if (result.online) {
+        Alert.alert('✅', 'Statut mis à jour');
+      } else {
+        // Mise à jour optimiste locale
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+        Alert.alert('📦 Hors-ligne', 'Le changement sera synchronisé au retour du réseau.');
+      }
       loadOrders();
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
@@ -110,7 +131,7 @@ export default function CommandesScreen() {
             </Text>
           </View>
           <View style={styles.orderRight}>
-            <Text style={styles.orderTotal}>{formatPrice(item.total)}</Text>
+            <Text style={styles.orderTotal}>{formatPrice(item.total, item.currency)}</Text>
             <View
               style={[
                 styles.statusBadge,

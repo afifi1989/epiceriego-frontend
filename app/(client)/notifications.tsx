@@ -1,4 +1,4 @@
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,14 +17,21 @@ import { Notification, notificationService } from '../../src/services/notificati
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { authService } from '../../src/services/authService';
 import { ratingService, RatingNotificationInfo } from '../../src/services/ratingService';
-
-type NotificationType = 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO' | 'INVITATION';
+import {
+  getFamily,
+  getVisuals,
+  normalizeType,
+  NotificationType,
+  parseNotificationData,
+  resolveRoute,
+} from '../../src/services/notifications';
 
 interface GroupedNotifications {
   [date: string]: Notification[];
 }
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const { t } = useLanguage();
   const [notifications, setNotifications] = useState<GroupedNotifications>({});
   const [loading, setLoading] = useState(true);
@@ -94,43 +101,9 @@ export default function NotificationsScreen() {
     );
   };
 
-  const getNotificationIcon = (type: NotificationType): string => {
-    switch (type) {
-      case 'ORDER':
-        return '📦';
-      case 'PROMOTION':
-        return '🎉';
-      case 'DELIVERY':
-        return '🚚';
-      case 'ALERT':
-        return '⚠️';
-      case 'INFO':
-        return 'ℹ️';
-      case 'INVITATION':
-        return '✉️';
-      default:
-        return '📢';
-    }
-  };
-
-  const getNotificationColor = (type: NotificationType): string => {
-    switch (type) {
-      case 'ORDER':
-        return '#2196F3';
-      case 'PROMOTION':
-        return '#FF9800';
-      case 'DELIVERY':
-        return '#4CAF50';
-      case 'ALERT':
-        return '#F44336';
-      case 'INFO':
-        return '#9C27B0';
-      case 'INVITATION':
-        return '#FF5722';
-      default:
-        return '#757575';
-    }
-  };
+  // Visuals (icon, color, badge letter) come from the central registry
+  // in src/services/notifications/presentation.ts so that adding a new
+  // notification type only requires one change there.
 
   const handleAcceptInvitation = async (notificationId: number) => {
     try {
@@ -385,45 +358,73 @@ export default function NotificationsScreen() {
   };
 
   const renderNotificationCard = (notification: Notification) => {
-    const isInvitation = notification.type === 'INVITATION';
-    const isOrder = notification.type === 'ORDER' || notification.type === 'DELIVERY';
+    const family = getFamily(notification.type);
+    const normalizedType = normalizeType(notification.type);
+    const visuals = getVisuals(notification.type);
+    const data = parseNotificationData(notification.data);
+
+    const isInvitation = family === 'INVITATION';
+    const isOrderFamily = family === 'ORDER' || family === 'DELIVERY';
     const isProcessed = processedInvitations.has(notification.id);
 
-    // Vérifier le statut de l'invitation dans les données
-    let invitationStatus = null;
-    let orderStatus = null;
-    if (notification.data) {
-      try {
-        const notificationData = typeof notification.data === 'string'
-          ? JSON.parse(notification.data)
-          : notification.data;
+    const invitationStatus = isInvitation ? data.status : null;
+    const orderStatus = isOrderFamily ? data.status : null;
+    const orderId: number | null = isOrderFamily
+      ? (data.orderId ?? data.orderNumber ?? null)
+      : null;
 
-        if (isInvitation) {
-          invitationStatus = notificationData.status;
-        }
-        if (isOrder) {
-          orderStatus = notificationData.status;
-        }
-      } catch (e) {
-        console.error('Erreur parsing notification data:', e);
-      }
-    }
-
-    // Afficher les boutons seulement si l'invitation est en attente ET non traitée localement
-    const isPending = !invitationStatus || invitationStatus === 'PENDING' || invitationStatus === 'EN_ATTENTE';
+    const isPending =
+      !invitationStatus ||
+      invitationStatus === 'PENDING' ||
+      invitationStatus === 'EN_ATTENTE';
     const showInvitationActions = isInvitation && !isProcessed && isPending;
 
-    // Afficher le bouton de notation UNIQUEMENT pour les commandes livrées
-    const showRatingButton = isOrder && orderStatus === 'DELIVERED';
+    // Rating shown for any delivered order (covers both legacy DELIVERY type
+    // and granular ORDER_DELIVERED).
+    const showRatingButton =
+      isOrderFamily &&
+      (orderStatus === 'DELIVERED' || normalizedType === NotificationType.ORDER_DELIVERED);
+
+    // Generic deep-link button for new families (payment/loyalty/cart) that
+    // have a meaningful destination but no inline action.
+    const deepLinkRoute = !isInvitation && !showRatingButton && !isOrderFamily
+      ? resolveRoute(notification.type, data)
+      : null;
+    const showGenericNavButton =
+      deepLinkRoute !== null && deepLinkRoute !== '/(client)/notifications';
+
+    let navButtonLabel: string | null = null;
+    if (showGenericNavButton) {
+      switch (family) {
+        case 'PAYMENT':
+          navButtonLabel = '💳 Voir factures & paiements';
+          break;
+        case 'LOYALTY':
+          navButtonLabel = '⭐ Voir mes points fidélité';
+          break;
+        case 'CART':
+          navButtonLabel = '🛒 Reprendre mon panier';
+          break;
+        case 'PROMOTION':
+          navButtonLabel = '🎉 Voir la promotion';
+          break;
+        case 'EPICERIE':
+          navButtonLabel = "🏪 Voir l'épicerie";
+          break;
+        case 'CHAT':
+          navButtonLabel = '💬 Ouvrir';
+          break;
+        default:
+          navButtonLabel = null;
+      }
+    }
 
     return (
       <View key={notification.id} style={styles.notificationCard}>
         <View style={styles.notificationContent}>
           <View style={styles.notificationHeader}>
             <View style={styles.notificationIconContainer}>
-              <Text style={styles.notificationIcon}>
-                {getNotificationIcon(notification.type as NotificationType)}
-              </Text>
+              <Text style={styles.notificationIcon}>{visuals.icon}</Text>
             </View>
             <View style={styles.notificationTextContainer}>
               <Text style={styles.notificationTitle}>{notification.titre}</Text>
@@ -438,12 +439,10 @@ export default function NotificationsScreen() {
             <View
               style={[
                 styles.notificationBadge,
-                {
-                  backgroundColor: getNotificationColor(notification.type as NotificationType),
-                },
+                { backgroundColor: visuals.color },
               ]}
             >
-              <Text style={styles.notificationBadgeText}>{notification.type[0]}</Text>
+              <Text style={styles.notificationBadgeText}>{visuals.badge}</Text>
             </View>
           </View>
 
@@ -464,11 +463,49 @@ export default function NotificationsScreen() {
             </View>
           ) : showRatingButton ? (
             <View style={styles.ratingActions}>
+              {orderId && (
+                <TouchableOpacity
+                  style={styles.viewOrderButton}
+                  onPress={() => router.push(`/(client)/(commandes)/${orderId}` as any)}
+                >
+                  <Text style={styles.viewOrderButtonText}>📦 Voir la commande</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.rateButton}
                 onPress={() => handleRateEpicier(notification.id)}
               >
                 <Text style={styles.rateButtonText}>⭐ Noter l'épicier</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+              >
+                <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : isOrderFamily && orderId ? (
+            <View style={styles.ratingActions}>
+              <TouchableOpacity
+                style={styles.viewOrderButton}
+                onPress={() => router.push(`/(client)/(commandes)/${orderId}` as any)}
+              >
+                <Text style={styles.viewOrderButtonText}>📦 Voir la commande</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+              >
+                <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : showGenericNavButton && navButtonLabel && deepLinkRoute ? (
+            <View style={styles.ratingActions}>
+              <TouchableOpacity
+                style={styles.viewOrderButton}
+                onPress={() => router.push(deepLinkRoute as any)}
+              >
+                <Text style={styles.viewOrderButtonText}>{navButtonLabel}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deleteButton}
@@ -806,6 +843,20 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 16,
     color: '#666',
+  },
+  viewOrderButton: {
+    backgroundColor: '#e3f2fd',
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#90caf9',
+  },
+  viewOrderButtonText: {
+    color: '#1565c0',
+    fontSize: 14,
+    fontWeight: '600',
   },
   rateButton: {
     backgroundColor: '#fff3e0',

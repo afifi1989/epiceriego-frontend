@@ -19,11 +19,18 @@ import { usePermissions } from '../../src/hooks/usePermissions';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
+import { offlineService } from '../../src/services/offline';
+import { useNetwork } from '../../src/context/NetworkContext';
 import { Epicerie, LoginResponse, Order } from '../../src/type';
+import { onboardingService } from '../../src/services/onboardingService';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../src/utils/helpers';
+import { useCurrency } from '../../src/context/CurrencyContext';
+import { DashboardPromoWidget } from '../../src/features/promotions/components';
 
 export default function EpicierDashboardScreen() {
   const router = useRouter();
+  // Devise propagée par le layout épicier au login
+  const { currency } = useCurrency();
 
   // États
   const [loading, setLoading] = useState<boolean>(true);
@@ -38,47 +45,86 @@ export default function EpicierDashboardScreen() {
     productsCount: 0,
   });
   const { can } = usePermissions(loginData);
+  const { isOnline } = useNetwork();
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEYS.USER).then(raw => {
-      if (raw) setLoginData(JSON.parse(raw));
-    });
-    loadDashboardData();
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+        if (raw) {
+          const user = JSON.parse(raw);
+          setLoginData(user);
+
+          // Vérifier si l'onboarding est terminé (seulement si online et première visite)
+          if (user.epicerieId) {
+            try {
+              const status = await onboardingService.getStatus(user.epicerieId);
+              if (!status.completed) {
+                // Libérer le spinner avant la redirection : si la nav échoue
+                // ou prend du temps, on n'est pas bloqué sur "Chargement…".
+                setLoading(false);
+                router.replace('/(epicier)/onboarding');
+                return;
+              }
+            } catch {
+              // Si offline ou erreur, ne pas bloquer l'accès au dashboard
+            }
+          }
+        }
+        loadDashboardData();
+      } catch (err) {
+        console.error('[Dashboard] init failed:', err);
+        setLoading(false);
+      }
+    })();
   }, []);
 
   /**
-   * Charge toutes les données du dashboard
+   * Charge toutes les données du dashboard (avec cache offline)
    */
   const loadDashboardData = async (): Promise<void> => {
     try {
       setLoading(true);
 
-      // Charger les infos de l'épicerie
-      const epicerieData = await epicerieService.getMyEpicerie();
-      setEpicerie(epicerieData);
-
-      // Charger les commandes
-      const ordersData = await orderService.getEpicerieOrders();
-      setOrders(ordersData);
-
-      // Calculer les statistiques
-      const pendingCount = ordersData.filter(o => o.status === 'PENDING').length;
-      const todayOrders = ordersData.filter(o => {
-        const orderDate = new Date(o.createdAt);
-        const today = new Date();
-        return orderDate.toDateString() === today.toDateString();
+      // Charger les infos de l'épicerie (cache 30 min, dispo offline)
+      const epicerieData = await offlineService.fetchWithCache<Epicerie>({
+        namespace: 'epicerie',
+        key: 'my-epicerie',
+        fetcher: () => epicerieService.getMyEpicerie(),
       });
-      const todayRev = todayOrders.reduce((sum, o) => sum + o.total, 0);
+      if (epicerieData) setEpicerie(epicerieData);
 
-      setStats({
-        totalOrders: ordersData.length,
-        pendingOrders: pendingCount,
-        todayRevenue: todayRev,
-        productsCount: epicerieData.nombreProducts,
+      // Charger les commandes (cache 5 min, dispo offline)
+      const ordersData = await offlineService.fetchWithCache<Order[]>({
+        namespace: 'orders',
+        key: 'epicerie-orders',
+        fetcher: () => orderService.getEpicerieOrders(),
       });
+      if (ordersData) {
+        setOrders(ordersData);
+
+        // Calculer les statistiques
+        const pendingCount = ordersData.filter(o => o.status === 'PENDING').length;
+        const todayOrders = ordersData.filter(o => {
+          const orderDate = new Date(o.createdAt);
+          const today = new Date();
+          return orderDate.toDateString() === today.toDateString();
+        });
+        const todayRev = todayOrders.reduce((sum, o) => sum + o.total, 0);
+
+        setStats({
+          totalOrders: ordersData.length,
+          pendingOrders: pendingCount,
+          todayRevenue: todayRev,
+          productsCount: epicerieData?.nombreProducts ?? 0,
+        });
+      }
 
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible de charger les données');
+      // Seulement alerter si on est online (offline = données du cache)
+      if (offlineService.isOnline()) {
+        Alert.alert('Erreur', 'Impossible de charger les données');
+      }
       console.error('Erreur dashboard:', error);
     } finally {
       setLoading(false);
@@ -177,7 +223,7 @@ export default function EpicierDashboardScreen() {
 
       <View style={styles.statsContainer}>
         <View style={[styles.statCard, styles.statGreen]}>
-          <Text style={styles.statValue}>{formatPrice(stats.todayRevenue)}</Text>
+          <Text style={styles.statValue}>{formatPrice(stats.todayRevenue, currency)}</Text>
           <Text style={styles.statLabel}>Revenue Aujourd'hui</Text>
         </View>
         <View style={[styles.statCard, styles.statPurple]}>
@@ -185,6 +231,9 @@ export default function EpicierDashboardScreen() {
           <Text style={styles.statLabel}>Produits</Text>
         </View>
       </View>
+
+      {/* Widget Promotions (V70+) */}
+      <DashboardPromoWidget />
 
       {/* Actions rapides */}
       <View style={styles.quickActions}>
@@ -238,6 +287,66 @@ export default function EpicierDashboardScreen() {
             </TouchableOpacity>
           )}
 
+          {can('stock:view') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/stock-alerts' as any)}
+            >
+              <Text style={styles.actionEmoji}>🚨</Text>
+              <Text style={styles.actionText}>Alertes stock</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('stock:adjust') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/inventaire' as any)}
+            >
+              <Text style={styles.actionEmoji}>📋</Text>
+              <Text style={styles.actionText}>Inventaire</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('settings:edit') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/cash-session' as any)}
+            >
+              <Text style={styles.actionEmoji}>💰</Text>
+              <Text style={styles.actionText}>Caisse</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('settings:edit') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/printer-settings' as any)}
+            >
+              <Text style={styles.actionEmoji}>🖨️</Text>
+              <Text style={styles.actionText}>Imprimante</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('settings:edit') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/fidelite' as any)}
+            >
+              <Text style={styles.actionEmoji}>⭐</Text>
+              <Text style={styles.actionText}>Fidelite</Text>
+            </TouchableOpacity>
+          )}
+
+          {can('promotions:manage') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/promotions')}
+            >
+              <Text style={styles.actionEmoji}>🎉</Text>
+              <Text style={styles.actionText}>Promotions</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={[styles.actionButton, styles.actionButtonHighlight]}
             onPress={() => router.push('/(epicier)/vente-directe')}
@@ -267,7 +376,7 @@ export default function EpicierDashboardScreen() {
                   </Text>
                 </View>
                 <View style={styles.orderTotalContainer}>
-                  <Text style={styles.orderTotal}>{formatPrice(order.total)}</Text>
+                  <Text style={styles.orderTotal}>{formatPrice(order.total, order.currency || currency)}</Text>
                   <Text style={styles.orderItems}>{order.nombreItems} articles</Text>
                 </View>
               </View>
@@ -337,7 +446,7 @@ export default function EpicierDashboardScreen() {
               </View>
               <View style={styles.recentOrderFooter}>
                 <Text style={styles.recentOrderTotal}>
-                  {formatPrice(order.total)}
+                  {formatPrice(order.total, order.currency || currency)}
                 </Text>
                 <Text style={styles.recentOrderDate}>
                   {new Date(order.createdAt).toLocaleDateString('fr-FR')}

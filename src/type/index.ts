@@ -36,6 +36,44 @@ export const EMPTY_TRANSLATIONS: ProductTranslations = {
 };
 
 // ============================================
+// GEO & CURRENCY (référentiel partagé)
+// ============================================
+
+/** Devise (ISO 4217) avec métadonnées d'affichage. Vient du backend déjà localisée. */
+export interface Currency {
+  code: string;              // "MAD", "EUR", "USD"
+  name: string;              // "Dirham marocain", déjà traduit selon Accept-Language
+  symbol: string;            // "DH", "€", "$"
+  symbolPosition: 'BEFORE' | 'AFTER';
+  decimals: number;          // 2 pour la plupart, 0 pour JPY/MAD selon convention
+}
+
+export interface Country {
+  id: number;
+  code: string;              // "MA", "FR", "ES" (ISO 3166-1 alpha-2)
+  name: string;
+  defaultLocale?: string;    // "fr-MA"
+  phonePrefix?: string;      // "+212"
+  defaultCurrency?: Currency;
+}
+
+export interface City {
+  id: number;
+  countryId: number;
+  name: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+export interface Neighborhood {
+  id: number;
+  cityId: number;
+  name: string;
+  latitude?: number;
+  longitude?: number;
+}
+
+// ============================================
 // TYPE D'ÉPICERIE
 // ============================================
 
@@ -88,7 +126,12 @@ export interface User {
 }
 
 export interface LoginResponse {
+  /** JWT d'accès (courte durée). Nom conservé pour rétrocompatibilité. */
   token: string;
+  /** Jeton de rafraîchissement (long-vivant, rotable). */
+  refreshToken?: string;
+  /** Durée de vie du access token en secondes. */
+  expiresIn?: number;
   userId: number;
   email: string;
   nom: string;
@@ -102,6 +145,19 @@ export interface LoginResponse {
   preferredLanguage?: SupportedLanguage;
   /** Identifiant de connexion épicier (format ALXXXXX). Null pour CLIENT/LIVREUR. */
   identifiant?: string;
+}
+
+/** Réponse de POST /api/auth/refresh — rotation du refresh token. */
+export interface TokenRefreshResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  userId: number;
+  role: string;
+  epicerieId?: number;
+  epicerieName?: string;
+  livreurId?: number;
+  collaboratorRole?: string;
 }
 
 // ── Collaborateurs ────────────────────────────────────────────────────────────
@@ -165,6 +221,14 @@ export interface RegisterRequest {
   nomGerant?: string;
   // Pour EPICIER — type de boutique
   epicerieType?: EpicerieType;
+  // Pour EPICIER — adresse structurée + devise (référentiel geo)
+  countryId?: number;
+  cityId?: number;
+  neighborhoodId?: number;     // optionnel : toutes les villes n'ont pas de quartiers
+  streetAddress?: string;
+  postalCode?: string;
+  /** Code ISO 4217 ; si absent, le backend prend la devise par défaut du pays. */
+  currencyCode?: string;
 }
 
 export interface Epicerie {
@@ -189,10 +253,23 @@ export interface Epicerie {
   deliveryZones?: string;
   averageRating?: number;
   totalRatings?: number;
+  // Adresse structurée
+  country?: Country;
+  city?: City;
+  neighborhood?: Neighborhood;
+  streetAddress?: string;
+  postalCode?: string;
+  // Devise — utilisée pour formater les prix de l'épicerie
+  currency?: Currency;
   // Type de boutique
   epicerieType?: EpicerieType;
   epicerieTypeLabel?: string;
   epicerieTypeIcon?: string;
+  // WhatsApp Business settings
+  whatsappEnabled?: boolean;
+  whatsappPhone?: string;
+  whatsappWelcomeMessage?: string;
+  whatsappAutoAccept?: boolean;
 }
 
 // Product Units Types
@@ -339,6 +416,9 @@ export interface OrderItem {
 export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
 export type PaymentMethod = 'CASH' | 'CARD' | 'CLIENT_ACCOUNT';
 
+/** Source from which an order was created */
+export type OrderSource = 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
+
 export interface CardPaymentDetails {
   cardNumber: string;
   cardholderName: string;
@@ -371,17 +451,21 @@ export interface CreateOrderRequest {
 export interface Order {
   id: number;
   total: number;
+  /** Devise figée à la création de la commande — utiliser pour formater les prix. */
+  currency?: Currency;
   status: string;
   deliveryType: DeliveryType;
   adresseLivraison: string;
   telephoneLivraison?: string;
   paymentMethod: PaymentMethod;
+  source?: OrderSource;
   createdAt: string;
   updatedAt: string;
   clientId: number;
   clientNom: string;
   epicerieId: number;
   epicerieNom: string;
+  epicerieAdresse?: string;
   livreurId?: number;
   livreurNom?: string;
   items: OrderItemDetail[];
@@ -512,6 +596,8 @@ export interface Invoice {
   epicerieId: number;
   epicerieName: string;
   amount: number;
+  /** Devise figée à l'émission de la facture. */
+  currency?: Currency;
   dueDate: string;
   createdAt: string;
   paidAt?: string;
@@ -522,6 +608,8 @@ export interface Payment {
   id: number;
   invoiceId: number;
   amount: number;
+  /** Devise figée au paiement. */
+  currency?: Currency;
   paymentMethod: PaymentMethod;
   reference: string;
   createdAt: string;

@@ -207,4 +207,29 @@ export const orderService = {
 
     return result.uri;
   },
+
+  /**
+   * Récupère l'historique d'audit d'une commande (timeline).
+   */
+  getOrderHistory: async (orderId: number): Promise<OrderAuditLog[]> => {
+    try {
+      const response = await api.get<OrderAuditLog[]>(`/orders/${orderId}/history`);
+      return response.data ?? [];
+    } catch {
+      return [];
+    }
+  },
 };
+
+export interface OrderAuditLog {
+  id: number;
+  orderId: number;
+  action: string;
+  oldStatus: string | null;
+  newStatus: string | null;
+  actorId: number | null;
+  actorName: string;
+  actorRole: string;
+  details: string | null;
+  createdAt: string;
+}

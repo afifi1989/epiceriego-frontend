@@ -80,7 +80,7 @@ export default function OrdersScreen() {
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.label}>{t('orders.total')}</Text>
-          <Text style={[styles.value, styles.priceText]}>{formatPrice(item.total)}</Text>
+          <Text style={[styles.value, styles.priceText]}>{formatPrice(item.total, item.currency)}</Text>
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.label}>{t('orders.items') || 'Articles'}</Text>

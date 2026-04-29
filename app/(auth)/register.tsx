@@ -17,11 +17,13 @@ import {
   Platform,
 } from 'react-native';
 import AbridGOLogo from '../../src/components/shared/AbridGOLogo';
+import { AddressPicker, AddressPickerValue, EMPTY_ADDRESS, flattenAddress } from '../../src/components/shared/AddressPicker';
+import { CurrencyPicker } from '../../src/components/shared/CurrencyPicker';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
-import { RegisterRequest, EpicerieType, EPICERIE_TYPES } from '../../src/type';
+import { RegisterRequest, EpicerieType, EPICERIE_TYPES, Currency } from '../../src/type';
 
 // ─── Validation helpers ───────────────────────────────────────────────────────
 
@@ -51,8 +53,14 @@ export default function RegisterScreen() {
   const [nomEpicerie, setNomEpicerie] = useState('');
   const [emailEpicerie, setEmailEpicerie] = useState('');
   const [telephoneEpicerie, setTelephoneEpicerie] = useState('');
-  const [adresse, setAdresse] = useState('');
   const [descriptionEpicerie, setDescriptionEpicerie] = useState('');
+  // Adresse structurée (cascade pays → ville → quartier + rue/CP)
+  const [address, setAddress] = useState<AddressPickerValue>(EMPTY_ADDRESS);
+  // Devise — auto-sélectionnée depuis le pays choisi, override possible
+  const [currency, setCurrency] = useState<Currency | null>(null);
+  // Override manuel : si l'utilisateur a explicitement changé la devise,
+  // on n'écrase plus en cas de changement de pays. Tracking via flag.
+  const [currencyOverridden, setCurrencyOverridden] = useState(false);
 
   // ── Champs EPICIER — Étape 2 : Représentant légal ─────────────────────────
   const [prenomGerant, setPrenomGerant] = useState('');
@@ -78,14 +86,42 @@ export default function RegisterScreen() {
     setStep(1);
   };
 
+  // ─── Devise auto depuis le pays sélectionné ─────────────────────────────────
+  // Quand l'épicier choisit son pays, on pré-remplit la devise avec la
+  // devise par défaut du pays. Si l'utilisateur l'avait déjà manuellement
+  // changée, on respecte son choix (currencyOverridden=true).
+  const handleAddressChange = (next: AddressPickerValue) => {
+    setAddress(next);
+    if (!currencyOverridden && next.country?.defaultCurrency) {
+      setCurrency(next.country.defaultCurrency);
+    }
+  };
+
+  const handleCurrencyChange = (c: Currency | null) => {
+    setCurrency(c);
+    setCurrencyOverridden(true);
+  };
+
   // ─── Validation étape 1 EPICIER ────────────────────────────────────────────
   const validateStep1 = (): boolean => {
     if (!nomEpicerie.trim()) {
       Alert.alert('Erreur', 'Le nom de l\'épicerie est obligatoire');
       return false;
     }
-    if (!adresse.trim()) {
-      Alert.alert('Erreur', 'L\'adresse de l\'épicerie est obligatoire');
+    if (!address.country) {
+      Alert.alert('Erreur', 'Le pays est obligatoire');
+      return false;
+    }
+    if (!address.city) {
+      Alert.alert('Erreur', 'La ville est obligatoire');
+      return false;
+    }
+    if (!address.streetAddress.trim()) {
+      Alert.alert('Erreur', 'Le numéro et la rue sont obligatoires');
+      return false;
+    }
+    if (!currency) {
+      Alert.alert('Erreur', 'La devise est obligatoire');
       return false;
     }
     if (emailEpicerie && !validateEmail(emailEpicerie)) {
@@ -166,6 +202,10 @@ export default function RegisterScreen() {
       let userData: RegisterRequest;
 
       if (role === 'EPICIER') {
+        // Adresse libre construite depuis les champs structurés — gardée
+        // pour le champ legacy `adresse` du backend qui sert encore aux
+        // écrans non-migrés.
+        const adresseLegacy = flattenAddress(address);
         userData = {
           role,
           // Représentant légal — compte utilisateur
@@ -173,9 +213,9 @@ export default function RegisterScreen() {
           password,
           nom: `${prenomGerant.trim()} ${nomGerant.trim()}`,
           telephone,
-          adresse,
-          latitude: 33.5731,
-          longitude: -7.5898,
+          adresse: adresseLegacy,
+          latitude: address.city?.latitude,
+          longitude: address.city?.longitude,
           // Épicerie — personne morale
           nomEpicerie,
           descriptionEpicerie,
@@ -184,6 +224,13 @@ export default function RegisterScreen() {
           prenomGerant: prenomGerant.trim(),
           nomGerant: nomGerant.trim(),
           epicerieType,
+          // Adresse structurée + devise (référentiel geo)
+          countryId: address.country?.id,
+          cityId: address.city?.id,
+          neighborhoodId: address.neighborhood?.id,
+          streetAddress: address.streetAddress.trim() || undefined,
+          postalCode: address.postalCode.trim() || undefined,
+          currencyCode: currency?.code,
         };
       } else {
         userData = {
@@ -319,17 +366,30 @@ export default function RegisterScreen() {
                     onChangeText={setNomEpicerie}
                   />
 
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Adresse *"
-                    placeholderTextColor="#999"
-                    value={adresse}
-                    onChangeText={setAdresse}
-                  />
+                  {/* Adresse structurée — cascade pays / ville / quartier */}
+                  <AddressPicker value={address} onChange={handleAddressChange} />
+
+                  {/* En-tête devise pour mettre en cohérence avec Adresse */}
+                  <View style={styles.subSectionHeader}>
+                    <Text style={styles.subSectionHeaderIcon}>💰</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.subSectionHeaderTitle}>Devise de facturation</Text>
+                      <Text style={styles.subSectionHeaderSubtitle}>
+                        Pré-remplie depuis votre pays — modifiable si besoin
+                      </Text>
+                    </View>
+                  </View>
+
+                  <CurrencyPicker value={currency} onChange={handleCurrencyChange} />
+
+                  {/* Séparateur avant la section contact */}
+                  <View style={styles.subDivider} />
+
+                  <Text style={styles.subSectionLabel}>📞 Contact public (optionnel)</Text>
 
                   <TextInput
                     style={styles.input}
-                    placeholder="Email de contact public (optionnel)"
+                    placeholder="Email de contact public"
                     placeholderTextColor="#999"
                     value={emailEpicerie}
                     onChangeText={setEmailEpicerie}
@@ -340,7 +400,7 @@ export default function RegisterScreen() {
 
                   <TextInput
                     style={styles.input}
-                    placeholder="Téléphone professionnel (optionnel)"
+                    placeholder="Téléphone professionnel"
                     placeholderTextColor="#999"
                     value={telephoneEpicerie}
                     onChangeText={setTelephoneEpicerie}
@@ -757,6 +817,46 @@ const styles = StyleSheet.create({
   linkBold: {
     color: '#4CAF50',
     fontWeight: 'bold',
+  },
+  // ── Sous-section (Adresse, Devise, Contact) ─────
+  subSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#F1F8F2',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    marginTop: 4,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  subSectionHeaderIcon: {
+    fontSize: 22,
+    marginTop: 2,
+  },
+  subSectionHeaderTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1B5E20',
+    marginBottom: 2,
+  },
+  subSectionHeaderSubtitle: {
+    fontSize: 12,
+    color: '#558B2F',
+    lineHeight: 16,
+  },
+  subSectionLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+    marginBottom: 10,
+    marginTop: 4,
+  },
+  subDivider: {
+    height: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 16,
   },
   // ── Type de boutique ────────────────────────────
   typeLabel: {

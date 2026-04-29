@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, type Language } from '../i18n/translations';
 import { profileService } from '../services/profileService';
+import { categoryService } from '../services/categoryService';
 import type { SupportedLanguage } from '../type';
 
 interface LanguageContextType {
@@ -63,6 +64,11 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       setLanguageState(lang);
       await AsyncStorage.setItem('app_language', lang);
       console.log('[LanguageContext] ✅ Langue sauvegardée localement:', lang);
+
+      // Vider le cache mémoire des catégories : leurs noms/descriptions sont
+      // traduits côté backend selon Accept-Language. Le cache offline est déjà
+      // namespacé par langue dans api.ts donc pas besoin de le vider.
+      categoryService.invalidateCache();
 
       // Sync best-effort vers le backend (profil utilisateur).
       // En cas d'erreur (hors-ligne, non connecté), on continue silencieusement.

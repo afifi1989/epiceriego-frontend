@@ -8,6 +8,7 @@ export const API_CONFIG = {
 } as const;
 export const STORAGE_KEYS = {
   TOKEN: '@abridgo_token',
+  REFRESH_TOKEN: '@abridgo_refresh_token',
   USER: '@abridgo_user',
   ROLE: '@abridgo_role',
   SAVED_CARDS: '@abridgo_saved_cards',

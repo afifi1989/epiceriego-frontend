@@ -219,6 +219,17 @@ export default function ProfilScreen() {
           />
         )}
 
+        {/* Paramètres détaillés (réutilisent les step components de
+            l'onboarding pour rééditer chaque section indépendamment). */}
+        {can('settings:edit') && (
+          <ActionButton
+            icon="⚙️"
+            label="Paramètres épicerie"
+            onPress={() => router.push('/(epicier)/parametres-epicerie')}
+            accent="#2196F3"
+          />
+        )}
+
         {/* Collaborateurs */}
         {can('collaborateurs:view') && (
           <ActionButton
@@ -227,6 +238,33 @@ export default function ProfilScreen() {
             onPress={() => router.push('/(epicier)/collaborateurs')}
           />
         )}
+
+        {/* WhatsApp Business — propriétaire uniquement */}
+        {can('settings:edit') && (
+          <ActionButton
+            icon="💬"
+            label="WhatsApp Business"
+            onPress={() => router.push('/(epicier)/whatsapp-settings')}
+            accent="#25D366"
+          />
+        )}
+
+        {/* Synonymes de recherche (darija → fr) */}
+        {can('synonyms:manage') && (
+          <ActionButton
+            icon="🔤"
+            label="Synonymes de recherche"
+            onPress={() => router.push('/(epicier)/synonymes')}
+            accent="#6366f1"
+          />
+        )}
+
+        {/* Diagnostic push notifications */}
+        <ActionButton
+          icon="🔧"
+          label="Diagnostic Push"
+          onPress={() => router.push('/push-diagnostic' as any)}
+        />
       </View>
 
       {/* ── Déconnexion ── */}

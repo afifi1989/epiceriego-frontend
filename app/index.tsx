@@ -172,8 +172,8 @@ export default function Index() {
   // Redirection selon l'état auth et le rôle
   // IMPORTANT: Check NOT authenticated FIRST to prevent any role-based redirect
   if (!isAuthenticated || !userRole) {
-    console.log('[Index] Redirection vers login (authentification manquante)');
-    return <Redirect href="/(auth)/login" />;
+    console.log('[Index] Redirection vers select-role (authentification manquante)');
+    return <Redirect href="/(auth)/select-role" />;
   }
 
   // Now check the role
@@ -189,8 +189,8 @@ export default function Index() {
   }
 
   // Fallback - Should never reach here, but just in case
-  console.log('[Index] Fallback vers login (role inconnu)');
-  return <Redirect href="/(auth)/login" />;
+  console.log('[Index] Fallback vers select-role (role inconnu)');
+  return <Redirect href="/(auth)/select-role" />;
 }
 
 const styles = StyleSheet.create({

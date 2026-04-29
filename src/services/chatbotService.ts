@@ -12,8 +12,27 @@ export interface ChatMessage {
   isError?: boolean;
 }
 
+export interface VariantOption {
+  unitId: number;
+  label: string;
+  price: number;
+  stock: number;
+}
+
+export interface ProductOption {
+  productId: number;
+  productUnitId?: number;
+  productName: string;
+  brandName?: string;
+  unitLabel?: string;
+  price: number;
+  stock: number;
+  score?: number;
+}
+
 export interface ParsedProduct {
   productName: string;
+  brand?: string;
   quantity: number;
   unit: string;
   originalText?: string;
@@ -26,6 +45,12 @@ export interface ParsedProduct {
   matchedPrice?: number;
   matchedStock?: number;
   matchingConfidence?: number;
+  hasMultipleVariants?: boolean;
+  alternativeUnits?: VariantOption[];
+  // Inter-product ambiguity (e.g. "huile" → Afia / Lesieur / Carapelli)
+  hasMultipleProducts?: boolean;
+  productOptions?: ProductOption[];
+  ambiguityHint?: string;
   isError?: boolean;
   errorMessage?: string;
 }
@@ -115,14 +140,45 @@ export const chatbotService = {
         if (product.matchedStock !== undefined) {
           message += `   Stock : ${product.matchedStock}\n`;
         }
+        // Show variant options if ambiguous
+        if (product.hasMultipleVariants && product.alternativeUnits && product.alternativeUnits.length > 1) {
+          message += `   ⚠️ Plusieurs formats disponibles :\n`;
+          product.alternativeUnits.forEach((variant, vIdx) => {
+            message += `      ${vIdx + 1}. ${variant.label} — ${variant.price.toFixed(2)} DH\n`;
+          });
+          message += `   Sélectionnez le format souhaité ci-dessous.\n`;
+        }
         message += '\n';
       });
     }
 
-    // Produits non identifiés
-    if (response.unmatchedCount > 0) {
-      message += `\n❓ Je n'ai pas trouvé ${response.unmatchedCount} produit(s) :\n\n`;
-      response.produitsNonIdentifies.forEach((product, index) => {
+    // Inter-product ambiguity (e.g. "huile" matches Afia + Lesieur + Carapelli)
+    const ambiguousProducts = response.produitsNonIdentifies.filter(
+      (p) => p.hasMultipleProducts && p.productOptions && p.productOptions.length > 1
+    );
+    const trulyUnmatched = response.produitsNonIdentifies.filter(
+      (p) => !p.hasMultipleProducts
+    );
+
+    if (ambiguousProducts.length > 0) {
+      ambiguousProducts.forEach((amb) => {
+        message += `\n🤔 Pour *${amb.productName}*, plusieurs produits correspondent :\n\n`;
+        amb.productOptions!.forEach((opt, idx) => {
+          const brandSuffix =
+            opt.brandName && !opt.productName.toLowerCase().includes(opt.brandName.toLowerCase())
+              ? ` (${opt.brandName})`
+              : '';
+          const unitSuffix = opt.unitLabel ? ` — ${opt.unitLabel}` : '';
+          message += `${idx + 1}. ${opt.productName}${brandSuffix}${unitSuffix} — ${opt.price.toFixed(2)} DH\n`;
+        });
+        message += `\n${amb.ambiguityHint || 'Touchez le produit souhaité ou précisez la marque (ex: huile Afia).'}\n`;
+      });
+    }
+
+    // Produits non identifiés (vraiment pas trouvés)
+    if (trulyUnmatched.length > 0) {
+      message += `\n❓ Je n'ai pas trouvé ${trulyUnmatched.length} produit(s) :\n\n`;
+      trulyUnmatched.forEach((product, index) => {
         message += `${index + 1}. "${product.productName}" (${product.quantity} ${product.unit})\n`;
       });
 

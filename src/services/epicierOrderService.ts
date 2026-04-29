@@ -26,6 +26,7 @@ export interface OrderDetailDTO {
   totalItems: number;
   totalAmount: number;
   status: 'NEW' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+  source?: 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
   items: OrderItem[];
   createdAt: string;
   notes?: string;
@@ -38,6 +39,7 @@ export interface OrderListDTO {
   totalItems: number;
   totalAmount: number;
   status: 'NEW' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+  source?: 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
   createdAt: string;
 }
 

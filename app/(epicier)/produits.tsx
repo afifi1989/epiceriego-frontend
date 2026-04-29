@@ -21,11 +21,15 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { epicerieService } from '../../src/services/epicerieService';
 import { productService } from '../../src/services/productService';
 import { tagService } from '../../src/services/tagService';
-import { LoginResponse, Product, Tag } from '../../src/type';
+import { offlineService } from '../../src/services/offline';
+import { Epicerie, LoginResponse, Product, Tag } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
+import { useCurrency } from '../../src/context/CurrencyContext';
+import { PromoProductBadge } from '../../src/features/promotions/components';
 
 export default function ProduitsScreen() {
   const router = useRouter();
+  const { currency } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -34,6 +38,7 @@ export default function ProduitsScreen() {
   const { can } = usePermissions(loginData);
   // Filtres
   const [searchText, setSearchText] = useState('');
+  const [onlyPromo, setOnlyPromo] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | undefined>(undefined);
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | undefined>(undefined);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -57,9 +62,15 @@ export default function ProduitsScreen() {
 
   const loadTags = async () => {
     try {
-      const data = await tagService.getForProductsFr();
-      setAvailableTags(data);
-    } catch {}
+      const data = await offlineService.fetchWithCache<Tag[]>({
+        namespace: 'tags',
+        key: 'products_fr',
+        fetcher: () => tagService.getForProductsFr(),
+      });
+      if (data) setAvailableTags(data);
+    } catch (e: any) {
+      console.error('[Produits] ERREUR loadTags:', e?.message);
+    }
   };
 
   const toggleTag = (tagId: number) => {
@@ -70,12 +81,26 @@ export default function ProduitsScreen() {
 
   const loadProducts = async () => {
     try {
-      const myEpicerie = await epicerieService.getMyEpicerie();
-      const data = await productService.getProductsByEpicerie(myEpicerie.id, true, true);
-      setProducts(data);
-      setFilteredProducts(data);
+      const myEpicerie = await offlineService.fetchWithCache<Epicerie>({
+        namespace: 'epicerie',
+        key: 'my-epicerie',
+        fetcher: () => epicerieService.getMyEpicerie(),
+      });
+      if (!myEpicerie) throw new Error('Aucune donnée épicerie');
+      const data = await offlineService.fetchWithCache<Product[]>({
+        namespace: 'products',
+        key: `epicerie_${myEpicerie.id}`,
+        fetcher: () => productService.getProductsByEpicerie(myEpicerie.id, true, true),
+        forceRefresh: refreshing,
+      });
+      if (data) {
+        setProducts(data);
+        setFilteredProducts(data);
+      }
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible de charger les produits');
+      if (offlineService.isOnline()) {
+        Alert.alert('Erreur', 'Impossible de charger les produits');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -85,7 +110,7 @@ export default function ProduitsScreen() {
   // Appliquer les filtres
   useEffect(() => {
     applyFilters();
-  }, [searchText, selectedCategoryId, selectedTagIds, products]);
+  }, [searchText, selectedCategoryId, selectedTagIds, onlyPromo, products]);
 
   const applyFilters = () => {
     let filtered = [...products];
@@ -105,6 +130,12 @@ export default function ProduitsScreen() {
     if (selectedTagIds.length > 0) {
       filtered = filtered.filter(product =>
         product.tags?.some(t => selectedTagIds.includes(t.id))
+      );
+    }
+
+    if (onlyPromo) {
+      filtered = filtered.filter(product =>
+        (product.units ?? []).some(u => u.prixBarre != null && u.prixBarre > u.prix)
       );
     }
 
@@ -177,7 +208,13 @@ export default function ProduitsScreen() {
           )}
         </View>
         <View style={styles.productPriceContainer}>
-          <Text style={styles.productPrice}>{formatPrice(item.prix)}</Text>
+          <Text style={styles.productPrice}>{formatPrice(item.prix, currency)}</Text>
+          {(() => {
+            const u = (item.units ?? []).find(x => x.prixBarre != null && x.prixBarre > x.prix);
+            if (!u || !u.prixBarre) return null;
+            const pct = Math.round((1 - u.prix / u.prixBarre) * 100);
+            return <View style={{ marginTop: 4 }}><PromoProductBadge percentage={pct} compact /></View>;
+          })()}
         </View>
       </View>
 
@@ -186,6 +223,16 @@ export default function ProduitsScreen() {
           <View style={styles.categoryBadge}>
             <Text style={styles.categoryText}>🏷️ {item.categoryName}</Text>
           </View>
+        </View>
+      )}
+
+      {item.tags && item.tags.length > 0 && (
+        <View style={styles.productTagsRow}>
+          {item.tags.map((t) => (
+            <View key={t.id} style={[styles.productTagChip, { borderColor: t.color || '#607D8B', backgroundColor: (t.color || '#607D8B') + '15' }]}>
+              <Text style={[styles.productTagText, { color: '#333' }]}>{t.name}</Text>
+            </View>
+          ))}
         </View>
       )}
 
@@ -282,6 +329,17 @@ export default function ProduitsScreen() {
             🏷️
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.categoryFilterButton,
+            onlyPromo && { backgroundColor: '#FFEBEE', borderColor: '#E53935' },
+          ]}
+          onPress={() => setOnlyPromo(v => !v)}
+        >
+          <Text style={[styles.categoryFilterIcon, onlyPromo && { color: '#E53935' }]}>
+            🔖
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Chip catégorie sélectionnée */}
@@ -308,21 +366,21 @@ export default function ProduitsScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagsBar} contentContainerStyle={styles.tagsBarContent}>
           {availableTags.map((tag) => {
             const isSelected = selectedTagIds.includes(tag.id);
+            const c = tag.color || '#607D8B';
             return (
               <TouchableOpacity
                 key={tag.id}
                 style={[
                   styles.tagChip,
-                  { borderColor: tag.color || '#607D8B' },
-                  isSelected && { backgroundColor: tag.color || '#607D8B' },
+                  { borderColor: c, backgroundColor: isSelected ? c : c + '15' },
                 ]}
                 onPress={() => toggleTag(tag.id)}
                 activeOpacity={0.7}
               >
-                {isSelected && <Text style={styles.tagChipCheck}>{'✓ '}</Text>}
+                {isSelected && <Text style={[styles.tagChipCheck, { color: '#fff' }]}>{'✓ '}</Text>}
                 <Text style={[
                   styles.tagChipText,
-                  { color: isSelected ? '#fff' : (tag.color || '#607D8B') },
+                  { color: isSelected ? '#fff' : '#333' },
                 ]}>{tag.name}</Text>
               </TouchableOpacity>
             );
@@ -378,34 +436,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   tagsBar: {
-    maxHeight: 44,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
   tagsBarContent: {
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    gap: 6,
+    paddingVertical: 10,
+    gap: 8,
     flexDirection: 'row',
     alignItems: 'center',
   },
   tagChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    borderWidth: 1.5,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    minHeight: 36,
   },
   tagChipCheck: {
-    fontSize: 11,
-    color: '#fff',
+    fontSize: 13,
     fontWeight: '700',
+    lineHeight: 16,
   },
   tagChipText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
+    lineHeight: 16,
   },
   centerContainer: {
     flex: 1,
@@ -507,6 +567,22 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
     flexWrap: 'wrap',
+  },
+  productTagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 8,
+  },
+  productTagChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  productTagText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   categoryBadge: {
     backgroundColor: '#e3f2fd',

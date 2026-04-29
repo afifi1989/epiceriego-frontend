@@ -14,6 +14,11 @@ import { ProductUnitDisplay } from '../../../../components/client/ProductUnitDis
 import { useLanguage } from '../../../../src/context/LanguageContext';
 import { cartService } from '../../../../src/services/cartService';
 import { productService } from '../../../../src/services/productService';
+import { promotionService, Promotion } from '../../../../src/services/promotionService';
+import {
+  activePromosForEpicerie,
+  bestPromoForProduct,
+} from '../../../../src/features/promotions/utils';
 import { Product, ProductUnit } from '../../../../src/type';
 import { formatPrice } from '../../../../src/utils/helpers';
 
@@ -27,6 +32,7 @@ export default function ProductDetailScreen() {
   const [addingToCart, setAddingToCart] = useState(false);
   const [showImageZoom, setShowImageZoom] = useState(false);
   const [epicerieName, setEpicerieName] = useState<string>('');
+  const [activePromos, setActivePromos] = useState<Promotion[]>([]);
 
   useEffect(() => {
     loadProduct();
@@ -47,6 +53,14 @@ export default function ProductDetailScreen() {
         // Récupérer le nom de l'épicerie depuis le produit
         if (foundProduct.epicerieNom) {
           setEpicerieName(foundProduct.epicerieNom);
+        }
+        // Charge les promos actives de l'épicerie pour servir de fallback
+        // quand le backend n'a pas encore écrit prixBarre sur les unités.
+        try {
+          const promos = await promotionService.getAllActivePromotions();
+          setActivePromos(activePromosForEpicerie(promos, parsedEpicerieId));
+        } catch {
+          setActivePromos([]);
         }
       } else {
         Alert.alert(t('common.error'), t('products.productNotFound'));
@@ -198,6 +212,7 @@ export default function ProductDetailScreen() {
               <ProductUnitDisplay
                 product={product}
                 onAddToCart={handleAddToCart}
+                promo={bestPromoForProduct(activePromos, product)}
               />
             </View>
           )}

@@ -1,8 +1,8 @@
 // ============================================
 // app/(auth)/login.tsx
-// Écran de connexion avec comptes mémorisés
+// Écran de connexion avec comptes mémorisés et rôle pré-sélectionné
 // ============================================
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,11 +18,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AbridGOLogo from '../../src/components/shared/AbridGOLogo';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+type Role = 'CLIENT' | 'EPICIER' | 'LIVREUR';
 
 interface SavedAccount {
   login: string;
@@ -55,13 +57,17 @@ const ROLE_QUICK_LINKS: Record<string, QuickLink[]> = {
   ],
 };
 
-const SPACES = [
-  { icon: '🏪', label: 'Espace Épicier', desc: 'Gérez vos produits, commandes et clients', color: '#2196F3' },
-  { icon: '🛒', label: 'Espace Client',  desc: 'Commandez auprès de vos épiceries locales', color: '#4CAF50' },
-  { icon: '🚗', label: 'Espace Livreur', desc: 'Acceptez et gérez vos livraisons',          color: '#FF9800' },
-];
+const ROLE_META: Record<Role, { label: string; icon: string; color: string; tagline: string }> = {
+  CLIENT:  { label: 'Espace Client',  icon: '🛒', color: '#4CAF50', tagline: 'Commandez auprès de vos épiceries' },
+  EPICIER: { label: 'Espace Épicier', icon: '🏪', color: '#2196F3', tagline: 'Gérez votre boutique au quotidien' },
+  LIVREUR: { label: 'Espace Livreur', icon: '🚗', color: '#FF9800', tagline: 'Acceptez et gérez vos livraisons' },
+};
 
 const SAVED_ACCOUNTS_KEY = 'saved_accounts';
+
+function isValidRole(r: any): r is Role {
+  return r === 'CLIENT' || r === 'EPICIER' || r === 'LIVREUR';
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +101,17 @@ function getInitial(n: string) { return (n || '?').charAt(0).toUpperCase(); }
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ role?: string }>();
+
+  /**
+   * Rôle verrouillé par la query param venant de la page select-role.
+   * Null = l'utilisateur a ouvert les "comptes enregistrés" directement,
+   * aucun filtre par rôle n'est appliqué.
+   */
+  const lockedRole: Role | null = useMemo(
+    () => (isValidRole(params.role) ? params.role : null),
+    [params.role]
+  );
 
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -102,16 +119,26 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  /** Rôle effectif utilisé pour l'UI et pour expectedRole côté API. */
+  const [selectedRole, setSelectedRole] = useState<string | null>(lockedRole);
 
   const isIdentifiant = /^AL\d{5}$/.test(login.trim());
+  const primaryColor = selectedRole ? getRoleColor(selectedRole) : '#4CAF50';
+  const roleMeta = lockedRole ? ROLE_META[lockedRole] : null;
 
+  // Charge les comptes et filtre par rôle verrouillé
   useEffect(() => {
     loadSavedAccounts().then(accounts => {
-      setSavedAccounts(accounts);
-      if (accounts.length === 0) setShowForm(true);
+      const filtered = lockedRole ? accounts.filter(a => a.role === lockedRole) : accounts;
+      setSavedAccounts(filtered);
+      if (filtered.length === 0) setShowForm(true);
     });
-  }, []);
+  }, [lockedRole]);
+
+  // Synchronise selectedRole avec lockedRole
+  useEffect(() => {
+    if (lockedRole) setSelectedRole(lockedRole);
+  }, [lockedRole]);
 
   const selectAccount = useCallback((account: SavedAccount) => {
     setLogin(account.login);
@@ -125,20 +152,26 @@ export default function LoginScreen() {
     Alert.alert('Supprimer ce compte ?', 'L\'identifiant ne sera plus mémorisé.', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: async () => {
-        const remaining = await removeAccount(accountLogin);
-        setSavedAccounts(remaining);
-        if (remaining.length === 0) setShowForm(true);
+        const all = await removeAccount(accountLogin);
+        const visible = lockedRole ? all.filter(a => a.role === lockedRole) : all;
+        setSavedAccounts(visible);
+        if (visible.length === 0) setShowForm(true);
       }},
     ]);
-  }, []);
+  }, [lockedRole]);
 
   const backToAccountList = useCallback(() => {
     setLogin('');
     setPassword('');
     setRedirectTarget(null);
-    setSelectedRole(null);
+    // Si le rôle est verrouillé par l'URL, on ne le relâche pas
+    if (!lockedRole) setSelectedRole(null);
     setShowForm(false);
-  }, []);
+  }, [lockedRole]);
+
+  const handleChangeSpace = useCallback(() => {
+    router.replace('/(auth)/select-role');
+  }, [router]);
 
   const handleLogin = async () => {
     const v = login.trim();
@@ -150,9 +183,10 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const fcmToken = await pushNotificationService.getTokenForLogin();
-      const userData = await authService.login(v, password, fcmToken);
+      // Le rôle attendu envoyé au backend : lockedRole en priorité, sinon celui du compte sélectionné
+      const expectedRole = lockedRole ?? (selectedRole ?? null);
+      const userData = await authService.login(v, password, fcmToken, expectedRole);
       await saveAccount({ login: v, nom: userData.nom, role: userData.role, identifiant: userData.identifiant || undefined });
-      await new Promise(resolve => setTimeout(resolve, 500));
 
       if (userData.mustChangePassword) { router.replace('/change-password'); return; }
       if (redirectTarget) { router.replace(redirectTarget as any); setRedirectTarget(null); }
@@ -178,65 +212,67 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F2F3F7" />
+      <StatusBar barStyle="light-content" backgroundColor="#1B2A4A" />
       <ScrollView
         style={s.scroll}
         contentContainerStyle={s.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* ── Back to select-role ── */}
+        <TouchableOpacity style={s.backBtn} onPress={handleChangeSpace} activeOpacity={0.7}>
+          <Text style={s.backBtnText}>‹ Changer d'espace</Text>
+        </TouchableOpacity>
+
         {/* ── Logo ── */}
         <View style={s.logoWrap}>
-          <AbridGOLogo size={180} />
+          <AbridGOLogo size={160} />
         </View>
+
+        {/* ── Role badge (if locked) ── */}
+        {roleMeta && (
+          <View style={[s.roleBadge, { borderColor: roleMeta.color + '50', backgroundColor: roleMeta.color + '15' }]}>
+            <Text style={s.roleBadgeIcon}>{roleMeta.icon}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.roleBadgeTitle, { color: roleMeta.color }]}>{roleMeta.label}</Text>
+              <Text style={s.roleBadgeTag}>{roleMeta.tagline}</Text>
+            </View>
+          </View>
+        )}
 
         {/* ════════════════════════════════════════════════════════════════════
             ACCOUNT PICKER
         ════════════════════════════════════════════════════════════════════ */}
         {!showForm && savedAccounts.length > 0 && (
-          <>
-            <View style={s.card}>
-              <Text style={s.cardTitle}>Choisir un compte</Text>
-              {savedAccounts.map(account => (
-                <TouchableOpacity key={account.login} style={s.accountRow}
-                  onPress={() => selectAccount(account)}
-                  onLongPress={() => handleRemoveAccount(account.login)}
-                  activeOpacity={0.6}
-                >
-                  <View style={[s.avatar, { backgroundColor: getRoleColor(account.role) }]}>
-                    <Text style={s.avatarText}>{getInitial(account.nom)}</Text>
-                  </View>
-                  <View style={s.accountMid}>
-                    <Text style={s.accountName} numberOfLines={1}>{account.nom}</Text>
-                    <Text style={s.accountSub} numberOfLines={1}>{account.identifiant || account.login}</Text>
-                  </View>
-                  <View style={[s.rolePill, { backgroundColor: getRoleColor(account.role) + '15' }]}>
-                    <Text style={[s.rolePillText, { color: getRoleColor(account.role) }]}>{getRoleLabel(account.role)}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              <View style={s.sep}><View style={s.sepLine} /><Text style={s.sepText}>ou</Text><View style={s.sepLine} /></View>
-
-              <TouchableOpacity style={s.otherBtn} onPress={() => { setLogin(''); setSelectedRole(null); setShowForm(true); }} activeOpacity={0.6}>
-                <Text style={s.otherBtnText}>+ Autre compte</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Spaces */}
-            <View style={s.card}>
-              <Text style={s.sectionLabel}>Une app, trois espaces</Text>
-              {SPACES.map(sp => (
-                <View key={sp.label} style={s.spaceRow}>
-                  <View style={[s.spaceIcon, { backgroundColor: sp.color + '12' }]}><Text style={{ fontSize: 18 }}>{sp.icon}</Text></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.spaceName, { color: sp.color }]}>{sp.label}</Text>
-                    <Text style={s.spaceDesc}>{sp.desc}</Text>
-                  </View>
+          <View style={s.card}>
+            <Text style={s.cardTitle}>
+              {lockedRole ? 'Comptes enregistrés' : 'Choisir un compte'}
+            </Text>
+            {savedAccounts.map(account => (
+              <TouchableOpacity key={account.login} style={s.accountRow}
+                onPress={() => selectAccount(account)}
+                onLongPress={() => handleRemoveAccount(account.login)}
+                activeOpacity={0.6}
+              >
+                <View style={[s.avatar, { backgroundColor: getRoleColor(account.role) }]}>
+                  <Text style={s.avatarText}>{getInitial(account.nom)}</Text>
                 </View>
-              ))}
-            </View>
-          </>
+                <View style={s.accountMid}>
+                  <Text style={s.accountName} numberOfLines={1}>{account.nom}</Text>
+                  <Text style={s.accountSub} numberOfLines={1}>{account.identifiant || account.login}</Text>
+                </View>
+                <View style={[s.rolePill, { backgroundColor: getRoleColor(account.role) + '15' }]}>
+                  <Text style={[s.rolePillText, { color: getRoleColor(account.role) }]}>{getRoleLabel(account.role)}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+
+            <View style={s.sep}><View style={s.sepLine} /><Text style={s.sepText}>ou</Text><View style={s.sepLine} /></View>
+
+            <TouchableOpacity style={s.otherBtn} onPress={() => { setLogin(''); setShowForm(true); }} activeOpacity={0.6}>
+              <Text style={s.otherBtnText}>+ Autre compte</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         {/* ════════════════════════════════════════════════════════════════════
@@ -256,7 +292,8 @@ export default function LoginScreen() {
                 placeholderTextColor="#aaa" value={password} onChangeText={setPassword}
                 secureTextEntry autoCapitalize="none" />
 
-              <TouchableOpacity style={[s.loginBtn, loading && { opacity: 0.6 }]}
+              <TouchableOpacity
+                style={[s.loginBtn, { backgroundColor: primaryColor }, loading && { opacity: 0.6 }]}
                 onPress={handleLogin} disabled={loading} activeOpacity={0.8}>
                 {loading
                   ? <ActivityIndicator color="#fff" size="small" />
@@ -264,7 +301,7 @@ export default function LoginScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity style={s.linkRow} onPress={() => router.push('/(auth)/forgot-password')}>
-                <Text style={s.linkText}>Mot de passe oublié ?</Text>
+                <Text style={[s.linkText, { color: primaryColor }]}>Mot de passe oublié ?</Text>
               </TouchableOpacity>
 
               {savedAccounts.length > 0 && (
@@ -275,8 +312,11 @@ export default function LoginScreen() {
 
               <View style={s.sep}><View style={s.sepLine} /><Text style={s.sepText}>ou</Text><View style={s.sepLine} /></View>
 
-              <TouchableOpacity style={s.registerBtn} onPress={() => router.push('/(auth)/register')} activeOpacity={0.7}>
-                <Text style={s.registerBtnText}>Créer un compte</Text>
+              <TouchableOpacity
+                style={[s.registerBtn, { borderColor: primaryColor }]}
+                onPress={() => router.push('/(auth)/register')}
+                activeOpacity={0.7}>
+                <Text style={[s.registerBtnText, { color: primaryColor }]}>Créer un compte</Text>
               </TouchableOpacity>
             </View>
 
@@ -303,22 +343,6 @@ export default function LoginScreen() {
                 </Text>
               </View>
             )}
-
-            {/* ── Spaces (if new account / no role) ── */}
-            {!selectedRole && (
-              <View style={s.card}>
-                <Text style={s.sectionLabel}>Une app, trois espaces</Text>
-                {SPACES.map(sp => (
-                  <View key={sp.label} style={s.spaceRow}>
-                    <View style={[s.spaceIcon, { backgroundColor: sp.color + '12' }]}><Text style={{ fontSize: 18 }}>{sp.icon}</Text></View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[s.spaceName, { color: sp.color }]}>{sp.label}</Text>
-                      <Text style={s.spaceDesc}>{sp.desc}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
           </>
         )}
       </ScrollView>
@@ -331,7 +355,7 @@ export default function LoginScreen() {
 const s = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#F2F3F7',
+    backgroundColor: '#1B2A4A',
   },
   scroll: {
     flex: 1,
@@ -342,12 +366,38 @@ const s = StyleSheet.create({
     paddingBottom: 32,
   },
 
+  // Back
+  backBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginBottom: 4,
+  },
+  backBtnText: {
+    color: '#b8c4dd',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
   // Logo
   logoWrap: {
     alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 8,
+    marginBottom: 16,
+    marginTop: 4,
   },
+
+  // Role badge
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  roleBadgeIcon: { fontSize: 24, marginRight: 12 },
+  roleBadgeTitle: { fontSize: 15, fontWeight: '700' },
+  roleBadgeTag: { fontSize: 12, color: '#b8c4dd', marginTop: 2 },
 
   // Card
   card: {
@@ -468,7 +518,6 @@ const s = StyleSheet.create({
     color: '#222',
   },
   loginBtn: {
-    backgroundColor: '#4CAF50',
     paddingVertical: 15,
     borderRadius: 10,
     alignItems: 'center',
@@ -484,19 +533,16 @@ const s = StyleSheet.create({
     marginTop: 12,
   },
   linkText: {
-    color: '#4CAF50',
     fontSize: 14,
     fontWeight: '600',
   },
   registerBtn: {
     borderWidth: 1.5,
-    borderColor: '#4CAF50',
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
   },
   registerBtnText: {
-    color: '#4CAF50',
     fontSize: 15,
     fontWeight: '700',
   },
@@ -536,33 +582,5 @@ const s = StyleSheet.create({
     color: '#bbb',
     textAlign: 'center',
     marginTop: 6,
-  },
-
-  // Spaces
-  spaceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    backgroundColor: '#fafafa',
-    marginBottom: 6,
-  },
-  spaceIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  spaceName: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  spaceDesc: {
-    fontSize: 11,
-    color: '#999',
-    marginTop: 1,
   },
 });

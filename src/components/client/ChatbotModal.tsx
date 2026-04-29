@@ -19,6 +19,7 @@ import {
   ChatMessage as ChatMessageType,
   ChatbotResponse,
   ParsedProduct,
+  ProductOption,
 } from '../../services/chatbotService';
 
 interface ChatbotModalProps {
@@ -146,6 +147,44 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
     );
   };
 
+  // Resolve an inter-product ambiguity: the client tapped one of the proposed options.
+  // Promote the chosen option into produitsIdentifies and remove the ambiguous entry
+  // from produitsNonIdentifies, so the "Add to cart" button can pick it up.
+  const handleResolveProductChoice = (ambiguous: ParsedProduct, option: ProductOption) => {
+    if (!lastResponse) return;
+
+    const resolved: ParsedProduct = {
+      ...ambiguous,
+      isMatched: true,
+      hasMultipleProducts: false,
+      productOptions: undefined,
+      matchedProductId: option.productId,
+      matchedProductUnitId: option.productUnitId,
+      matchedProductName: option.productName,
+      matchedUnitLabel: option.unitLabel,
+      matchedPrice: option.price,
+      matchedStock: option.stock,
+    };
+
+    const updatedIdentified = [...lastResponse.produitsIdentifies, resolved];
+    const updatedUnmatched = lastResponse.produitsNonIdentifies.filter((p) => p !== ambiguous);
+
+    setLastResponse({
+      ...lastResponse,
+      produitsIdentifies: updatedIdentified,
+      produitsNonIdentifies: updatedUnmatched,
+      matchedCount: updatedIdentified.length,
+      unmatchedCount: updatedUnmatched.filter((p) => !p.hasMultipleProducts).length,
+    });
+
+    addMessage({
+      id: (Date.now() + 3).toString(),
+      role: 'assistant',
+      content: `✅ *${option.productName}*${option.unitLabel ? ` (${option.unitLabel})` : ''} sélectionné.`,
+      timestamp: new Date(),
+    });
+  };
+
   // Clear chat
   const handleClearChat = () => {
     Alert.alert(
@@ -223,6 +262,47 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
             <Text style={styles.loadingText}>L'assistant réfléchit...</Text>
           </View>
         )}
+
+        {/* Product-choice ambiguity resolver */}
+        {lastResponse &&
+          lastResponse.produitsNonIdentifies
+            .filter((p) => p.hasMultipleProducts && p.productOptions && p.productOptions.length > 1)
+            .map((ambiguous, ambIdx) => (
+              <View key={`amb-${ambIdx}`} style={styles.ambiguityContainer}>
+                <Text style={styles.ambiguityTitle}>
+                  🤔 Choisissez pour "{ambiguous.productName}" :
+                </Text>
+                {ambiguous.productOptions!.map((opt, optIdx) => {
+                  const showBrand =
+                    opt.brandName &&
+                    !opt.productName.toLowerCase().includes(opt.brandName.toLowerCase());
+                  return (
+                    <TouchableOpacity
+                      key={`amb-${ambIdx}-opt-${optIdx}`}
+                      style={styles.ambiguityOption}
+                      onPress={() => handleResolveProductChoice(ambiguous, opt)}
+                      disabled={isLoading}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.ambiguityOptionName}>
+                          {opt.productName}
+                          {showBrand ? ` (${opt.brandName})` : ''}
+                        </Text>
+                        {opt.unitLabel ? (
+                          <Text style={styles.ambiguityOptionUnit}>{opt.unitLabel}</Text>
+                        ) : null}
+                      </View>
+                      <Text style={styles.ambiguityOptionPrice}>
+                        {opt.price.toFixed(2)} DH
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {ambiguous.ambiguityHint ? (
+                  <Text style={styles.ambiguityHint}>{ambiguous.ambiguityHint}</Text>
+                ) : null}
+              </View>
+            ))}
 
         {/* Add to cart button */}
         {lastResponse && lastResponse.produitsIdentifies.length > 0 && (
@@ -355,6 +435,52 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9F9F9',
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
+  },
+  ambiguityContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#FFF8E1',
+    borderTopWidth: 1,
+    borderTopColor: '#FFE082',
+  },
+  ambiguityTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#5D4037',
+    marginBottom: 8,
+  },
+  ambiguityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#FFB300',
+  },
+  ambiguityOptionName: {
+    fontSize: 14,
+    color: '#212121',
+    fontWeight: '500',
+  },
+  ambiguityOptionUnit: {
+    fontSize: 12,
+    color: '#757575',
+    marginTop: 2,
+  },
+  ambiguityOptionPrice: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#F57C00',
+    marginLeft: 8,
+  },
+  ambiguityHint: {
+    fontSize: 12,
+    color: '#6D4C41',
+    fontStyle: 'italic',
+    marginTop: 4,
   },
   addToCartButton: {
     backgroundColor: '#4CAF50',

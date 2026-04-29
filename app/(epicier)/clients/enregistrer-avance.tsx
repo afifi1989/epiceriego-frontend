@@ -15,9 +15,10 @@ import {
 } from 'react-native';
 import { Colors, FontSizes } from '../../../src/constants/colors';
 import { useLanguage } from '../../../src/context/LanguageContext';
+import { usePermissions } from '../../../src/hooks/usePermissions';
 import { clientManagementService } from '../../../src/services/clientManagementService';
 import { creditPaymentService } from '../../../src/services/creditPaymentService';
-import { ClientEpicerieRelation } from '../../../src/type';
+import { ClientEpicerieRelation, LoginResponse } from '../../../src/type';
 
 export default function EnregistrerAvanceScreen() {
   const router = useRouter();
@@ -29,6 +30,8 @@ export default function EnregistrerAvanceScreen() {
   const [saving, setSaving] = useState(false);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
   const [clientDetails, setClientDetails] = useState<ClientEpicerieRelation | null>(null);
+  const [loginData, setLoginData] = useState<LoginResponse | null>(null);
+  const { can } = usePermissions(loginData);
 
   // Form state
   const [amount, setAmount] = useState('');
@@ -42,6 +45,7 @@ export default function EnregistrerAvanceScreen() {
       const user = await AsyncStorage.getItem('@abridgo_user');
       if (user) {
         const userData = JSON.parse(user);
+        setLoginData(userData);
         if (userData.epicerieId) {
           setEpicerieId(userData.epicerieId);
         }
@@ -49,6 +53,20 @@ export default function EnregistrerAvanceScreen() {
     };
     getEpicerieId();
   }, []);
+
+  /**
+   * Block access if user lacks the credit permission. Redirect back rather
+   * than show a blank screen so the user understands the action was denied.
+   */
+  useEffect(() => {
+    if (loginData && !can('clients:credit')) {
+      Alert.alert(
+        'Accès refusé',
+        "Cette action nécessite la permission de gestion du crédit client.",
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    }
+  }, [loginData, can, router]);
 
   /**
    * Load client details

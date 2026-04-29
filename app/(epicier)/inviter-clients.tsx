@@ -281,12 +281,20 @@ export default function InviterClientsScreen() {
                   {
                     text: 'Renvoyer',
                     onPress: async () => {
+                      if (!epicerieId) return;
                       try {
+                        await clientManagementService.resendInvitation(
+                          epicerieId,
+                          item.clientId
+                        );
                         Alert.alert('Succès', 'Invitation renvoyée');
-                      } catch (error) {
+                        await loadInvitations();
+                      } catch (error: any) {
                         Alert.alert(
                           'Erreur',
-                          "Impossible de renvoyer l'invitation"
+                          typeof error === 'string'
+                            ? error
+                            : "Impossible de renvoyer l'invitation"
                         );
                       }
                     },

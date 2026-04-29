@@ -15,8 +15,8 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { productService } from '../../src/services/productService';
@@ -44,9 +44,18 @@ export default function FicheProduitScreen() {
 
   const isNew = !id;
 
-  useEffect(() => {
-    if (id) loadProduct(parseInt(id));
-  }, [id]);
+  // Réinitialiser l'état à chaque focus :
+  // — sans id → nouveau produit (reset)
+  // — avec id → charger le produit demandé
+  useFocusEffect(useCallback(() => {
+    if (id) {
+      loadProduct(parseInt(id));
+    } else {
+      setCurrentProduct(null);
+      setActiveTab(0);
+      setLoading(false);
+    }
+  }, [id]));
 
   const loadProduct = async (productId: number) => {
     setLoading(true);
@@ -132,7 +141,7 @@ export default function FicheProduitScreen() {
       {/* ── Contenu de l'onglet actif ── */}
       <View style={styles.content}>
         {activeTab === 0 && (
-          <InfoTab product={currentProduct} onSaved={onInfoSaved} />
+          <InfoTab key={currentProduct?.id ?? 'new'} product={currentProduct} onSaved={onInfoSaved} />
         )}
         {activeTab === 1 && currentProduct && (
           <VariantsTab product={currentProduct} onChanged={() => loadProduct(currentProduct.id)} />

@@ -26,53 +26,46 @@ function LivreurTabsContent() {
     loadEpicerieName();
   }, []);
 
-  // ✅ Initialiser les push notifications pour les livreurs authentifiés
   useEffect(() => {
-    console.log('[LivreurLayout] 🎯 LivreurLayout component mounted - Initializing notifications');
+    console.log('[LivreurLayout] 🎯 Mount — initializing notifications');
+
+    let isMounted = true;
+    let unsubscribe: (() => void) | null = null;
 
     const setupNotifications = async () => {
       try {
         await new Promise(resolve => setTimeout(resolve, 500));
+        if (!isMounted) return;
 
-        console.log('[LivreurLayout] 1️⃣ Setting foreground handler');
         await pushNotificationService.setForegroundNotificationHandler();
 
-        console.log('[LivreurLayout] 2️⃣ Setup notification categories');
-        await pushNotificationService.setupNotificationCategories();
-
-        console.log('[LivreurLayout] 3️⃣ Register for push notifications');
         const token = await pushNotificationService.registerForPushNotifications();
-        console.log('[LivreurLayout] Token received:', token);
 
         if (token) {
-          console.log('[LivreurLayout] 4️⃣ Send token to server');
-          const success = await pushNotificationService.sendTokenToServer(token);
-          console.log('[LivreurLayout] Send result:', success);
-
-          if (!success) {
-            console.log('[LivreurLayout] ⚠️ Token saved locally, will retry later');
-          }
-
-          console.log('[LivreurLayout] 5️⃣ Retry pending tokens');
+          await pushNotificationService.sendTokenToServer(token);
           await pushNotificationService.retryPendingToken();
-        } else {
-          console.error('[LivreurLayout] ❌ No token received!');
         }
 
-        console.log('[LivreurLayout] 6️⃣ Setup notification handlers');
-        pushNotificationService.setupNotificationHandlers(router);
+        if (!isMounted) return;
 
-        console.log('[LivreurLayout] ✅ All notification setup complete');
+        unsubscribe = pushNotificationService.setupNotificationHandlers(router);
+        await pushNotificationService.handleColdStartResponse(router);
+
+        console.log('[LivreurLayout] ✅ Notification setup complete');
       } catch (error) {
         console.error('[LivreurLayout] ❌ Error during notification setup:', error);
-        if (error instanceof Error) {
-          console.error('[LivreurLayout] Error message:', error.message);
-          console.error('[LivreurLayout] Stack:', error.stack);
-        }
       }
     };
 
     setupNotifications();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
   }, [router]);
 
   const handleLogout = async (): Promise<void> => {

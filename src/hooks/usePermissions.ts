@@ -20,7 +20,8 @@ export type Feature =
   | 'livreurs:manage'
   | 'invoices:view'
   | 'stats:view'
-  | 'promotions:manage';
+  | 'promotions:manage'
+  | 'synonyms:manage';
 
 export type UserProfile = 'owner' | 'manager' | 'gestionnaire' | 'caissier';
 
@@ -39,6 +40,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'invoices:view',
     'stats:view',
     'promotions:manage',
+    'synonyms:manage',
   ],
   manager: [
     'products:view', 'products:create', 'products:edit', 'products:delete',
@@ -54,6 +56,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'invoices:view',
     'stats:view',
     'promotions:manage',
+    'synonyms:manage',
   ],
   gestionnaire: [
     'products:view', 'products:create', 'products:edit',
@@ -66,6 +69,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'invoices:view',
     'stats:view',
     'promotions:manage',
+    'synonyms:manage',
   ],
   caissier: [
     'products:view',

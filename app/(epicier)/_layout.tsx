@@ -6,7 +6,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { getUserProfile } from '../../src/hooks/usePermissions';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
+import { epicerieService } from '../../src/services/epicerieService';
 import { LoginResponse } from '../../src/type';
+import { NetworkProvider } from '../../src/context/NetworkContext';
+import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
+import { useCurrency } from '../../src/context/CurrencyContext';
 
 // Composant interne pour gérer le layout authentifié
 function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) {
@@ -14,55 +18,65 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
   const router = useRouter();
   const profile = getUserProfile(loginData);
   const canManageLivreurs = profile === 'owner' || profile === 'manager';
+  const { setCurrency } = useCurrency();
 
-  // ✅ Initialiser les push notifications pour les épiciers authentifiés
+  // Charge la devise de l'épicerie connectée une fois pour toute la
+  // session. Tous les écrans épicier (dashboard, produits, commandes,
+  // factures…) consommeront ensuite via useCurrency() — pas besoin de
+  // refetch sur chaque écran.
   useEffect(() => {
-    console.log('[EpicierLayout] 🎯 EpicierLayout component mounted - Initializing notifications');
+    let cancelled = false;
+    epicerieService.getMyEpicerie()
+      .then(epicerie => {
+        if (!cancelled) setCurrency(epicerie.currency ?? null);
+      })
+      .catch(err => {
+        // Pas bloquant — fallback "DH" via formatCurrency.
+        console.warn('[EpicierLayout] Devise non chargée:', err?.message);
+      });
+    return () => { cancelled = true; setCurrency(null); };
+  }, [setCurrency]);
+
+  useEffect(() => {
+    console.log('[EpicierLayout] 🎯 Mount — initializing notifications');
+
+    let isMounted = true;
+    let unsubscribe: (() => void) | null = null;
 
     const setupNotifications = async () => {
       try {
-        // Petit délai pour s'assurer que le composant est complètement monté
         await new Promise(resolve => setTimeout(resolve, 500));
+        if (!isMounted) return;
 
-        console.log('[EpicierLayout] 1️⃣ Setting foreground handler');
         await pushNotificationService.setForegroundNotificationHandler();
 
-        console.log('[EpicierLayout] 2️⃣ Setup notification categories');
-        await pushNotificationService.setupNotificationCategories();
-
-        console.log('[EpicierLayout] 3️⃣ Register for push notifications');
         const token = await pushNotificationService.registerForPushNotifications();
-        console.log('[EpicierLayout] Token received:', token);
 
         if (token) {
-          console.log('[EpicierLayout] 4️⃣ Send token to server');
-          const success = await pushNotificationService.sendTokenToServer(token);
-          console.log('[EpicierLayout] Send result:', success);
-
-          if (!success) {
-            console.log('[EpicierLayout] ⚠️ Token saved locally, will retry later');
-          }
-
-          console.log('[EpicierLayout] 5️⃣ Retry pending tokens');
+          await pushNotificationService.sendTokenToServer(token);
           await pushNotificationService.retryPendingToken();
-        } else {
-          console.error('[EpicierLayout] ❌ No token received!');
         }
 
-        console.log('[EpicierLayout] 6️⃣ Setup notification handlers');
-        pushNotificationService.setupNotificationHandlers(router);
+        if (!isMounted) return;
 
-        console.log('[EpicierLayout] ✅ All notification setup complete');
+        unsubscribe = pushNotificationService.setupNotificationHandlers(router);
+        await pushNotificationService.handleColdStartResponse(router);
+
+        console.log('[EpicierLayout] ✅ Notification setup complete');
       } catch (error) {
         console.error('[EpicierLayout] ❌ Error during notification setup:', error);
-        if (error instanceof Error) {
-          console.error('[EpicierLayout] Error message:', error.message);
-          console.error('[EpicierLayout] Stack:', error.stack);
-        }
       }
     };
 
     setupNotifications();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
   }, [router]);
 
   return (
@@ -135,6 +149,13 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="parametres-epicerie"
+        options={{
+          href: null,  // accessible via le profil, pas dans la tab bar
+          title: 'Paramètres épicerie',
+        }}
+      />
+      <Tabs.Screen
         name="modifier-infos"
         options={{
           href: null,
@@ -201,6 +222,42 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="stock-alerts"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="inventaire"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="inventaire-session"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="cash-session"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="printer-settings"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="cash-reports"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="produits"
         options={{
           href: null,
@@ -258,6 +315,22 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         name="promotions"
         options={{
           href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="promo-wizard"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: 'Nouvelle promotion',
+        }}
+      />
+      <Tabs.Screen
+        name="promo-detail"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: 'Détail promotion',
         }}
       />
       <Tabs.Screen
@@ -319,6 +392,41 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
           headerTitleStyle: { fontWeight: 'bold' },
         }}
       />
+      <Tabs.Screen
+        name="carnet-client"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="onboarding"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="whatsapp-settings"
+        options={{
+          href: null,
+          headerTitle: 'WhatsApp Business',
+          headerStyle: { backgroundColor: '#25D366' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      />
+      <Tabs.Screen
+        name="synonymes"
+        options={{
+          href: null,
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="fidelite"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
@@ -375,6 +483,13 @@ export default function EpicierLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  // ✅ Afficher le contenu authentifié
-  return <EpicierTabsContent loginData={loginData} />;
+  // ✅ Afficher le contenu authentifié avec support offline
+  return (
+    <NetworkProvider>
+      <View style={{ flex: 1 }}>
+        <OfflineBanner />
+        <EpicierTabsContent loginData={loginData} />
+      </View>
+    </NetworkProvider>
+  );
 }

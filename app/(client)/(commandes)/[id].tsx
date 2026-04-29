@@ -359,7 +359,7 @@ export default function OrderDetailsScreen() {
         <View style={styles.infoRow}>
           <Text style={styles.label}>{t('orders.total')}</Text>
           <Text style={[styles.value, { color: '#4CAF50', fontWeight: 'bold' }]}>
-            {formatPrice(order.total)}
+            {formatPrice(order.total, order.currency)}
           </Text>
         </View>
         <View style={styles.infoRow}>
@@ -370,11 +370,13 @@ export default function OrderDetailsScreen() {
         </View>
       </View>
 
-      {/* Informations de livraison */}
+      {/* Informations de livraison / retrait */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t('orders.deliveryInfo')}</Text>
-          {order.status !== 'DELIVERED' && order.status !== 'CANCELLED' && (
+          <Text style={styles.sectionTitle}>
+            {order.deliveryType === 'PICKUP' ? t('orderDetail.pickupAddress') : t('orders.deliveryInfo')}
+          </Text>
+          {order.deliveryType === 'HOME_DELIVERY' && order.status !== 'DELIVERED' && order.status !== 'CANCELLED' && (
             <TouchableOpacity
               onPress={() => setEditingDeliveryInfo(true)}
               style={styles.editButton}
@@ -384,14 +386,23 @@ export default function OrderDetailsScreen() {
           )}
         </View>
         <View style={styles.deliveryInfoBox}>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>{t('profile.address')}</Text>
-            <Text style={styles.value}>{order.adresseLivraison}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>{t('orders.phone')}</Text>
-            <Text style={styles.value}>{order.telephoneLivraison || t('orders.notProvided')}</Text>
-          </View>
+          {order.deliveryType === 'PICKUP' ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.label}>📍 {order.epicerieNom}</Text>
+              <Text style={styles.value}>{order.epicerieAdresse || t('orders.notProvided')}</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>{t('profile.address')}</Text>
+                <Text style={styles.value}>{order.adresseLivraison}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>{t('orders.phone')}</Text>
+                <Text style={styles.value}>{order.telephoneLivraison || t('orders.notProvided')}</Text>
+              </View>
+            </>
+          )}
         </View>
       </View>
 
@@ -442,10 +453,10 @@ export default function OrderDetailsScreen() {
               )}
               <Text style={styles.itemQuantity}>{t('cart.quantity')}: {item.quantite}</Text>
               {item.prixUnitaire && (
-                <Text style={styles.itemUnitPrice}>{t('orderDetail.unitPrice')}: {formatPrice(item.prixUnitaire)}</Text>
+                <Text style={styles.itemUnitPrice}>{t('orderDetail.unitPrice')}: {formatPrice(item.prixUnitaire, order.currency)}</Text>
               )}
             </View>
-            <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
+            <Text style={styles.itemPrice}>{formatPrice(item.total, order.currency)}</Text>
           </View>
         ))}
       </View>

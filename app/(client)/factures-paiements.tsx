@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { InvoiceCard } from '../../src/components/epicier/InvoiceCard';
+import { PayInvoiceModal } from '../../src/components/client/PayInvoiceModal';
 import { Colors, FontSizes } from '../../src/constants/colors';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { creditPaymentService } from '../../src/services/creditPaymentService';
@@ -25,6 +26,9 @@ export default function FacturesPaiementsScreen() {
   const [activeTab, setActiveTab] = useState<Tab>('unpaid');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Payment modal
+  const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
 
   // Data
   const [unpaidInvoices, setUnpaidInvoices] = useState<Invoice[]>([]);
@@ -188,7 +192,10 @@ export default function FacturesPaiementsScreen() {
               <InvoiceCard
                 invoice={item as Invoice}
                 onPress={() => {
-                  // Could navigate to invoice details
+                  const inv = item as Invoice;
+                  if (inv.status === 'UNPAID') {
+                    setPayingInvoice(inv);
+                  }
                 }}
                 showActions={activeTab === 'unpaid'}
                 isClientView={true}
@@ -271,6 +278,17 @@ export default function FacturesPaiementsScreen() {
         }
         scrollEnabled={true}
         contentContainerStyle={styles.listContent}
+      />
+
+      {/* Modal paiement */}
+      <PayInvoiceModal
+        visible={!!payingInvoice}
+        invoice={payingInvoice}
+        onClose={() => setPayingInvoice(null)}
+        onPaid={() => {
+          setPayingInvoice(null);
+          loadData();
+        }}
       />
     </View>
   );

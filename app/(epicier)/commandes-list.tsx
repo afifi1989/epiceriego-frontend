@@ -4,6 +4,8 @@
  */
 
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/src/constants/colors';
+import { useCurrency } from '@/src/context/CurrencyContext';
+import { formatPrice } from '@/src/utils/helpers';
 import epicierOrderService from '@/src/services/epicierOrderService';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -26,6 +28,7 @@ interface OrderItemForList {
   itemCount: number;
   totalAmount: number;
   status: 'NEW' | 'PREPARING' | 'READY' | 'PICKED_UP' | 'CANCELLED';
+  source?: 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
   createdAt: string;
   deliveryType: 'PICKUP' | 'DELIVERY';
 }
@@ -56,6 +59,7 @@ const STATUS_ICONS: Record<string, string> = {
 
 export default function OrderListScreen() {
   const router = useRouter();
+  const { currency } = useCurrency();
   const [orders, setOrders] = useState<OrderItemForList[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -95,6 +99,7 @@ export default function OrderListScreen() {
         itemCount: order.items?.length || 0,
         totalAmount: order.totalAmount || 0,
         status: order.status || 'NEW',
+        source: order.source || 'APP',
         createdAt: order.createdAt || new Date().toISOString(),
         deliveryType: order.deliveryType || 'PICKUP',
       }));
@@ -181,7 +186,14 @@ export default function OrderListScreen() {
       {/* Order Info */}
       <View style={styles.orderInfo}>
         <View style={styles.orderHeader}>
-          <Text style={styles.clientName}>{item.clientName}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: Spacing.xs }}>
+            <Text style={styles.clientName}>{item.clientName}</Text>
+            {item.source === 'WHATSAPP' && (
+              <View style={styles.whatsappBadge}>
+                <MaterialCommunityIcons name="whatsapp" size={12} color="#fff" />
+              </View>
+            )}
+          </View>
           <Text style={styles.orderTime}>{formatTime(item.createdAt)}</Text>
         </View>
 
@@ -201,7 +213,7 @@ export default function OrderListScreen() {
               size={16}
               color={Colors.textSecondary}
             />
-            <Text style={styles.detailText}>{item.totalAmount.toFixed(2)} DH</Text>
+            <Text style={styles.detailText}>{formatPrice(item.totalAmount, currency)}</Text>
           </View>
 
           <View style={styles.detailItem}>
@@ -472,6 +484,14 @@ const styles = StyleSheet.create({
   detailText: {
     fontSize: FontSizes.xs,
     color: Colors.textSecondary,
+  },
+  whatsappBadge: {
+    backgroundColor: '#25D366',
+    borderRadius: BorderRadius.full,
+    width: 20,
+    height: 20,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
   },
   emptyState: {
     flex: 1,

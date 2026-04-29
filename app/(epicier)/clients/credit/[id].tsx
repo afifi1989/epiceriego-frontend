@@ -14,8 +14,9 @@ import {
 } from 'react-native';
 import { Colors, FontSizes } from '../../../../src/constants/colors';
 import { useLanguage } from '../../../../src/context/LanguageContext';
+import { usePermissions } from '../../../../src/hooks/usePermissions';
 import { clientManagementService } from '../../../../src/services/clientManagementService';
-import { ClientEpicerieRelation } from '../../../../src/type';
+import { ClientEpicerieRelation, LoginResponse } from '../../../../src/type';
 
 export default function ClientCreditScreen() {
   const router = useRouter();
@@ -27,6 +28,8 @@ export default function ClientCreditScreen() {
   const [saving, setSaving] = useState(false);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
   const [clientDetails, setClientDetails] = useState<ClientEpicerieRelation | null>(null);
+  const [loginData, setLoginData] = useState<LoginResponse | null>(null);
+  const { can } = usePermissions(loginData);
 
   // Form state
   const [allowCredit, setAllowCredit] = useState(false);
@@ -40,6 +43,7 @@ export default function ClientCreditScreen() {
       const user = await AsyncStorage.getItem('@abridgo_user');
       if (user) {
         const userData = JSON.parse(user);
+        setLoginData(userData);
         if (userData.epicerieId) {
           setEpicerieId(userData.epicerieId);
         }
@@ -47,6 +51,19 @@ export default function ClientCreditScreen() {
     };
     getEpicerieId();
   }, []);
+
+  /**
+   * Block access if user lacks the credit permission.
+   */
+  useEffect(() => {
+    if (loginData && !can('clients:credit')) {
+      Alert.alert(
+        'Accès refusé',
+        "Cette action nécessite la permission de gestion du crédit client.",
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    }
+  }, [loginData, can, router]);
 
   /**
    * Load client details when data is available

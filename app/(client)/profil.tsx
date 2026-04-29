@@ -136,6 +136,15 @@ export default function ProfilScreen() {
 
         <TouchableOpacity
           style={styles.actionButton}
+          onPress={() => router.push('/(client)/fidelite' as any)}
+        >
+          <Text style={styles.actionIcon}>⭐</Text>
+          <Text style={styles.actionText}>{t('profile.myLoyalty')}</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
           onPress={() => router.push('/(client)/invitations')}
         >
           <Text style={styles.actionIcon}>✉️</Text>

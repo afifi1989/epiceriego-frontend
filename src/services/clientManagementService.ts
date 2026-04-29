@@ -113,6 +113,70 @@ export const clientManagementService = {
   },
 
   /**
+   * Create a "virtual" client — a placeholder account managed by the
+   * epicier on behalf of someone who hasn't installed the app yet.
+   * The carnet/factures/avances work the same as for a real client; if
+   * the customer later signs up with the same phone, the backend will
+   * automatically claim the virtual user (preserving all transactions).
+   */
+  createVirtualClient: async (
+    epicerieId: number,
+    payload: { name: string; phone?: string; email?: string }
+  ): Promise<ClientEpicerieRelation> => {
+    try {
+      const response = await api.post<ClientEpicerieRelation>(
+        `/epiceries/${epicerieId}/clients/virtual`,
+        payload
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error creating virtual client:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de la création du client virtuel';
+    }
+  },
+
+  /**
+   * Update a virtual client's name/phone. Backend rejects (400) if the
+   * client is no longer virtual (i.e. has been claimed by a real signup).
+   */
+  updateVirtualClient: async (
+    epicerieId: number,
+    clientId: number,
+    payload: { name: string; phone?: string; email?: string }
+  ): Promise<ClientEpicerieRelation> => {
+    try {
+      const response = await api.put<ClientEpicerieRelation>(
+        `/epiceries/${epicerieId}/clients/${clientId}/virtual`,
+        payload
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error updating virtual client:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de la modification du client virtuel';
+    }
+  },
+
+  /**
+   * Resend a pending invitation. Triggers a fresh email + push to the
+   * client. Backend rejects if the invitation is no longer PENDING.
+   */
+  resendInvitation: async (
+    epicerieId: number,
+    clientId: number
+  ): Promise<ClientInvitation> => {
+    try {
+      const response = await api.post<ClientInvitation>(
+        `/epiceries/${epicerieId}/clients/${clientId}/resend-invitation`,
+        {}
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error resending invitation:', error.message);
+      throw error.response?.data?.message || "Erreur lors du renvoi de l'invitation";
+    }
+  },
+
+  /**
    * Accept an invitation to join an epicerie (client side)
    * @param epicerieId ID of the epicerie
    * @param clientId ID of the client

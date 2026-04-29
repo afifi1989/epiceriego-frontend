@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
+  Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,10 +18,19 @@ import { unitService } from '../../../../services/unitService';
 import {
   StockAdjustmentReason,
   STOCK_REASON_LABELS,
+  MANUAL_ADJUSTMENT_REASONS,
+  StockMovement,
+  StockBatchResponse,
+  ReceiveBatchRequest,
+  BatchReduceReason,
+  BATCH_REDUCE_REASONS,
+  getExpiryLevel,
   stockService
 } from '../../../../services/stockService';
 import { Product, ProductUnit } from '../../../../type';
 import { usePermissions } from '../../../../hooks/usePermissions';
+
+const HISTORY_PAGE_SIZE = 20;
 
 type Mode = 'ENTREE' | 'SORTIE';
 
@@ -39,11 +51,190 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
   const [reason, setReason] = useState<StockAdjustmentReason>('RECEPTION');
   const [notes, setNotes] = useState('');
 
-  const history = selectedUnit
-    ? stockService.getHistory(selectedUnit.id)
-    : stockService.getProductHistory(product.id);
+  // Historique paginé depuis l'API
+  const [history, setHistory] = useState<StockMovement[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyLast, setHistoryLast] = useState(false);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // ── Sprint 3 : Lots (DLC) ─────────────────────────────────────────────
+  const [batches, setBatches] = useState<StockBatchResponse[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+
+  // Modal réception
+  const [receptionVisible, setReceptionVisible] = useState(false);
+  const [receptionSaving, setReceptionSaving] = useState(false);
+  const [rcpUnitId, setRcpUnitId] = useState<number | null>(null);
+  const [rcpQty, setRcpQty] = useState('1');
+  const [rcpExpiry, setRcpExpiry] = useState('');          // YYYY-MM-DD
+  const [rcpUnitCost, setRcpUnitCost] = useState('');
+  const [rcpSupplier, setRcpSupplier] = useState('');
+  const [rcpInvoice, setRcpInvoice] = useState('');
+  const [rcpNotes, setRcpNotes] = useState('');
+
+  // Modal réduction lot
+  const [reduceTarget, setReduceTarget] = useState<StockBatchResponse | null>(null);
+  const [reduceSaving, setReduceSaving] = useState(false);
+  const [reduceQty, setReduceQty] = useState('1');
+  const [reduceReason, setReduceReason] = useState<BatchReduceReason>('CASSE');
+  const [reduceNotes, setReduceNotes] = useState('');
 
   useEffect(() => { loadUnits(); }, []);
+
+  // Recharge l'historique après chargement des units (pour résoudre les labels)
+  useEffect(() => {
+    if (units.length > 0) {
+      reloadHistory();
+      loadBatches();
+    }
+  }, [units.length]);
+
+  const reloadHistory = async () => {
+    setHistoryPage(0);
+    setHistoryLast(false);
+    await fetchHistoryPage(0, true);
+  };
+
+  const loadMoreHistory = async () => {
+    if (historyLast || historyLoading) return;
+    const next = historyPage + 1;
+    setHistoryPage(next);
+    await fetchHistoryPage(next, false);
+  };
+
+  // ── Chargement des lots ────────────────────────────────────────────────
+  const loadBatches = async () => {
+    setBatchesLoading(true);
+    try {
+      const resp = await stockService.getProductBatches(product.id, true, 0, 50);
+      setBatches(resp.content);
+    } catch {
+      setBatches([]);
+    } finally {
+      setBatchesLoading(false);
+    }
+  };
+
+  const getUnitLabel = (unitId: number): string =>
+    units.find(u => u.id === unitId)?.label ?? `#${unitId}`;
+
+  // ── Réception ──────────────────────────────────────────────────────────
+  const openReception = () => {
+    setRcpUnitId(selectedUnit?.id ?? units[0]?.id ?? null);
+    setRcpQty('1');
+    setRcpExpiry('');
+    setRcpUnitCost('');
+    setRcpSupplier('');
+    setRcpInvoice('');
+    setRcpNotes('');
+    setReceptionVisible(true);
+  };
+
+  const saveReception = async () => {
+    const qty = parseInt(rcpQty, 10);
+    if (!rcpUnitId || !qty || qty <= 0) {
+      Alert.alert('Erreur', 'Variante et quantité requises');
+      return;
+    }
+    if (rcpExpiry && !/^\d{4}-\d{2}-\d{2}$/.test(rcpExpiry)) {
+      Alert.alert('Erreur', 'Format DLC attendu : AAAA-MM-JJ');
+      return;
+    }
+    setReceptionSaving(true);
+    const payload: ReceiveBatchRequest = {
+      productUnitId: rcpUnitId,
+      quantity: qty,
+      expiryDate: rcpExpiry || null,
+      receivedAt: null,
+      unitCost: rcpUnitCost ? parseFloat(rcpUnitCost) : null,
+      supplierName: rcpSupplier || null,
+      supplierInvoice: rcpInvoice || null,
+      notes: rcpNotes || null
+    };
+    try {
+      await stockService.receiveBatch(payload);
+      // Sync unit.stock local (+qty)
+      setUnits(prev => prev.map(u =>
+        u.id === rcpUnitId ? { ...u, stock: u.stock + qty } : u
+      ));
+      if (selectedUnit?.id === rcpUnitId) {
+        setSelectedUnit(prev => prev ? { ...prev, stock: prev.stock + qty } : null);
+      }
+      setReceptionVisible(false);
+      Alert.alert('✅ Réception enregistrée', `+${qty} ${getUnitLabel(rcpUnitId)}`);
+      loadBatches();
+      reloadHistory();
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\'enregistrer la réception');
+    } finally {
+      setReceptionSaving(false);
+    }
+  };
+
+  // ── Réduction lot ──────────────────────────────────────────────────────
+  const openReduce = (batch: StockBatchResponse) => {
+    setReduceTarget(batch);
+    setReduceQty('1');
+    setReduceReason(
+      batch.daysUntilExpiry != null && batch.daysUntilExpiry < 0 ? 'EXPIRATION' : 'CASSE'
+    );
+    setReduceNotes('');
+  };
+
+  const confirmReduce = async () => {
+    if (!reduceTarget) return;
+    const qty = parseInt(reduceQty, 10);
+    if (!qty || qty <= 0 || qty > reduceTarget.quantityRemaining) {
+      Alert.alert('Erreur', `Quantité invalide (max ${reduceTarget.quantityRemaining})`);
+      return;
+    }
+    setReduceSaving(true);
+    try {
+      const updated = await stockService.reduceBatch(reduceTarget.id, {
+        quantity: qty, reason: reduceReason, notes: reduceNotes || null
+      });
+      // Sync unit.stock local (-qty)
+      setUnits(prev => prev.map(u =>
+        u.id === updated.productUnitId ? { ...u, stock: Math.max(0, u.stock - qty) } : u
+      ));
+      if (selectedUnit?.id === updated.productUnitId) {
+        setSelectedUnit(prev => prev ? { ...prev, stock: Math.max(0, prev.stock - qty) } : null);
+      }
+      // Replace ou retirer
+      if (updated.quantityRemaining > 0) {
+        setBatches(prev => prev.map(b => b.id === updated.id ? updated : b));
+      } else {
+        setBatches(prev => prev.filter(b => b.id !== updated.id));
+      }
+      setReduceTarget(null);
+      Alert.alert('✅ Lot ajusté', `-${qty} (${STOCK_REASON_LABELS[reduceReason]})`);
+      reloadHistory();
+    } catch {
+      Alert.alert('Erreur', 'Impossible de réduire le lot');
+    } finally {
+      setReduceSaving(false);
+    }
+  };
+
+  const fetchHistoryPage = async (page: number, reset: boolean) => {
+    setHistoryLoading(true);
+    try {
+      const resp = await stockService.getProductHistory(product.id, page, HISTORY_PAGE_SIZE);
+      // Enrichir avec le label de variante
+      const enriched = resp.content.map(mv => ({
+        ...mv,
+        unitLabel: units.find(u => u.id === mv.unitId)?.label ?? `#${mv.unitId}`
+      }));
+      setHistory(prev => reset ? enriched : [...prev, ...enriched]);
+      setHistoryLast(resp.last);
+      setHistoryTotal(resp.totalElements);
+    } catch {
+      if (reset) setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const loadUnits = async () => {
     setLoading(true);
@@ -80,6 +271,8 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
       setQuantity('1');
       setNotes('');
       Alert.alert('✅ Stock mis à jour', `${selectedUnit.label} : ${selectedUnit.stock} → ${newStock}`);
+      // Recharge l'historique depuis le serveur (mouvement persisté)
+      reloadHistory();
     } catch {
       Alert.alert('Erreur', 'Impossible de mettre à jour le stock');
     } finally {
@@ -123,6 +316,65 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* ── Lots actifs (DLC) ── */}
+      <View style={styles.divider} />
+      <View style={styles.batchHeader}>
+        <Text style={styles.sectionTitle}>📦 Lots actifs{batches.length > 0 ? ` (${batches.length})` : ''}</Text>
+        {can('stock:adjust') && (
+          <TouchableOpacity style={styles.receptionBtn} onPress={openReception}>
+            <Ionicons name="cube-outline" size={16} color="#fff" />
+            <Text style={styles.receptionBtnText}>Réceptionner</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {batchesLoading && <ActivityIndicator color="#2196F3" style={{ marginVertical: 10 }} />}
+
+      {!batchesLoading && batches.length === 0 && (
+        <View style={styles.noBatches}>
+          <Ionicons name="file-tray-outline" size={24} color="#bbb" />
+          <Text style={styles.noBatchesText}>Aucun lot actif</Text>
+        </View>
+      )}
+
+      {batches.map(b => {
+        const level = getExpiryLevel(b.daysUntilExpiry);
+        const levelColor = level === 'expired' ? '#b71c1c'
+          : level === 'urgent' ? '#e53935'
+          : level === 'soon' ? '#fb8c00'
+          : level === 'ok' ? '#2e7d32' : '#888';
+        return (
+          <View key={b.id} style={[styles.batchCard, { borderLeftColor: levelColor }]}>
+            <View style={{ flex: 1 }}>
+              <View style={styles.batchTopRow}>
+                <Text style={styles.batchQty}>
+                  {b.quantityRemaining}
+                  <Text style={styles.batchQtyInitial}> / {b.quantityInitial}</Text>
+                </Text>
+                <Text style={styles.batchUnit}>{getUnitLabel(b.productUnitId)}</Text>
+              </View>
+              <View style={styles.batchMeta}>
+                {b.expiryDate
+                  ? <Text style={[styles.batchBadge, { backgroundColor: levelColor + '22', color: levelColor }]}>
+                      {level === 'expired'
+                        ? `Périmé ${-(b.daysUntilExpiry ?? 0)}j`
+                        : `DLC ${b.expiryDate}${b.daysUntilExpiry != null ? ` (J-${b.daysUntilExpiry})` : ''}`}
+                    </Text>
+                  : <Text style={styles.batchBadgeNeutral}>Sans DLC</Text>
+                }
+                {b.supplierName ? <Text style={styles.batchMetaTxt}>• {b.supplierName}</Text> : null}
+                {b.unitCost != null ? <Text style={styles.batchMetaTxt}>• {b.unitCost} DH/u</Text> : null}
+              </View>
+            </View>
+            {can('stock:adjust') && (
+              <TouchableOpacity onPress={() => openReduce(b)} style={styles.batchReduceBtn}>
+                <Ionicons name="remove-circle-outline" size={22} color="#e53935" />
+              </TouchableOpacity>
+            )}
+          </View>
+        );
+      })}
 
       {can('stock:adjust') && (
         <>
@@ -185,8 +437,8 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
               <Text style={styles.label}>Raison</Text>
               <View style={styles.pickerBox}>
                 <Picker selectedValue={reason} onValueChange={v => setReason(v as StockAdjustmentReason)} style={styles.pickerSmall}>
-                  {Object.entries(STOCK_REASON_LABELS).map(([val, lbl]) => (
-                    <Picker.Item key={val} label={lbl} value={val} />
+                  {MANUAL_ADJUSTMENT_REASONS.map(val => (
+                    <Picker.Item key={val} label={STOCK_REASON_LABELS[val]} value={val} />
                   ))}
                 </Picker>
               </View>
@@ -247,11 +499,21 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
         </>
       )}
 
-      {/* ── Historique session ── */}
-      {can('stock:history') && history.length > 0 && (
+      {/* ── Historique persisté ── */}
+      {can('stock:history') && (
         <>
           <View style={styles.divider} />
-          <Text style={styles.sectionTitle}>📋 Mouvements de cette session</Text>
+          <Text style={styles.sectionTitle}>
+            📋 Historique des mouvements{historyTotal > 0 ? ` (${historyTotal})` : ''}
+          </Text>
+
+          {history.length === 0 && !historyLoading && (
+            <View style={styles.noHistory}>
+              <Ionicons name="file-tray-outline" size={28} color="#bbb" />
+              <Text style={styles.noHistoryText}>Aucun mouvement enregistré</Text>
+            </View>
+          )}
+
           {history.map(mv => (
             <View key={mv.id} style={styles.historyItem}>
               <View style={[styles.historyBadge, { backgroundColor: mv.type === 'ENTREE' ? '#e8f5e9' : '#ffebee' }]}>
@@ -262,14 +524,167 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
                 <Text style={styles.historySub}>
                   {mv.previousStock} → {mv.newStock} · {STOCK_REASON_LABELS[mv.reason]}
                 </Text>
+                <Text style={styles.historyDate}>
+                  {mv.date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                  {' '}
+                  {mv.date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                {mv.notes ? <Text style={styles.historyNotes} numberOfLines={2}>{mv.notes}</Text> : null}
               </View>
               <Text style={[styles.historyDelta, { color: mv.delta >= 0 ? '#2e7d32' : '#c62828' }]}>
                 {mv.delta >= 0 ? '+' : ''}{mv.delta}
               </Text>
             </View>
           ))}
+
+          {!historyLast && history.length > 0 && (
+            <TouchableOpacity
+              style={styles.loadMoreBtn}
+              onPress={loadMoreHistory}
+              disabled={historyLoading}
+            >
+              {historyLoading
+                ? <ActivityIndicator color="#2196F3" />
+                : <Text style={styles.loadMoreText}>Charger plus</Text>
+              }
+            </TouchableOpacity>
+          )}
+
+          {historyLoading && history.length === 0 && (
+            <ActivityIndicator color="#2196F3" style={{ marginTop: 16 }} />
+          )}
         </>
       )}
+
+      {/* ── Modal Réception ── */}
+      <Modal visible={receptionVisible} animationType="slide" transparent onRequestClose={() => setReceptionVisible(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !receptionSaving && setReceptionVisible(false)}>
+          <Pressable style={styles.modalSheet} onPress={e => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Réceptionner une marchandise</Text>
+              <TouchableOpacity onPress={() => !receptionSaving && setReceptionVisible(false)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 480 }}>
+              {units.length > 1 && (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Variante</Text>
+                  <View style={styles.pickerBox}>
+                    <Picker
+                      selectedValue={rcpUnitId?.toString() ?? ''}
+                      onValueChange={val => setRcpUnitId(val ? parseInt(val, 10) : null)}
+                      style={styles.picker}>
+                      <Picker.Item label="— Sélectionner —" value="" />
+                      {units.map(u => (
+                        <Picker.Item key={u.id} label={u.label} value={u.id.toString()} />
+                      ))}
+                    </Picker>
+                  </View>
+                </View>
+              )}
+              <View style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Quantité</Text>
+                  <TextInput style={styles.input} value={rcpQty} onChangeText={setRcpQty}
+                    keyboardType="number-pad" placeholder="1" placeholderTextColor="#bbb" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Prix d'achat (DH)</Text>
+                  <TextInput style={styles.input} value={rcpUnitCost} onChangeText={setRcpUnitCost}
+                    keyboardType="decimal-pad" placeholder="optionnel" placeholderTextColor="#bbb" />
+                </View>
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>DLC (AAAA-MM-JJ)</Text>
+                <TextInput style={styles.input} value={rcpExpiry} onChangeText={setRcpExpiry}
+                  placeholder="2026-12-31" placeholderTextColor="#bbb" autoCapitalize="none" />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Fournisseur</Text>
+                <TextInput style={styles.input} value={rcpSupplier} onChangeText={setRcpSupplier}
+                  placeholder="Nom du fournisseur" placeholderTextColor="#bbb" />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>N° Facture</Text>
+                <TextInput style={styles.input} value={rcpInvoice} onChangeText={setRcpInvoice}
+                  placeholder="optionnel" placeholderTextColor="#bbb" />
+              </View>
+              <View style={styles.field}>
+                <Text style={styles.label}>Notes</Text>
+                <TextInput style={[styles.input, styles.textarea]} value={rcpNotes} onChangeText={setRcpNotes}
+                  placeholder="Remarque…" placeholderTextColor="#bbb" multiline numberOfLines={2} />
+              </View>
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.applyBtn, receptionSaving && styles.btnDisabled]}
+              onPress={saveReception}
+              disabled={receptionSaving}>
+              {receptionSaving
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.applyBtnText}>✅ Enregistrer la réception</Text>
+              }
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Modal Réduction lot ── */}
+      <Modal visible={reduceTarget !== null} animationType="fade" transparent onRequestClose={() => setReduceTarget(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !reduceSaving && setReduceTarget(null)}>
+          <Pressable style={styles.modalSheet} onPress={e => e.stopPropagation()}>
+            {reduceTarget && (
+              <>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    Retirer du lot — {getUnitLabel(reduceTarget.productUnitId)}
+                  </Text>
+                  <TouchableOpacity onPress={() => !reduceSaving && setReduceTarget(null)}>
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.modalSubtitle}>
+                  Restant : {reduceTarget.quantityRemaining}
+                  {reduceTarget.expiryDate ? ` • DLC ${reduceTarget.expiryDate}` : ''}
+                </Text>
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Quantité</Text>
+                    <TextInput style={styles.input} value={reduceQty} onChangeText={setReduceQty}
+                      keyboardType="number-pad" placeholder="1" placeholderTextColor="#bbb" />
+                  </View>
+                  <View style={{ flex: 2 }}>
+                    <Text style={styles.label}>Raison</Text>
+                    <View style={styles.pickerBox}>
+                      <Picker selectedValue={reduceReason}
+                        onValueChange={v => setReduceReason(v as BatchReduceReason)}
+                        style={styles.pickerSmall}>
+                        {BATCH_REDUCE_REASONS.map(r => (
+                          <Picker.Item key={r} label={STOCK_REASON_LABELS[r]} value={r} />
+                        ))}
+                      </Picker>
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.field}>
+                  <Text style={styles.label}>Notes</Text>
+                  <TextInput style={[styles.input, styles.textarea]} value={reduceNotes} onChangeText={setReduceNotes}
+                    placeholder="Remarque…" placeholderTextColor="#bbb" multiline numberOfLines={2} />
+                </View>
+                <TouchableOpacity
+                  style={[styles.applyBtn, reduceSaving && styles.btnDisabled]}
+                  onPress={confirmReduce}
+                  disabled={reduceSaving}>
+                  {reduceSaving
+                    ? <ActivityIndicator color="#fff" />
+                    : <Text style={styles.applyBtnText}>Confirmer la sortie</Text>
+                  }
+                </TouchableOpacity>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 };
@@ -361,5 +776,80 @@ const styles = StyleSheet.create({
   },
   historyLabel: { fontSize: 14, fontWeight: '700', color: '#333' },
   historySub: { fontSize: 12, color: '#888', marginTop: 2 },
-  historyDelta: { fontSize: 16, fontWeight: '900' }
+  historyDate: { fontSize: 11, color: '#aaa', marginTop: 2 },
+  historyNotes: { fontSize: 12, color: '#666', fontStyle: 'italic', marginTop: 3 },
+  historyDelta: { fontSize: 16, fontWeight: '900' },
+
+  // ── Load more / empty ──
+  loadMoreBtn: {
+    marginTop: 8, paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: '#2196F3', alignItems: 'center'
+  },
+  loadMoreText: { color: '#2196F3', fontSize: 14, fontWeight: '600' },
+  noHistory: {
+    alignItems: 'center', paddingVertical: 24, gap: 6
+  },
+  noHistoryText: { fontSize: 13, color: '#999' },
+
+  // ── Sprint 3 : Lots (DLC) ──
+  batchHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 10
+  },
+  receptionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#2196F3', paddingVertical: 7, paddingHorizontal: 12,
+    borderRadius: 8
+  },
+  receptionBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+
+  noBatches: {
+    alignItems: 'center', paddingVertical: 16, gap: 4,
+    backgroundColor: '#f5f5f5', borderRadius: 8
+  },
+  noBatchesText: { fontSize: 13, color: '#999' },
+
+  batchCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderRadius: 10, padding: 12,
+    marginBottom: 8, borderWidth: 1, borderColor: '#e0e0e0',
+    borderLeftWidth: 4
+  },
+  batchTopRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  batchQty: { fontSize: 17, fontWeight: '800', color: '#333' },
+  batchQtyInitial: { fontSize: 12, fontWeight: '500', color: '#999' },
+  batchUnit: { fontSize: 13, color: '#666' },
+  batchMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  batchBadge: {
+    fontSize: 11, fontWeight: '700',
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    overflow: 'hidden'
+  },
+  batchBadgeNeutral: {
+    fontSize: 11, color: '#888',
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+    backgroundColor: '#f0f0f0', overflow: 'hidden'
+  },
+  batchMetaTxt: { fontSize: 11, color: '#888' },
+  batchReduceBtn: { padding: 6 },
+
+  // ── Modal générique ──
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center', padding: 20
+  },
+  modalSheet: {
+    width: '100%', maxWidth: 500,
+    backgroundColor: '#fff', borderRadius: 14, padding: 18,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10 },
+      android: { elevation: 6 }
+    })
+  },
+  modalHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: 12
+  },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: '#333', flex: 1, marginRight: 8 },
+  modalSubtitle: { fontSize: 13, color: '#777', marginBottom: 14 }
 });

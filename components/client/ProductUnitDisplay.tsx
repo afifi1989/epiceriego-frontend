@@ -15,16 +15,26 @@ import {
 } from 'react-native';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { Product, ProductUnit, UnitType } from '../../src/type';
-import { calculateUnitPrice, canOrder, getStockLevel } from '../../src/utils/unitCalculations';
+import { canOrder, getStockLevel } from '../../src/utils/unitCalculations';
+import type { ActivePromotionSummary } from '../../src/features/promotions/types';
+import { effectivePriceForUnit } from '../../src/features/promotions/utils';
 
 interface ProductUnitDisplayProps {
   product: Product;
   onAddToCart: (unitId: number, quantity: number, totalPrice: number, unit: ProductUnit) => void;
+  /**
+   * Promotion active résolue pour ce produit (ou pour une unité), côté parent.
+   * Sert de fallback quand le backend n'a pas encore écrit `prixBarre` sur
+   * l'unité (ex. promo créée mais snapshot pas encore appliqué). Si
+   * `unit.prixBarre` est présent, il prévaut.
+   */
+  promo?: ActivePromotionSummary | null;
 }
 
 export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
   product,
   onAddToCart,
+  promo = null,
 }) => {
   const { t } = useLanguage();
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(
@@ -35,11 +45,13 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
   // Sélectionner l'unité
   const selectedUnit = product.units?.find(u => u.id === selectedUnitId);
 
-  // Calculer le prix total
+  // Calculer le prix total — applique la promo résolue quand prixBarre n'a
+  // pas (encore) été écrit sur l'unité par le backend.
   const getTotalPrice = (): number => {
     if (!selectedUnit) return 0;
     const qty = parseFloat(quantity) || 1;
-    return calculateUnitPrice(selectedUnit, qty);
+    const effective = effectivePriceForUnit(selectedUnit, promo);
+    return +(effective.display * qty).toFixed(2);
   };
 
   // Vérifier si on peut commander
@@ -185,14 +197,19 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>{t('products.unitPrice')}:</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                {selectedUnit.prixBarre != null && selectedUnit.prixBarre > selectedUnit.prix && (
-                  <Text style={styles.detailPrixBarre}>{selectedUnit.prixBarre.toFixed(2)} DH</Text>
-                )}
-                <Text style={[styles.detailValue, selectedUnit.prixBarre != null && selectedUnit.prixBarre > selectedUnit.prix && styles.detailValuePromo]}>
-                  {selectedUnit.prix.toFixed(2)} DH
-                </Text>
-              </View>
+              {(() => {
+                const price = effectivePriceForUnit(selectedUnit, promo);
+                return (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {price.hasDiscount && price.original != null && (
+                      <Text style={styles.detailPrixBarre}>{price.original.toFixed(2)} DH</Text>
+                    )}
+                    <Text style={[styles.detailValue, price.hasDiscount && styles.detailValuePromo]}>
+                      {price.display.toFixed(2)} DH
+                    </Text>
+                  </View>
+                );
+              })()}
             </View>
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>{t('products.availableStock')}:</Text>
@@ -215,6 +232,10 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
             const isSelected = unit.id === selectedUnitId;
             const stockLevel = getStockLevel(unit.stock);
             const isInStock = unit.isAvailable && unit.stock > 0;
+            const price = effectivePriceForUnit(unit, promo);
+            const discountPct = price.hasDiscount && price.original != null
+              ? Math.round((1 - price.display / price.original) * 100)
+              : 0;
 
             return (
               <TouchableOpacity
@@ -246,11 +267,11 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                 </Text>
 
                 {/* Prix */}
-                {unit.prixBarre != null && unit.prixBarre > unit.prix && (
-                  <Text style={styles.unitPrixBarre}>{unit.prixBarre.toFixed(2)} DH</Text>
+                {price.hasDiscount && price.original != null && (
+                  <Text style={styles.unitPrixBarre}>{price.original.toFixed(2)} DH</Text>
                 )}
-                <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled, unit.prixBarre != null && unit.prixBarre > unit.prix && styles.unitPricePromo]}>
-                  {unit.prix.toFixed(2)} DH
+                <Text style={[styles.unitPrice, !isInStock && styles.unitPriceDisabled, price.hasDiscount && styles.unitPricePromo]}>
+                  {price.display.toFixed(2)} DH
                 </Text>
 
                 {/* Badge stock */}
@@ -265,10 +286,10 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                 )}
 
                 {/* Badge promo */}
-                {unit.prixBarre != null && unit.prixBarre > unit.prix && (
+                {price.hasDiscount && discountPct > 0 && (
                   <View style={styles.promoBadge}>
                     <Text style={styles.promoBadgeText}>
-                      -{Math.round((1 - unit.prix / unit.prixBarre) * 100)}%
+                      -{discountPct}%
                     </Text>
                   </View>
                 )}
@@ -526,18 +547,24 @@ const styles = StyleSheet.create({
 
   promoBadge: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: '#e53935',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    top: 6,
+    left: 6,
+    backgroundColor: '#E53935',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    shadowColor: '#E53935',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 3,
   },
 
   promoBadgeText: {
     color: '#fff',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '900',
+    letterSpacing: 0.3,
   },
 
   detailPrixBarre: {

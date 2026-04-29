@@ -11,7 +11,7 @@
  */
 
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,7 +26,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, categoryService } from '../../../../services/categoryService';
 import { epicerieService } from '../../../../services/epicerieService';
@@ -40,6 +39,7 @@ import {
 import { tagService } from '../../../../services/tagService';
 import { API_CONFIG, STORAGE_KEYS } from '../../../../constants/config';
 import { TranslationTabs } from '../../../../components/epicier/TranslationTabs';
+import { CategoryPickerModal } from '../../../../components/epicier/CategoryPickerModal';
 
 // ─────────────────────────────────────────────
 // Types
@@ -94,7 +94,15 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
   const [prix, setPrix]             = useState(product?.prix?.toString() ?? '');
   const [stock, setStock]           = useState(product?.stock?.toString() ?? '0');
   const [categoryId, setCategoryId] = useState(product?.categoryId?.toString() ?? '');
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [isAvailable, setIsAvailable] = useState(product?.isAvailable ?? true);
+
+  // Catégorie sélectionnée (dérivée de l'id) — utilisée pour le bouton déclencheur
+  const selectedCategory = useMemo(() => {
+    if (!categoryId) return null;
+    const idNum = parseInt(categoryId, 10);
+    return categories.find((c) => c.id === idNum) ?? null;
+  }, [categoryId, categories]);
   const [selectedImage, setSelectedImage] =
     useState<ImagePicker.ImagePickerAsset | null>(null);
   const [previewUri, setPreviewUri] =
@@ -292,6 +300,7 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
   // ── Rendu ────────────────────────────────────
 
   return (
+    <>
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -370,22 +379,32 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
           {loadingCats ? (
             <ActivityIndicator size="small" color="#2196F3" />
           ) : (
-            <View style={styles.pickerBox}>
-              <Picker
-                selectedValue={categoryId}
-                onValueChange={setCategoryId}
-                style={styles.picker}
-              >
-                <Picker.Item label="— Sélectionner une catégorie —" value="" />
-                {categories.map((cat) => (
-                  <Picker.Item
-                    key={cat.id}
-                    label={'\u00a0'.repeat((cat.level ?? 0) * 2) + cat.name}
-                    value={cat.id.toString()}
-                  />
-                ))}
-              </Picker>
-            </View>
+            <TouchableOpacity
+              style={styles.categoryTrigger}
+              onPress={() => setShowCategoryPicker(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.categoryTriggerLeft}>
+                <Text style={styles.categoryTriggerIcon}>📂</Text>
+                <View style={styles.categoryTriggerTextWrap}>
+                  {selectedCategory ? (
+                    <Text style={styles.categoryTriggerValue} numberOfLines={1}>
+                      {selectedCategory.name}
+                    </Text>
+                  ) : (
+                    <Text style={styles.categoryTriggerPlaceholder}>
+                      Sélectionner une catégorie
+                    </Text>
+                  )}
+                  {selectedCategory && selectedCategory.parentId != null && (
+                    <Text style={styles.categoryTriggerParent} numberOfLines={1}>
+                      {categories.find((c) => c.id === selectedCategory!.parentId)?.name}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <Text style={styles.categoryTriggerChevron}>›</Text>
+            </TouchableOpacity>
           )}
         </View>
 
@@ -451,6 +470,18 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
 
       </ScrollView>
     </KeyboardAvoidingView>
+
+    {/* Modal au niveau racine — en dehors du ScrollView pour éviter les
+        problèmes de propagation d'événements tactiles et le bug d'animation
+        React Native lorsqu'un Modal est nested dans un ScrollView. */}
+    <CategoryPickerModal
+      visible={showCategoryPicker}
+      categories={categories}
+      selectedId={selectedCategory?.id ?? null}
+      onSelect={(cat) => setCategoryId(cat.id.toString())}
+      onClose={() => setShowCategoryPicker(false)}
+    />
+    </>
   );
 };
 
@@ -496,11 +527,51 @@ const styles = StyleSheet.create({
     fontSize: 15, color: '#333',
   },
 
-  pickerBox: {
-    backgroundColor: '#fff', borderRadius: 10,
-    borderWidth: 1, borderColor: '#e0e0e0', overflow: 'hidden',
+  // ── Category trigger (remplace l'ancien Picker) ───────────
+  categoryTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 54,
   },
-  picker: { height: 50, color: '#333' },
+  categoryTriggerLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  categoryTriggerIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  categoryTriggerTextWrap: {
+    flex: 1,
+  },
+  categoryTriggerValue: {
+    fontSize: 15,
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+  categoryTriggerPlaceholder: {
+    fontSize: 15,
+    color: '#999',
+  },
+  categoryTriggerParent: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+  },
+  categoryTriggerChevron: {
+    fontSize: 24,
+    color: '#bbb',
+    marginLeft: 8,
+    fontWeight: '300',
+  },
 
   switchRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

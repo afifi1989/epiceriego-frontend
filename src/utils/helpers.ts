@@ -1,8 +1,17 @@
+import type { Currency } from '../type';
+import { formatCurrency } from './formatCurrency';
+
 /**
- * Formate un prix en DH
+ * Formate un prix avec la devise donnée. Sans devise, retombe sur "DH"
+ * pour la rétrocompatibilité avec le code existant qui n'a pas encore
+ * été migré vers `<PriceText>` ou `formatCurrency` directement.
+ *
+ * <p>Pour le code nouvellement écrit, préférer `<PriceText>` (composant)
+ * ou `formatCurrency` (chaîne pure) — ils prennent la devise de manière
+ * explicite, ce qui est plus lisible et empêche les oublis silencieux.</p>
  */
-export const formatPrice = (price: number): string => {
-  return `${price.toFixed(2)} DH`;
+export const formatPrice = (price: number, currency?: Currency | null): string => {
+  return formatCurrency(price, currency);
 };
 
 /**

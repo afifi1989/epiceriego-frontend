@@ -14,8 +14,10 @@ import {
 } from 'react-native';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { authService } from '../../src/services/authService';
+import { invoiceService } from '../../src/services/invoiceService';
 import { settingsService } from '../../src/services/settingsService';
 import type {
+  Invoice,
   NotificationSettings,
   UserPreferences,
 } from '../../src/type';
@@ -84,6 +86,8 @@ export default function SettingsScreen() {
     password: '',
     confirmation: '',
   });
+  const [checkingDebt, setCheckingDebt] = useState(false);
+  const [unpaidInvoices, setUnpaidInvoices] = useState<Invoice[]>([]);
 
   // Charger les settings au chargement
   useFocusEffect(
@@ -176,6 +180,50 @@ export default function SettingsScreen() {
     }
   };
 
+  // Vérifier les crédits en cours avant d'autoriser la suppression
+  const handleRequestDeleteAccount = async () => {
+    setCheckingDebt(true);
+    try {
+      const invoices = await invoiceService.getMyUnpaidInvoices();
+      setUnpaidInvoices(invoices);
+
+      if (invoices.length > 0) {
+        const totalDebt = invoices.reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
+        // Regrouper par epicerie
+        const byStore = new Map<string, number>();
+        for (const inv of invoices) {
+          const name = inv.epicerieName || `Epicerie #${inv.epicerieId}`;
+          byStore.set(name, (byStore.get(name) ?? 0) + (inv.amount ?? 0));
+        }
+        const storeLines = Array.from(byStore.entries())
+          .map(([name, amount]) => `  - ${name} : ${amount.toFixed(2)} DH`)
+          .join('\n');
+
+        Alert.alert(
+          'Suppression impossible',
+          `Vous avez ${invoices.length} facture${invoices.length > 1 ? 's' : ''} impayee${invoices.length > 1 ? 's' : ''} pour un total de ${totalDebt.toFixed(2)} DH :\n\n${storeLines}\n\nVeuillez regulariser votre situation aupres de ${byStore.size > 1 ? 'ces epiceries' : 'cette epicerie'} avant de supprimer votre compte.`,
+          [
+            { text: 'Voir mes factures', onPress: () => router.push('/(client)/factures-paiements' as any) },
+            { text: 'Fermer', style: 'cancel' },
+          ],
+        );
+        return;
+      }
+
+      // Pas de dette — ouvrir le modal de suppression
+      setDeleteForm({ password: '', confirmation: '' });
+      setShowDeleteAccountModal(true);
+    } catch (error) {
+      console.error('[Settings] Erreur verification dette:', error);
+      // En cas d'erreur reseau, on laisse quand meme acceder au modal
+      // (le backend refusera aussi si dette)
+      setDeleteForm({ password: '', confirmation: '' });
+      setShowDeleteAccountModal(true);
+    } finally {
+      setCheckingDebt(false);
+    }
+  };
+
   // Supprimer le compte
   const handleDeleteAccount = async () => {
     if (!deleteForm.password) {
@@ -265,6 +313,35 @@ export default function SettingsScreen() {
             disabled={isSaving}
           />
         </View>
+
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => router.push('/(client)/notification-preferences' as any)}
+        >
+          <View style={styles.settingLabel}>
+            <Text style={styles.settingText}>
+              {t('settings.notificationPreferences') || '⚙️ Préférences avancées'}
+            </Text>
+            <Text style={styles.settingDescription}>
+              {t('settings.notificationPreferencesDesc') ||
+                'Gérer chaque catégorie de notification (commandes, promos, fidélité…)'}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 18, color: '#999' }}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => router.push('/push-diagnostic' as any)}
+        >
+          <View style={styles.settingLabel}>
+            <Text style={styles.settingText}>🔧 Diagnostic Push</Text>
+            <Text style={styles.settingDescription}>
+              Vérifier permissions, token Expo et enregistrement backend
+            </Text>
+          </View>
+          <Text style={{ fontSize: 18, color: '#999' }}>›</Text>
+        </TouchableOpacity>
 
         <View style={styles.settingItem}>
           <View style={styles.settingLabel}>
@@ -381,9 +458,14 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={[styles.buttonItem, styles.dangerButton]}
-          onPress={() => setShowDeleteAccountModal(true)}
+          onPress={handleRequestDeleteAccount}
+          disabled={checkingDebt}
         >
-          <Text style={styles.dangerButtonText}>{t('settings.deleteAccount')}</Text>
+          {checkingDebt ? (
+            <ActivityIndicator size="small" color="#d32f2f" />
+          ) : (
+            <Text style={styles.dangerButtonText}>{t('settings.deleteAccount')}</Text>
+          )}
         </TouchableOpacity>
       </View>
 

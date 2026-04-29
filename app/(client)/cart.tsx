@@ -22,11 +22,16 @@ import { orderService } from '../../src/services/orderService';
 import { paymentService } from '../../src/services/paymentService';
 import { CardPaymentDetails, CartItem, DeliveryType, PaymentMethod, SavedPaymentMethod } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
+import { useCurrency } from '../../src/context/CurrencyContext';
 
 export default function CartScreen() {
   const router = useRouter();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
+  // Devise propagée par (epicerie)/[id].tsx — si le client a quitté
+  // l'écran de l'épicerie sans vider le contexte, on récupère encore
+  // la bonne devise. Sinon fallback "DH" via formatPrice.
+  const { currency } = useCurrency();
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [adresse, setAdresse] = useState('');
@@ -216,7 +221,7 @@ export default function CartScreen() {
       if (creditInfo.availableCredit <= 0) {
         Alert.alert(
           t('common.error'),
-          `${t('cart.insufficientCredit')}\n${t('cart.availableCredit')}: ${formatPrice(creditInfo.availableCredit)}`
+          `${t('cart.insufficientCredit')}\n${t('cart.availableCredit')}: ${formatPrice(creditInfo.availableCredit, currency)}`
         );
         return;
       }
@@ -362,7 +367,7 @@ export default function CartScreen() {
           {item.unitLabel && (
             <Text style={styles.itemUnit}>{item.unitLabel}</Text>
           )}
-          <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit || 0)}</Text>
+          <Text style={styles.itemPrice}>{formatPrice(item.pricePerUnit || 0, currency)}</Text>
           <Text style={styles.seeDetailsText}>👉 {t('products.seeMore')}</Text>
         </TouchableOpacity>
         <View style={styles.quantityControl}>
@@ -390,7 +395,7 @@ export default function CartScreen() {
           <Text style={styles.removeButtonText}>✕</Text>
         </TouchableOpacity>
         <Text style={styles.itemTotal}>
-          {formatPrice(item.totalPrice || 0)}
+          {formatPrice(item.totalPrice || 0, currency)}
         </Text>
       </View>
     );
@@ -863,7 +868,7 @@ export default function CartScreen() {
       <View style={styles.footer}>
         <View style={styles.totalSection}>
           <Text style={styles.totalLabel}>{t('cart.total')}</Text>
-          <Text style={styles.totalAmount}>{formatPrice(getTotal())}</Text>
+          <Text style={styles.totalAmount}>{formatPrice(getTotal(), currency)}</Text>
         </View>
         <TouchableOpacity
           style={[styles.orderButton, cart.length === 0 && styles.orderButtonDisabled]}
@@ -1079,7 +1084,7 @@ export default function CartScreen() {
                       {creditInfo.allowCredit ? (
                         <View>
                           <Text style={styles.creditInfoText}>
-                            {t('cart.availableCredit')}: {formatPrice(creditInfo.availableCredit)}
+                            {t('cart.availableCredit')}: {formatPrice(creditInfo.availableCredit, currency)}
                           </Text>
                           {creditInfo.availableCredit <= 0 && (
                             <Text style={styles.creditWarningText}>

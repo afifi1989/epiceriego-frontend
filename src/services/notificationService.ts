@@ -1,12 +1,15 @@
 import api from './api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { NotificationTypeValue } from './notifications';
 
 export interface Notification {
   id: number;
   userId: number;
   titre: string;
   message: string;
-  type: 'ORDER' | 'PROMOTION' | 'DELIVERY' | 'ALERT' | 'INFO' | 'INVITATION';
+  // String (not strict union) so unknown future types from backend don't cause type errors.
+  // Resolution is delegated to helpers in src/services/notifications/.
+  type: NotificationTypeValue | string;
   isRead: boolean;
   dateCreated: string;
   dateRead?: string;
@@ -15,7 +18,7 @@ export interface Notification {
     epicerieId?: number;
     clientId?: number;
     [key: string]: any;
-  };
+  } | string;
 }
 
 export interface NotificationResponse {

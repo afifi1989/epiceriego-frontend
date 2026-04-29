@@ -34,11 +34,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
+import { receiptPrinterService } from '../../src/services/receiptPrinterService';
 import { productService } from '../../src/services/productService';
+import { offlineService } from '../../src/services/offline';
 import { BarcodeProductScanner } from '../../src/components/shared/BarcodeProductScanner';
 import { CategoryPicker } from '../../src/components/epicier/CategoryPicker';
 import { CATEGORIES } from '../../src/constants/categories';
-import { ClientEpicerieRelation, Product, ProductUnit } from '../../src/type';
+import { ClientEpicerieRelation, Epicerie, Product, ProductUnit } from '../../src/type';
+import {
+  PosSessionResponse,
+  generateClientUuid
+} from '../../src/services/posSessionService';
+import { usePosSessionSync } from '../../src/hooks/usePosSessionSync';
+import { deviceIdService } from '../../src/services/deviceIdService';
+import { PosSessionPicker } from '../../src/components/epicier/PosSessionPicker';
 
 // ─── Types locaux ────────────────────────────────────────────────────────────
 
@@ -51,13 +60,71 @@ interface CartItem {
   quantite: number;
 }
 
-type PaymentMethod = 'CASH' | 'CARD' | 'CLIENT_ACCOUNT';
+type PaymentMethod = 'CASH' | 'CARD' | 'CLIENT_ACCOUNT' | 'MOBILE';
+
+/** Ligne de paiement (S3 — split payment). */
+interface PaymentLine {
+  method: PaymentMethod;
+  amount: number;
+  reference?: string;
+}
+
+/** Session POS indépendante — chaque onglet = une session */
+interface PosSession {
+  id: string;
+  /** UUID stable côté client — offline-first, utilisé pour l'idempotence serveur. */
+  clientUuid: string;
+  /** ID serveur — null tant que pas encore synchronisé. */
+  serverId?: number | null;
+  client: ClientEpicerieRelation | null;
+  cart: CartItem[];
+  paymentMethod: PaymentMethod;
+  /** S3 — si défini et non vide, le split remplace paymentMethod au checkout. */
+  paymentLines: PaymentLine[] | null;
+  notes: string;
+}
+
+const MAX_SESSIONS = 5;
+
+function createSession(): PosSession {
+  const clientUuid = generateClientUuid();
+  return {
+    id: clientUuid,
+    clientUuid,
+    serverId: null,
+    client: null,
+    cart: [],
+    paymentMethod: 'CASH',
+    paymentLines: null,
+    notes: '',
+  };
+}
+
+function hydrateFromServer(r: PosSessionResponse): PosSession {
+  let cart: CartItem[] = [];
+  try { cart = r.cartJson ? JSON.parse(r.cartJson) : []; } catch { cart = []; }
+  return {
+    id: r.clientUuid ?? String(r.id),
+    clientUuid: r.clientUuid ?? `pos-hydrate-${r.id}`,
+    serverId: r.id,
+    client: null, // reconstruit au prochain choix client (clientId est persisté serveur)
+    cart,
+    paymentMethod: 'CASH',
+    paymentLines: null,
+    notes: r.notes ?? '',
+  };
+}
 
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: string; color: string }[] = [
   { value: 'CASH',           label: 'Espèces',       icon: 'cash',           color: '#388E3C' },
   { value: 'CARD',           label: 'Carte',         icon: 'credit-card',    color: '#1976D2' },
   { value: 'CLIENT_ACCOUNT', label: 'Compte client', icon: 'account-credit', color: '#7B1FA2' },
+  { value: 'MOBILE',         label: 'Mobile',        icon: 'cellphone-text', color: '#FB8C00' },
 ];
+
+const PAYMENT_COLOR: Record<PaymentMethod, string> = {
+  CASH: '#388E3C', CARD: '#1976D2', CLIENT_ACCOUNT: '#7B1FA2', MOBILE: '#FB8C00'
+};
 
 const BLUE = '#2196F3';
 
@@ -70,10 +137,120 @@ export default function VenteDirecteScreen() {
   const [epicerieId, setEpicerieId]     = useState<number | null>(null);
   const [loadingInit, setLoadingInit]   = useState(true);
 
+  // ── Sessions POS multi-clients ──────────────────────────────────
+  const [sessions, setSessions]         = useState<PosSession[]>([createSession()]);
+  const [activeSessionIdx, setActiveSessionIdx] = useState(0);
+
+  // ── Device ID persistant (Axe POS / S6) ─────────────────────────
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  useEffect(() => {
+    deviceIdService.get().then(setDeviceId);
+  }, []);
+
+  // ── Sync serveur (Axe POS / S1+S6) ─────────────────────────────
+  // Additive : n'interfère pas avec la logique existante en mémoire.
+  // S6 : toutes les écritures passent par offlineService.writeOrQueue
+  const posSync = usePosSessionSync({
+    debounceMs: 800,
+    deviceId: deviceId ?? undefined,
+    computeTotal: (s: any) => (s.cart as CartItem[])
+      .reduce((sum, it) => sum + it.prix * it.quantite, 0),
+    computeItemCount: (s: any) => (s.cart as CartItem[]).length
+  });
+
+  // ── Picker multi-device (Axe POS / S6) ─────────────────────────
+  const [pickerSessions, setPickerSessions] = useState<PosSessionResponse[]>([]);
+  const [pickerVisible, setPickerVisible] = useState(false);
+
+  // Hydratation au mount (Axe POS / S6) — stratégie multi-device :
+  //   - 0 sessions ouvertes serveur → garder la session vierge par défaut
+  //   - 1 session ouverte → reprise automatique silencieuse
+  //   - 2+ sessions ouvertes → afficher le picker pour laisser le choix
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current || !deviceId) return;
+    hydratedRef.current = true;
+    posSync.hydrate().then(serverSessions => {
+      if (serverSessions.length === 0) return;
+      if (serverSessions.length === 1) {
+        setSessions([hydrateFromServer(serverSessions[0])]);
+        setActiveSessionIdx(0);
+      } else {
+        setPickerSessions(serverSessions);
+        setPickerVisible(true);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId]);
+
+  const handlePickerResume = useCallback((session: PosSessionResponse) => {
+    setSessions([hydrateFromServer(session)]);
+    setActiveSessionIdx(0);
+    setPickerVisible(false);
+  }, []);
+
+  const handlePickerNew = useCallback(() => {
+    setSessions([createSession()]);
+    setActiveSessionIdx(0);
+    setPickerVisible(false);
+  }, []);
+
+  const handlePickerAbandonAll = useCallback(() => {
+    pickerSessions.forEach(s => { posSync.abandonSession(s.id); });
+    setSessions([createSession()]);
+    setActiveSessionIdx(0);
+    setPickerVisible(false);
+  }, [pickerSessions, posSync]);
+
+  // Sync debouncée à chaque changement du panier de la session active.
+  useEffect(() => {
+    const session = sessions[activeSessionIdx];
+    if (!session) return;
+    // Skip sync tant que le panier est vide ET qu'on n'a pas de serverId :
+    // évite de créer des sessions fantômes sur le serveur au démarrage.
+    if (!session.serverId && session.cart.length === 0) return;
+
+    posSync.scheduleSync(session as any, (response) => {
+      // Mémorise le serverId renvoyé par le backend
+      if (!session.serverId && response.id) {
+        setSessions(prev => prev.map(s =>
+          s.clientUuid === session.clientUuid ? { ...s, serverId: response.id } : s
+        ));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions[activeSessionIdx]?.cart,
+      sessions[activeSessionIdx]?.client?.id,
+      sessions[activeSessionIdx]?.notes]);
+
+  // Raccourcis vers la session active
+  const activeSession = sessions[activeSessionIdx] ?? sessions[0];
+  const selectedClient = activeSession.client;
+  const cart           = activeSession.cart;
+  const paymentMethod  = activeSession.paymentMethod;
+  const notes          = activeSession.notes;
+
+  /** Met à jour un champ de la session active de manière immutable */
+  const updateSession = useCallback(<K extends keyof PosSession>(field: K, value: PosSession[K]) => {
+    setSessions(prev => prev.map((s, i) => i === activeSessionIdx ? { ...s, [field]: value } : s));
+  }, [activeSessionIdx]);
+
+  const setSelectedClient = useCallback((c: ClientEpicerieRelation | null) => updateSession('client', c), [updateSession]);
+  const setCart            = useCallback((updater: CartItem[] | ((prev: CartItem[]) => CartItem[])) => {
+    setSessions(prev => prev.map((s, i) => {
+      if (i !== activeSessionIdx) return s;
+      const newCart = typeof updater === 'function' ? updater(s.cart) : updater;
+      return { ...s, cart: newCart };
+    }));
+  }, [activeSessionIdx]);
+  const setPaymentMethod  = useCallback((m: PaymentMethod) => updateSession('paymentMethod', m), [updateSession]);
+  const setPaymentLines   = useCallback((lines: PaymentLine[] | null) => updateSession('paymentLines', lines), [updateSession]);
+  const setNotes          = useCallback((n: string) => updateSession('notes', n), [updateSession]);
+  const paymentLines      = activeSession.paymentLines;
+
   // Client
   const [clients, setClients]           = useState<ClientEpicerieRelation[]>([]);
   const [clientSearch, setClientSearch] = useState('');
-  const [selectedClient, setSelectedClient] = useState<ClientEpicerieRelation | null>(null);
   const [showClientModal, setShowClientModal] = useState(false);
 
   // Produits
@@ -81,11 +258,8 @@ export default function VenteDirecteScreen() {
   const [productSearch, setProductSearch] = useState('');
   const [loadingProducts, setLoadingProducts] = useState(false);
 
-  // Panier
-  const [cart, setCart]                 = useState<CartItem[]>([]);
+  // UI états
   const [showCart, setShowCart]         = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
-  const [notes, setNotes]               = useState('');
   const [submitting, setSubmitting]     = useState(false);
 
   // Sélection variante
@@ -106,24 +280,51 @@ export default function VenteDirecteScreen() {
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | undefined>(undefined);
   const [showCategoryPicker, setShowCategoryPicker]       = useState(false);
 
+  // ── Panier (totaux calculés) ──────────────────────────────────────────────
+  const cartTotal = useMemo(
+    () => cart.reduce((sum, item) => sum + item.prix * item.quantite, 0),
+    [cart]
+  );
+
+  const cartCount = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantite, 0),
+    [cart]
+  );
+
   const amountGivenNum = parseFloat(amountGiven.replace(',', '.')) || 0;
   const change         = amountGivenNum >= cartTotal ? +(amountGivenNum - cartTotal).toFixed(2) : 0;
   const isInsufficient = amountGivenNum > 0 && amountGivenNum < cartTotal;
 
-  // ── Init ─────────────────────────────────────────────────────────────────
+  // ── Init (avec cache offline) ─────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
-        const epicerie = await epicerieService.getMyEpicerie();
+        const epicerie = await offlineService.fetchWithCache<Epicerie>({
+          namespace: 'epicerie',
+          key: 'my-epicerie',
+          fetcher: () => epicerieService.getMyEpicerie(),
+        });
+        if (!epicerie) throw new Error('Aucune donnée disponible');
         setEpicerieId(epicerie.id);
+
         const [prods, cls] = await Promise.all([
-          productService.getProductsByEpicerie(epicerie.id),
-          clientManagementService.getEpicerieClients(epicerie.id, 0, 100),
+          offlineService.fetchWithCache<Product[]>({
+            namespace: 'products',
+            key: `epicerie_${epicerie.id}`,
+            fetcher: () => productService.getProductsByEpicerie(epicerie.id),
+          }),
+          offlineService.fetchWithCache<ClientEpicerieRelation[]>({
+            namespace: 'clients',
+            key: `epicerie_${epicerie.id}_clients`,
+            fetcher: () => clientManagementService.getEpicerieClients(epicerie.id, 0, 100),
+          }),
         ]);
-        setProducts(prods.filter(p => p.isAvailable !== false));
-        setClients(cls.filter(c => c.status === 'ACCEPTED'));
+        if (prods) setProducts(prods.filter(p => p.isAvailable !== false));
+        if (cls) setClients(cls.filter(c => c.status === 'ACCEPTED'));
       } catch (err: any) {
-        Alert.alert('Erreur', err.message || 'Chargement impossible');
+        if (offlineService.isOnline()) {
+          Alert.alert('Erreur', err.message || 'Chargement impossible');
+        }
       } finally {
         setLoadingInit(false);
       }
@@ -162,16 +363,6 @@ export default function VenteDirecteScreen() {
   };
 
   // ── Panier ───────────────────────────────────────────────────────────────
-
-  const cartTotal = useMemo(
-    () => cart.reduce((sum, item) => sum + item.prix * item.quantite, 0),
-    [cart]
-  );
-
-  const cartCount = useMemo(
-    () => cart.reduce((sum, item) => sum + item.quantite, 0),
-    [cart]
-  );
 
   const addToCart = useCallback((item: CartItem) => {
     setCart(prev => {
@@ -216,6 +407,39 @@ export default function VenteDirecteScreen() {
       // silently ignore refresh errors
     }
   }, [epicerieId]);
+
+  // ── Gestion des sessions POS ──────────────────────────────────────────────
+
+  const addSession = useCallback(() => {
+    if (sessions.length >= MAX_SESSIONS) {
+      Alert.alert('Limite atteinte', `Maximum ${MAX_SESSIONS} ventes simultanées.`);
+      return;
+    }
+    const newSession = createSession();
+    setSessions(prev => [...prev, newSession]);
+    setActiveSessionIdx(sessions.length);
+  }, [sessions.length]);
+
+  const closeSession = useCallback((index: number) => {
+    if (sessions.length <= 1) {
+      // Dernière session → juste la réinitialiser
+      setSessions([createSession()]);
+      setActiveSessionIdx(0);
+      return;
+    }
+    setSessions(prev => prev.filter((_, i) => i !== index));
+    setActiveSessionIdx(prev => {
+      if (index < prev) return prev - 1;
+      if (index === prev) return Math.max(0, prev - 1);
+      return prev;
+    });
+  }, [sessions.length]);
+
+  const switchSession = useCallback((index: number) => {
+    if (index >= 0 && index < sessions.length) {
+      setActiveSessionIdx(index);
+    }
+  }, [sessions.length]);
 
   // ── Sélection produit / variante ─────────────────────────────────────────
 
@@ -330,48 +554,114 @@ export default function VenteDirecteScreen() {
   const doSubmit = async () => {
     if (!selectedClient) return;
     setSubmitting(true);
+
+    // S3 — Split payment : si paymentLines défini et somme == total, on l'envoie.
+    const useSplit = paymentLines && paymentLines.length > 0;
+    if (useSplit) {
+      const sum = paymentLines!.reduce((s, l) => s + l.amount, 0);
+      if (Math.abs(sum - cartTotal) > 0.01) {
+        Alert.alert(
+          'Split payment invalide',
+          `Somme des moyens (${sum.toFixed(2)}) ≠ total (${cartTotal.toFixed(2)})`
+        );
+        return;
+      }
+    }
+
+    const salePayload: any = {
+      clientId: selectedClient.clientId,
+      items: cart.map(item => ({
+        productId: item.productId,
+        ...(item.unitId != null ? { unitId: item.unitId } : {}),
+        quantite: Math.ceil(item.quantite),
+        ...(item.quantite % 1 !== 0 ? { requestedQuantity: item.quantite } : {}),
+      })),
+      notes: notes.trim() || undefined,
+    };
+    if (useSplit) {
+      salePayload.payments = paymentLines!.map(l => ({
+        method: l.method,
+        amount: l.amount,
+        reference: l.reference || undefined
+      }));
+    } else {
+      salePayload.paymentMethod = paymentMethod;
+    }
+
     try {
-      const order = await orderService.createDirectSale({
-        clientId: selectedClient.clientId,
-        items: cart.map(item => ({
-          productId: item.productId,
-          ...(item.unitId != null ? { unitId: item.unitId } : {}),
-          quantite: Math.ceil(item.quantite),
-          ...(item.quantite % 1 !== 0 ? { requestedQuantity: item.quantite } : {}),
-        })),
-        paymentMethod,
-        notes: notes.trim() || undefined,
+      const result = await offlineService.writeOrQueue({
+        domain: 'orders',
+        method: 'POST',
+        endpoint: '/orders/direct-sale',
+        payload: salePayload,
+        invalidateCache: ['orders', 'products'],
+        description: `Vente directe ${selectedClient.clientNom} — ${cartTotal.toFixed(2)} DH`,
       });
 
       const clientNomSaved = selectedClient.clientNom;
       const totalSaved = cartTotal;
 
-      setCart([]);
-      setSelectedClient(null);
-      setNotes('');
+      // Marque la session POS comme CHECKED_OUT côté serveur (non bloquant).
+      if (result.online) {
+        const orderId = (result.data as any)?.id;
+        if (orderId && activeSession.serverId) {
+          posSync.markCheckedOut(activeSession.serverId, orderId);
+        }
+      }
+
+      // Réinitialiser la session active après vente réussie — nouveau
+      // clientUuid pour éviter de réutiliser l'ancien (CHECKED_OUT côté serveur).
+      setSessions(prev => prev.map((s, i) =>
+        i === activeSessionIdx ? createSession() : s
+      ));
       setShowCart(false);
       setShowConfirmModal(false);
       reloadProducts();
 
-      Alert.alert(
-        '✅ Vente enregistrée',
-        `Total : ${totalSaved.toFixed(2)} DH\nCommande créée pour ${clientNomSaved}`,
-        [
-          {
-            text: '📧 Envoyer reçu',
-            onPress: async () => {
-              try {
-                await orderService.sendReceiptByEmail(order.id);
-                Alert.alert('✅', 'Reçu envoyé par email');
-              } catch (e: any) {
-                Alert.alert('Erreur', e.message || 'Impossible d\'envoyer le reçu');
-              }
+      if (result.online) {
+        const order = result.data as any;
+
+        // Auto-print (silencieux si désactivé / échoue)
+        receiptPrinterService.printReceiptSilent(order.id);
+
+        Alert.alert(
+          '✅ Vente enregistrée',
+          `Total : ${totalSaved.toFixed(2)} DH\nCommande créée pour ${clientNomSaved}`,
+          [
+            {
+              text: '🖨️ Imprimer/Partager',
+              onPress: async () => {
+                try {
+                  await receiptPrinterService.printReceipt(order.id);
+                } catch (e: any) {
+                  Alert.alert('Erreur', e?.message ?? 'Impossible d\'imprimer');
+                }
+              },
             },
-          },
-          { text: 'Nouvelle vente' },
-          { text: 'Retour', onPress: () => router.back() },
-        ]
-      );
+            {
+              text: '📧 Email',
+              onPress: async () => {
+                try {
+                  await orderService.sendReceiptByEmail(order.id);
+                  Alert.alert('✅', 'Reçu envoyé par email');
+                } catch (e: any) {
+                  Alert.alert('Erreur', e.message || 'Impossible d\'envoyer le reçu');
+                }
+              },
+            },
+            { text: 'Nouvelle vente' },
+          ]
+        );
+      } else {
+        Alert.alert(
+          '📦 Vente enregistrée hors-ligne',
+          `${totalSaved.toFixed(2)} DH pour ${clientNomSaved}\nSera synchronisée au retour du réseau.`,
+          [
+            { text: 'Nouvelle vente' },
+            { text: 'Retour', onPress: () => router.back() },
+          ]
+        );
+      }
     } catch (err: any) {
       Alert.alert('Erreur', err.message || 'Impossible de créer la vente');
     } finally {
@@ -414,6 +704,48 @@ export default function VenteDirecteScreen() {
               </View>
             )}
           </TouchableOpacity>
+        </View>
+
+        {/* ── Onglets sessions multi-clients ── */}
+        <View style={styles.sessionBar}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sessionBarContent}>
+            {sessions.map((session, idx) => {
+              const isActive = idx === activeSessionIdx;
+              const label = session.client?.clientNom ?? `Vente ${idx + 1}`;
+              const itemCount = session.cart.reduce((s, c) => s + c.quantite, 0);
+              return (
+                <TouchableOpacity
+                  key={session.id}
+                  style={[styles.sessionTab, isActive && styles.sessionTabActive]}
+                  onPress={() => switchSession(idx)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.sessionTabText, isActive && styles.sessionTabTextActive]} numberOfLines={1}>
+                    {label}
+                  </Text>
+                  {itemCount > 0 && (
+                    <View style={[styles.sessionBadge, isActive && styles.sessionBadgeActive]}>
+                      <Text style={styles.sessionBadgeText}>{itemCount}</Text>
+                    </View>
+                  )}
+                  {sessions.length > 1 && (
+                    <TouchableOpacity
+                      onPress={() => closeSession(idx)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      style={styles.sessionCloseBtn}
+                    >
+                      <Ionicons name="close" size={12} color={isActive ? '#fff' : '#999'} />
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            {sessions.length < MAX_SESSIONS && (
+              <TouchableOpacity style={styles.sessionAddBtn} onPress={addSession} activeOpacity={0.7}>
+                <Ionicons name="add" size={20} color={BLUE} />
+              </TouchableOpacity>
+            )}
+          </ScrollView>
         </View>
 
         <ScrollView
@@ -890,31 +1222,136 @@ export default function VenteDirecteScreen() {
             </View>
 
             {/* Mode de paiement */}
-            <Text style={styles.sectionLabel}>💳 Mode de paiement</Text>
-            <View style={styles.paymentOptions}>
-              {PAYMENT_OPTIONS.map(opt => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[
-                    styles.paymentOption,
-                    paymentMethod === opt.value && { borderColor: opt.color, backgroundColor: opt.color + '18' }
-                  ]}
-                  onPress={() => setPaymentMethod(opt.value)}
-                >
-                  <MaterialCommunityIcons
-                    name={opt.icon as any}
-                    size={22}
-                    color={paymentMethod === opt.value ? opt.color : '#888'}
-                  />
-                  <Text style={[
-                    styles.paymentOptionLabel,
-                    paymentMethod === opt.value && { color: opt.color, fontWeight: '700' }
-                  ]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.sectionLabel}>💳 Mode de paiement</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  if (paymentLines) {
+                    setPaymentLines(null); // retour single
+                  } else {
+                    // Démarrer split avec 1 ligne = total en cash
+                    setPaymentLines([{ method: paymentMethod, amount: cartTotal }]);
+                  }
+                }}
+                style={{
+                  paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
+                  borderWidth: 1.5,
+                  borderColor: paymentLines ? '#e53935' : '#2196F3',
+                  backgroundColor: paymentLines ? '#ffebee' : '#e3f2fd'
+                }}
+              >
+                <Text style={{
+                  fontSize: 12, fontWeight: '800',
+                  color: paymentLines ? '#e53935' : '#2196F3'
+                }}>
+                  {paymentLines ? '✕ Split ON' : '⚡ Split'}
+                </Text>
+              </TouchableOpacity>
             </View>
+
+            {/* Mode single (rétro-compat) */}
+            {!paymentLines && (
+              <View style={styles.paymentOptions}>
+                {PAYMENT_OPTIONS.map(opt => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[
+                      styles.paymentOption,
+                      paymentMethod === opt.value && { borderColor: opt.color, backgroundColor: opt.color + '18' }
+                    ]}
+                    onPress={() => setPaymentMethod(opt.value)}
+                  >
+                    <MaterialCommunityIcons
+                      name={opt.icon as any}
+                      size={22}
+                      color={paymentMethod === opt.value ? opt.color : '#888'}
+                    />
+                    <Text style={[
+                      styles.paymentOptionLabel,
+                      paymentMethod === opt.value && { color: opt.color, fontWeight: '700' }
+                    ]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Mode split (S3) */}
+            {paymentLines && (() => {
+              const sum = paymentLines.reduce((s, l) => s + l.amount, 0);
+              const remaining = cartTotal - sum;
+              return (
+                <View style={{ gap: 8 }}>
+                  {paymentLines.map((line, idx) => (
+                    <View key={idx} style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                      {PAYMENT_OPTIONS.map(opt => (
+                        <TouchableOpacity
+                          key={opt.value}
+                          onPress={() => setPaymentLines(paymentLines.map((l, i) =>
+                            i === idx ? { ...l, method: opt.value } : l
+                          ))}
+                          style={{
+                            paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6,
+                            borderWidth: 1.5,
+                            borderColor: line.method === opt.value ? opt.color : '#e0e0e0',
+                            backgroundColor: line.method === opt.value ? opt.color + '18' : '#fff'
+                          }}
+                        >
+                          <MaterialCommunityIcons name={opt.icon as any} size={16}
+                            color={line.method === opt.value ? opt.color : '#888'} />
+                        </TouchableOpacity>
+                      ))}
+                      <TextInput
+                        value={String(line.amount)}
+                        onChangeText={(v) => {
+                          const parsed = parseFloat(v.replace(',', '.')) || 0;
+                          setPaymentLines(paymentLines.map((l, i) => i === idx ? { ...l, amount: parsed } : l));
+                        }}
+                        keyboardType="decimal-pad"
+                        style={{
+                          flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e0e0',
+                          borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8,
+                          textAlign: 'right', fontWeight: '700', fontSize: 15, color: '#333'
+                        }}
+                      />
+                      {paymentLines.length > 1 && (
+                        <TouchableOpacity onPress={() => setPaymentLines(paymentLines.filter((_, i) => i !== idx))}>
+                          <Ionicons name="close-circle" size={22} color="#e53935" />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
+                  <TouchableOpacity
+                    onPress={() => setPaymentLines([
+                      ...paymentLines,
+                      { method: 'CLIENT_ACCOUNT', amount: Math.max(0, remaining) }
+                    ])}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                      gap: 6, padding: 10, borderRadius: 8,
+                      borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#2196F3'
+                    }}
+                  >
+                    <Ionicons name="add-circle-outline" size={18} color="#2196F3" />
+                    <Text style={{ color: '#2196F3', fontWeight: '700' }}>Ajouter un moyen</Text>
+                  </TouchableOpacity>
+                  <View style={{
+                    flexDirection: 'row', justifyContent: 'space-between',
+                    padding: 10, borderRadius: 8,
+                    backgroundColor: Math.abs(remaining) < 0.01 ? '#e8f5e9' : '#fff3e0'
+                  }}>
+                    <Text style={{ fontWeight: '700', color: '#333' }}>Restant à affecter</Text>
+                    <Text style={{
+                      fontWeight: '800', fontSize: 16,
+                      color: Math.abs(remaining) < 0.01 ? '#2e7d32' : '#e65100'
+                    }}>
+                      {remaining.toFixed(2)} DH
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
 
             {/* Notes */}
             <Text style={[styles.sectionLabel, { marginTop: 16 }]}>📝 Notes (optionnel)</Text>
@@ -1082,6 +1519,17 @@ export default function VenteDirecteScreen() {
         </SafeAreaView>
       </Modal>
 
+      {/* ── Picker multi-device (Axe POS / S6) ─────────────────────── */}
+      <PosSessionPicker
+        visible={pickerVisible}
+        sessions={pickerSessions}
+        currentDeviceId={deviceId}
+        onResume={handlePickerResume}
+        onNew={handlePickerNew}
+        onAbandonAll={handlePickerAbandonAll}
+        onClose={() => setPickerVisible(false)}
+      />
+
     </SafeAreaView>
   );
 }
@@ -1091,6 +1539,75 @@ export default function VenteDirecteScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: BLUE },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f5f7fa' },
+
+  // Session tabs
+  sessionBar: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingVertical: 6,
+  },
+  sessionBarContent: {
+    paddingHorizontal: 10,
+    gap: 6,
+    alignItems: 'center',
+  },
+  sessionTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    maxWidth: 160,
+  },
+  sessionTabActive: {
+    backgroundColor: BLUE,
+    borderColor: BLUE,
+  },
+  sessionTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#555',
+    maxWidth: 90,
+  },
+  sessionTabTextActive: {
+    color: '#fff',
+  },
+  sessionBadge: {
+    backgroundColor: '#999',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  sessionBadgeActive: {
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  sessionBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  sessionCloseBtn: {
+    padding: 2,
+    marginLeft: 2,
+  },
+  sessionAddBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1.5,
+    borderColor: BLUE,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // Header
   header: {

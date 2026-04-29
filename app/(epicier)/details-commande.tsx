@@ -14,18 +14,58 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/constants/config';
-import { orderService } from '../../src/services/orderService';
+import { orderService, OrderAuditLog } from '../../src/services/orderService';
 import {
   epicierLivreurService,
   AssignedLivreur,
 } from '../../src/services/epicierLivreurService';
 import { Order } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
+import { useCurrency } from '../../src/context/CurrencyContext';
 import { OrderLivreurAssignmentSection } from '../../src/components/epicier/OrderLivreurAssignmentSection';
 import { LivreurAssignmentModal } from '../../src/components/epicier/LivreurAssignmentModal';
 
+function getAuditLabel(action: string): string {
+  const labels: Record<string, string> = {
+    ORDER_CREATED: 'Commande créée',
+    STATUS_CHANGED: 'Statut modifié',
+    ORDER_CANCELLED: 'Commande annulée',
+    PRODUCT_SCANNED: 'Produit scanné',
+    ITEM_QUANTITY_UPDATED: 'Quantité modifiée',
+    ITEM_MARKED_UNAVAILABLE: 'Article indisponible',
+    ITEM_MARKED_COMPLETE: 'Article préparé',
+    LIVREUR_ASSIGNED: 'Livreur assigné',
+    DELIVERY_STARTED: 'Livraison démarrée',
+    DELIVERY_COMPLETED: 'Livraison terminée',
+    PICKUP_COMPLETED: 'Retrait effectué',
+    QR_VALIDATED: 'QR code validé',
+    PAYMENT_RECORDED: 'Paiement enregistré',
+    INVOICE_CREATED: 'Facture créée',
+    DIRECT_SALE_CREATED: 'Vente directe',
+    DELIVERY_INFO_UPDATED: 'Adresse modifiée',
+  };
+  return labels[action] ?? action;
+}
+
+function getAuditColor(action: string): string {
+  const colors: Record<string, string> = {
+    ORDER_CREATED: '#2196F3',
+    STATUS_CHANGED: '#FF9800',
+    ORDER_CANCELLED: '#F44336',
+    PRODUCT_SCANNED: '#9C27B0',
+    LIVREUR_ASSIGNED: '#00BCD4',
+    DELIVERY_STARTED: '#FF9800',
+    DELIVERY_COMPLETED: '#4CAF50',
+    PICKUP_COMPLETED: '#4CAF50',
+    QR_VALIDATED: '#4CAF50',
+    DIRECT_SALE_CREATED: '#2196F3',
+  };
+  return colors[action] ?? '#757575';
+}
+
 export default function DetailsCommandeScreen() {
   const router = useRouter();
+  const { currency: epicerieCurrency } = useCurrency();
   const { orderId } = useLocalSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,6 +75,8 @@ export default function DetailsCommandeScreen() {
   const [showLivreurModal, setShowLivreurModal] = useState(false);
   const [assigningLivreur, setAssigningLivreur] = useState(false);
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
+  const [auditHistory, setAuditHistory] = useState<OrderAuditLog[]>([]);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -49,8 +91,12 @@ export default function DetailsCommandeScreen() {
       }
 
       // Charger les détails de la commande
-      const data = await orderService.getOrderById(parseInt(orderId as string));
+      const id = parseInt(orderId as string);
+      const data = await orderService.getOrderById(id);
       setOrder(data);
+
+      // Charger l'historique d'audit
+      orderService.getOrderHistory(id).then(setAuditHistory).catch(() => {});
 
       // Charger tous les livreurs (en ligne et hors ligne) — les hors ligne sont désactivés dans la modal
       const livreurs = await epicierLivreurService.getAllLivreurs();
@@ -280,7 +326,7 @@ export default function DetailsCommandeScreen() {
                   <Text style={styles.itemName}>
                     {item.productNom}
                   </Text>
-                  <Text style={styles.itemPrice}>{formatPrice(item.total)}</Text>
+                  <Text style={styles.itemPrice}>{formatPrice(item.total, order.currency || epicerieCurrency)}</Text>
                 </View>
                 <View style={styles.itemDetails}>
                   <Text style={styles.itemDetail}>
@@ -288,7 +334,7 @@ export default function DetailsCommandeScreen() {
                     {item.unitLabel ? ` ${item.unitLabel}` : ''}
                   </Text>
                   <Text style={styles.itemDetail}>
-                    Prix unitaire: {formatPrice(item.prixUnitaire)}
+                    Prix unitaire: {formatPrice(item.prixUnitaire, order.currency || epicerieCurrency)}
                   </Text>
                 </View>
               </View>
@@ -301,11 +347,11 @@ export default function DetailsCommandeScreen() {
           <View style={styles.summaryBox}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Sous-total:</Text>
-              <Text style={styles.summaryValue}>{formatPrice(order.total)}</Text>
+              <Text style={styles.summaryValue}>{formatPrice(order.total, order.currency || epicerieCurrency)}</Text>
             </View>
             <View style={[styles.summaryRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total:</Text>
-              <Text style={styles.totalValue}>{formatPrice(order.total)}</Text>
+              <Text style={styles.totalValue}>{formatPrice(order.total, order.currency || epicerieCurrency)}</Text>
             </View>
           </View>
         </View>
@@ -371,6 +417,86 @@ export default function DetailsCommandeScreen() {
             </View>
           </View>
         </View>
+
+        {/* Historique */}
+        {auditHistory.length > 0 && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.historyHeader}
+              onPress={() => setHistoryExpanded(!historyExpanded)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.sectionTitle}>📜 Historique ({auditHistory.length})</Text>
+              <MaterialIcons
+                name={historyExpanded ? 'expand-less' : 'expand-more'}
+                size={24}
+                color="#666"
+              />
+            </TouchableOpacity>
+
+            {historyExpanded && (
+              <View style={styles.timeline}>
+                {auditHistory.map((entry, index) => (
+                  <View key={entry.id} style={styles.timelineItem}>
+                    {/* Ligne verticale */}
+                    <View style={styles.timelineLine}>
+                      <View style={[
+                        styles.timelineDot,
+                        { backgroundColor: getAuditColor(entry.action) },
+                      ]} />
+                      {index < auditHistory.length - 1 && (
+                        <View style={styles.timelineConnector} />
+                      )}
+                    </View>
+
+                    {/* Contenu */}
+                    <View style={styles.timelineContent}>
+                      <Text style={styles.timelineAction}>
+                        {getAuditLabel(entry.action)}
+                      </Text>
+                      {entry.oldStatus && entry.newStatus && (
+                        <View style={styles.timelineStatusRow}>
+                          <View style={[styles.timelineStatusBadge, { backgroundColor: '#ffebee' }]}>
+                            <Text style={[styles.timelineStatusText, { color: '#c62828' }]}>
+                              {getStatusLabel(entry.oldStatus)}
+                            </Text>
+                          </View>
+                          <MaterialIcons name="arrow-forward" size={14} color="#999" />
+                          <View style={[styles.timelineStatusBadge, { backgroundColor: '#e8f5e9' }]}>
+                            <Text style={[styles.timelineStatusText, { color: '#2e7d32' }]}>
+                              {getStatusLabel(entry.newStatus)}
+                            </Text>
+                          </View>
+                        </View>
+                      )}
+                      <View style={styles.timelineMetaRow}>
+                        <MaterialIcons name="person-outline" size={13} color="#999" />
+                        <Text style={styles.timelineMeta}>
+                          {entry.actorName}
+                          {entry.actorRole && entry.actorRole !== 'SYSTEM'
+                            ? ` (${entry.actorRole.toLowerCase()})`
+                            : ''}
+                        </Text>
+                      </View>
+                      <View style={styles.timelineMetaRow}>
+                        <MaterialIcons name="access-time" size={13} color="#999" />
+                        <Text style={styles.timelineMeta}>
+                          {new Date(entry.createdAt).toLocaleString('fr-FR', {
+                            day: '2-digit', month: '2-digit', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                        </Text>
+                      </View>
+                      {entry.details && (
+                        <Text style={styles.timelineDetails}>{entry.details}</Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Boutons d'action */}
@@ -669,5 +795,77 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     fontSize: 14,
+  },
+
+  // ── Historique / Timeline ────────────────────────────────
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  timeline: {
+    paddingTop: 4,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    minHeight: 70,
+  },
+  timelineLine: {
+    width: 24,
+    alignItems: 'center',
+  },
+  timelineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  timelineConnector: {
+    width: 2,
+    flex: 1,
+    backgroundColor: '#e0e0e0',
+    marginTop: 4,
+  },
+  timelineContent: {
+    flex: 1,
+    paddingLeft: 10,
+    paddingBottom: 18,
+  },
+  timelineAction: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 4,
+  },
+  timelineStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  timelineStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  timelineStatusText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  timelineMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  timelineMeta: {
+    fontSize: 12,
+    color: '#999',
+  },
+  timelineDetails: {
+    fontSize: 11,
+    color: '#aaa',
+    fontStyle: 'italic',
+    marginTop: 4,
   },
 });

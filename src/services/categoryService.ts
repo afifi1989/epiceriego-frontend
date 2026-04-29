@@ -1,4 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
+import { STORAGE_KEYS } from '../constants/config';
+
+/** Résout la langue à utiliser pour les appels API (même logique que api.ts) :
+ *  l'épicier est toujours en français, les autres rôles utilisent la langue choisie. */
+async function resolveApiLanguage(): Promise<string> {
+  const [lang, role] = await Promise.all([
+    AsyncStorage.getItem('app_language'),
+    AsyncStorage.getItem(STORAGE_KEYS.ROLE),
+  ]);
+  return role === 'EPICIER' ? 'fr' : (lang ?? 'fr');
+}
 
 /**
  * Interface Category - Structure hiérarchique
@@ -39,9 +51,11 @@ export interface SubCategory extends Category {
   categoryId?: number; // Mappé sur parentId
 }
 
-// Cache mémoire pour les catégories par épicerie (TTL : 10 minutes — données rarement modifiées)
+// Cache mémoire pour les catégories par épicerie (TTL : 10 minutes — données rarement modifiées).
+// Clé = `${epicerieId}-${lang}` : isole les caches par langue pour que l'i18n reste cohérente
+// quand le client change de langue.
 const CATEGORIES_CACHE_TTL = 10 * 60 * 1000;
-const categoriesCache = new Map<number, { data: Category[]; ts: number }>();
+const categoriesCache = new Map<string, { data: Category[]; ts: number }>();
 
 export const categoryService = {
   /**
@@ -98,16 +112,26 @@ export const categoryService = {
    */
   getCategoriesByEpicerie: async (epicerieId: number, forceRefresh = false): Promise<Category[]> => {
     try {
-      const cached = categoriesCache.get(epicerieId);
+      const lang = await resolveApiLanguage();
+      const cacheKey = `${epicerieId}-${lang}`;
+      const cached = categoriesCache.get(cacheKey);
       if (!forceRefresh && cached && Date.now() - cached.ts < CATEGORIES_CACHE_TTL) {
         return cached.data;
       }
       const response = await api.get<Category[]>(`/categories/epicerie/${epicerieId}`);
-      categoriesCache.set(epicerieId, { data: response.data, ts: Date.now() });
+      categoriesCache.set(cacheKey, { data: response.data, ts: Date.now() });
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors du chargement des catégories';
     }
+  },
+
+  /**
+   * Vide le cache mémoire des catégories.
+   * À appeler après un changement de langue ou une création/modification de catégorie.
+   */
+  invalidateCache: (): void => {
+    categoriesCache.clear();
   },
 
   /**

@@ -14,54 +14,46 @@ function ClientTabsContent() {
   const router = useRouter();
   const { t } = useLanguage();
 
-  // ✅ Initialiser les push notifications pour les clients authentifiés
   useEffect(() => {
-    console.log('[ClientLayout] 🎯 ClientLayout component mounted - Initializing notifications');
+    console.log('[ClientLayout] 🎯 Mount — initializing notifications');
+
+    let isMounted = true;
+    let unsubscribe: (() => void) | null = null;
 
     const setupNotifications = async () => {
       try {
-        // Petit délai pour s'assurer que le composant est complètement monté
         await new Promise(resolve => setTimeout(resolve, 500));
+        if (!isMounted) return;
 
-        console.log('[ClientLayout] 1️⃣ Setting foreground handler');
         await pushNotificationService.setForegroundNotificationHandler();
 
-        console.log('[ClientLayout] 2️⃣ Setup notification categories');
-        await pushNotificationService.setupNotificationCategories();
-
-        console.log('[ClientLayout] 3️⃣ Register for push notifications');
         const token = await pushNotificationService.registerForPushNotifications();
-        console.log('[ClientLayout] Token received:', token);
 
         if (token) {
-          console.log('[ClientLayout] 4️⃣ Send token to server');
-          const success = await pushNotificationService.sendTokenToServer(token);
-          console.log('[ClientLayout] Send result:', success);
-
-          if (!success) {
-            console.log('[ClientLayout] ⚠️ Token saved locally, will retry later');
-          }
-
-          console.log('[ClientLayout] 5️⃣ Retry pending tokens');
+          await pushNotificationService.sendTokenToServer(token);
           await pushNotificationService.retryPendingToken();
-        } else {
-          console.error('[ClientLayout] ❌ No token received!');
         }
 
-        console.log('[ClientLayout] 6️⃣ Setup notification handlers');
-        pushNotificationService.setupNotificationHandlers(router);
+        if (!isMounted) return;
 
-        console.log('[ClientLayout] ✅ All notification setup complete');
+        unsubscribe = pushNotificationService.setupNotificationHandlers(router);
+        await pushNotificationService.handleColdStartResponse(router);
+
+        console.log('[ClientLayout] ✅ Notification setup complete');
       } catch (error) {
         console.error('[ClientLayout] ❌ Error during notification setup:', error);
-        if (error instanceof Error) {
-          console.error('[ClientLayout] Error message:', error.message);
-          console.error('[ClientLayout] Stack:', error.stack);
-        }
       }
     };
 
     setupNotifications();
+
+    return () => {
+      isMounted = false;
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+    };
   }, [router]);
 
   return (
@@ -195,10 +187,37 @@ function ClientTabsContent() {
       />
 
       <Tabs.Screen
+        name="notification-preferences"
+        options={{
+          href: null,
+          headerTitle: t('client.headers.notificationPreferences') || 'Préférences notifications',
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+
+      <Tabs.Screen
         name="(commandes)"
         options={{
           href: null,
           headerTitle: t('client.headers.orders') || 'Mes Commandes',
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+
+      <Tabs.Screen
+        name="fidelite"
+        options={{
+          href: null,
+          headerTitle: t('loyalty.title'),
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+
+      <Tabs.Screen
+        name="fidelite-detail"
+        options={{
+          href: null,
+          headerTitle: t('loyalty.title'),
           headerRight: () => <NotificationBadge />,
         }}
       />

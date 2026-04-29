@@ -139,21 +139,21 @@ export default function ClientsScreen() {
   );
 
   /**
-   * Navigate to client details
+   * Navigate to carnet digital (remplace l'ancien détail client)
    */
   const handleClientPress = (clientId: number) => {
     router.push({
-      pathname: '/(epicier)/clients/[id]',
+      pathname: '/(epicier)/carnet-client',
       params: { id: clientId.toString() },
     });
   };
 
   /**
-   * Navigate to edit credit screen
+   * Navigate to carnet digital (crédit accessible via le carnet)
    */
   const handleEditCredit = (clientId: number) => {
     router.push({
-      pathname: '/(epicier)/clients/credit/[id]',
+      pathname: '/(epicier)/carnet-client',
       params: { id: clientId.toString() },
     });
   };
@@ -224,7 +224,14 @@ export default function ClientsScreen() {
           style={styles.inviteButton}
           onPress={() => router.push('/(epicier)/inviter-clients')}
         >
-          <Text style={styles.inviteButtonText}>+ Inviter un client</Text>
+          <Text style={styles.inviteButtonText}>+ Inviter</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.virtualButton}
+          onPress={() => router.push('/(epicier)/clients/nouveau-virtuel' as any)}
+        >
+          <Text style={styles.virtualButtonText}>📝 Carnet</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -353,6 +360,20 @@ const styles = StyleSheet.create({
   },
   inviteButtonText: {
     color: '#fff',
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+  },
+  virtualButton: {
+    flex: 1,
+    backgroundColor: '#fff3e0',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ff9800',
+  },
+  virtualButtonText: {
+    color: '#e65100',
     fontSize: FontSizes.sm,
     fontWeight: '600',
   },
