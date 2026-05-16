@@ -18,11 +18,13 @@ import {
 } from 'react-native';
 import { unitService } from '../../../../services/unitService';
 import api from '../../../../services/api';
-import { Product, ProductBarcode, ProductUnit } from '../../../../type';
+import { LoginResponse, Product, ProductBarcode, ProductUnit } from '../../../../type';
 import { usePermissions } from '../../../../hooks/usePermissions';
 
 interface BarcodesTabProps {
   product: Product;
+  /** LoginResponse chargé par le parent (cf. VariantsTab pour le contexte). */
+  user: LoginResponse | null;
 }
 
 function detectFormat(barcode: string): string {
@@ -34,8 +36,8 @@ function detectFormat(barcode: string): string {
   return 'CODE128';
 }
 
-export const BarcodesTab: React.FC<BarcodesTabProps> = ({ product }) => {
-  const { can } = usePermissions();
+export const BarcodesTab: React.FC<BarcodesTabProps> = ({ product, user }) => {
+  const { can } = usePermissions(user);
   const [units, setUnits] = useState<ProductUnit[]>([]);
   const [selectedUnit, setSelectedUnit] = useState<ProductUnit | null>(null);
   // Liste COMPLÈTE des codes-barres du produit (toutes variantes confondues).

@@ -38,9 +38,19 @@ import { receiptPrinterService } from '../../src/services/receiptPrinterService'
 import { productService } from '../../src/services/productService';
 import { offlineService } from '../../src/services/offline';
 import { BarcodeProductScanner } from '../../src/components/shared/BarcodeProductScanner';
+import PromoCodeInput from '../../src/components/client/PromoCodeInput';
 import { CategoryPicker } from '../../src/components/epicier/CategoryPicker';
 import { CATEGORIES } from '../../src/constants/categories';
 import { ClientEpicerieRelation, Epicerie, Product, ProductUnit } from '../../src/type';
+import { ClientQrScanButton } from '../../src/components/epicier/ClientQrScanButton';
+import { LoyaltyCardScanResult } from '../../src/services/loyaltyCardService';
+import { useLanguage } from '../../src/context/LanguageContext';
+import { AppliedPromoCode, extractPromoRejection } from '../../src/services/promoCodeService';
+import { synonymsService } from '../../src/services/synonymsService';
+import { expandAndFilter, SynonymExpansionMap } from '../../src/utils/synonymExpansion';
+
+/** Sale flow: anonymous walk-in customer (default) vs picked-from-list. */
+type ClientMode = 'walkIn' | 'registered';
 import {
   PosSessionResponse,
   generateClientUuid
@@ -76,12 +86,22 @@ interface PosSession {
   clientUuid: string;
   /** ID serveur — null tant que pas encore synchronisé. */
   serverId?: number | null;
+  /**
+   * Mode client de la vente — par-session : ouvrir un onglet "walk-in" ET
+   * un onglet "registered" en parallele doit etre possible sans contamination.
+   */
+  clientMode: ClientMode;
   client: ClientEpicerieRelation | null;
   cart: CartItem[];
   paymentMethod: PaymentMethod;
   /** S3 — si défini et non vide, le split remplace paymentMethod au checkout. */
   paymentLines: PaymentLine[] | null;
   notes: string;
+  /** Walk-in receipt routing — par-session pour ne pas fuiter entre ventes. */
+  receiptEmail: string;
+  receiptPhone: string;
+  /** V95 — Code promo applique a cette vente (canal POS), null si aucun. */
+  appliedPromo: AppliedPromoCode | null;
 }
 
 const MAX_SESSIONS = 5;
@@ -92,11 +112,15 @@ function createSession(): PosSession {
     id: clientUuid,
     clientUuid,
     serverId: null,
+    clientMode: 'walkIn',
     client: null,
     cart: [],
     paymentMethod: 'CASH',
     paymentLines: null,
     notes: '',
+    receiptEmail: '',
+    receiptPhone: '',
+    appliedPromo: null,
   };
 }
 
@@ -107,11 +131,15 @@ function hydrateFromServer(r: PosSessionResponse): PosSession {
     id: r.clientUuid ?? String(r.id),
     clientUuid: r.clientUuid ?? `pos-hydrate-${r.id}`,
     serverId: r.id,
+    clientMode: 'walkIn',
     client: null, // reconstruit au prochain choix client (clientId est persisté serveur)
     cart,
     paymentMethod: 'CASH',
     paymentLines: null,
     notes: r.notes ?? '',
+    receiptEmail: '',
+    receiptPhone: '',
+    appliedPromo: null,
   };
 }
 
@@ -138,8 +166,24 @@ export default function VenteDirecteScreen() {
   const [loadingInit, setLoadingInit]   = useState(true);
 
   // ── Sessions POS multi-clients ──────────────────────────────────
+  // Tout l'etat lie a la vente courante (client + cart + paiement + code
+  // promo + receipt routing) vit DANS la session pour permettre des ventes
+  // simultanees independantes (multi-onglets).
   const [sessions, setSessions]         = useState<PosSession[]>([createSession()]);
   const [activeSessionIdx, setActiveSessionIdx] = useState(0);
+
+  // Set des IDs produit dont l'image a echoue (404/timeout/url cassee).
+  // Permet de basculer vers le placeholder texte au premier echec sans
+  // retenter — evite que RN spam le serveur d'images en boucle.
+  const [imageErroredIds, setImageErroredIds] = useState<Set<number>>(new Set());
+  const markImageErrored = useCallback((productId: number) => {
+    setImageErroredIds(prev => {
+      if (prev.has(productId)) return prev;
+      const next = new Set(prev);
+      next.add(productId);
+      return next;
+    });
+  }, []);
 
   // ── Device ID persistant (Axe POS / S6) ─────────────────────────
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -223,12 +267,17 @@ export default function VenteDirecteScreen() {
       sessions[activeSessionIdx]?.client?.id,
       sessions[activeSessionIdx]?.notes]);
 
-  // Raccourcis vers la session active
+  // Raccourcis vers la session active — tout l'etat lie a la vente courante
+  // est extrait depuis activeSession pour isoler les onglets simultanes.
   const activeSession = sessions[activeSessionIdx] ?? sessions[0];
   const selectedClient = activeSession.client;
   const cart           = activeSession.cart;
   const paymentMethod  = activeSession.paymentMethod;
   const notes          = activeSession.notes;
+  const clientMode     = activeSession.clientMode;
+  const receiptEmail   = activeSession.receiptEmail;
+  const receiptPhone   = activeSession.receiptPhone;
+  const appliedPromo   = activeSession.appliedPromo;
 
   /** Met à jour un champ de la session active de manière immutable */
   const updateSession = useCallback(<K extends keyof PosSession>(field: K, value: PosSession[K]) => {
@@ -246,9 +295,25 @@ export default function VenteDirecteScreen() {
   const setPaymentMethod  = useCallback((m: PaymentMethod) => updateSession('paymentMethod', m), [updateSession]);
   const setPaymentLines   = useCallback((lines: PaymentLine[] | null) => updateSession('paymentLines', lines), [updateSession]);
   const setNotes          = useCallback((n: string) => updateSession('notes', n), [updateSession]);
+  const setClientMode     = useCallback((m: ClientMode) => updateSession('clientMode', m), [updateSession]);
+  const setReceiptEmail   = useCallback((s: string) => updateSession('receiptEmail', s), [updateSession]);
+  const setReceiptPhone   = useCallback((s: string) => updateSession('receiptPhone', s), [updateSession]);
+  const setAppliedPromo   = useCallback((p: AppliedPromoCode | null) => updateSession('appliedPromo', p), [updateSession]);
   const paymentLines      = activeSession.paymentLines;
 
-  // Client
+  // i18n
+  const { t } = useLanguage();
+
+  // Synonym expansion map for darija/arabic-aware product search. Loaded
+  // once per session (or after the 10-min TTL), persisted in AsyncStorage so
+  // the POS keeps working offline. Empty default = same behaviour as the
+  // pre-synonyms version (substring match only).
+  const [synonymMap, setSynonymMap] = useState<SynonymExpansionMap>({});
+
+  // Note : clientMode / receiptEmail / receiptPhone / appliedPromo sont
+  // desormais portes par PosSession (cf. plus haut) — chaque onglet POS
+  // simultane garde son propre contexte client sans contaminer les autres.
+
   const [clients, setClients]           = useState<ClientEpicerieRelation[]>([]);
   const [clientSearch, setClientSearch] = useState('');
   const [showClientModal, setShowClientModal] = useState(false);
@@ -281,9 +346,16 @@ export default function VenteDirecteScreen() {
   const [showCategoryPicker, setShowCategoryPicker]       = useState(false);
 
   // ── Panier (totaux calculés) ──────────────────────────────────────────────
-  const cartTotal = useMemo(
+  const cartSubtotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.prix * item.quantite, 0),
     [cart]
+  );
+
+  // V95 — Total apres remise du code promo (toujours >= 0).
+  // Le serveur recalculera independamment a la creation de la commande.
+  const cartTotal = useMemo(
+    () => Math.max(0, cartSubtotal - (appliedPromo?.discountAmount ?? 0)),
+    [cartSubtotal, appliedPromo]
   );
 
   const cartCount = useMemo(
@@ -306,6 +378,12 @@ export default function VenteDirecteScreen() {
         });
         if (!epicerie) throw new Error('Aucune donnée disponible');
         setEpicerieId(epicerie.id);
+
+        // Synonym map kicked off non-blocking — search defaults to substring
+        // until the map arrives, then upgrades to darija-aware on next render.
+        synonymsService.getExpansionMap(epicerie.id)
+          .then(setSynonymMap)
+          .catch(() => { /* offline-first, ignore */ });
 
         const [prods, cls] = await Promise.all([
           offlineService.fetchWithCache<Product[]>({
@@ -344,12 +422,21 @@ export default function VenteDirecteScreen() {
 
   const filteredProducts = useMemo(() => {
     let result = products;
-    const q = productSearch.trim().toLowerCase();
-    if (q) result = result.filter(p => p.nom?.toLowerCase().includes(q));
+    // Darija/arabic-aware filter: "zit" → finds "huile", "matisha" → "tomate"
+    // (synonyms are loaded once per session into synonymMap). Falls back to
+    // plain substring match when the map is empty (offline cold start).
+    if (productSearch.trim()) {
+      result = expandAndFilter(
+        result,
+        productSearch,
+        synonymMap,
+        (p) => [p.nom, p.description],
+      );
+    }
     if (selectedCategoryId !== undefined)
       result = result.filter(p => p.categoryId === selectedCategoryId);
     return result;
-  }, [products, productSearch, selectedCategoryId]);
+  }, [products, productSearch, selectedCategoryId, synonymMap]);
 
   const getSelectedCategoryLabel = () => {
     if (selectedCategoryId === undefined) return null;
@@ -545,14 +632,19 @@ export default function VenteDirecteScreen() {
   // ── Validation commande ───────────────────────────────────────────────────
 
   const handleSubmit = () => {
-    if (!selectedClient) { Alert.alert('Client manquant', 'Sélectionnez un client.'); return; }
+    // Walk-in mode skips the "client required" check — that's the whole point
+    // of supporting passants. Registered mode keeps the historical guard.
+    if (clientMode === 'registered' && !selectedClient) {
+      Alert.alert('Client manquant', 'Sélectionnez un client.');
+      return;
+    }
     if (cart.length === 0) { Alert.alert('Panier vide', 'Ajoutez au moins un article.'); return; }
     setAmountGiven('');
     setShowConfirmModal(true);
   };
 
   const doSubmit = async () => {
-    if (!selectedClient) return;
+    if (clientMode === 'registered' && !selectedClient) return;
     setSubmitting(true);
 
     // S3 — Split payment : si paymentLines défini et somme == total, on l'envoie.
@@ -568,8 +660,13 @@ export default function VenteDirecteScreen() {
       }
     }
 
+    const isWalkIn = clientMode === 'walkIn';
+
+    // Same item shape for both flows. clientId is included only when a real
+    // client was selected; the walk-in endpoint resolves the placeholder
+    // user server-side and rejects any clientId hint.
     const salePayload: any = {
-      clientId: selectedClient.clientId,
+      ...(isWalkIn ? {} : { clientId: selectedClient!.clientId }),
       items: cart.map(item => ({
         productId: item.productId,
         ...(item.unitId != null ? { unitId: item.unitId } : {}),
@@ -587,19 +684,42 @@ export default function VenteDirecteScreen() {
     } else {
       salePayload.paymentMethod = paymentMethod;
     }
+    // V95 — Code promo applique au panier POS. Le serveur re-valide tout
+    // (lock pessimiste, regles R1-R7, channel=POS) et peut refuser avec
+    // PROMO_CODE_REJECTED:<REASON> meme apres un preview positif.
+    if (appliedPromo?.code) {
+      salePayload.promoCode = appliedPromo.code;
+    }
+    // Optional digital receipt routing — backend stores it in notes today,
+    // a future job will pick it up to send the email/SMS.
+    if (isWalkIn) {
+      if (receiptEmail.trim()) salePayload.receiptEmail = receiptEmail.trim();
+      if (receiptPhone.trim()) salePayload.receiptPhone = receiptPhone.trim();
+    }
+
+    const endpoint = isWalkIn ? '/orders/walk-in-sale' : '/orders/direct-sale';
+    const description = isWalkIn
+      ? `Vente passante — ${cartTotal.toFixed(2)} DH`
+      : `Vente directe ${selectedClient!.clientNom} — ${cartTotal.toFixed(2)} DH`;
 
     try {
       const result = await offlineService.writeOrQueue({
         domain: 'orders',
         method: 'POST',
-        endpoint: '/orders/direct-sale',
+        endpoint,
         payload: salePayload,
         invalidateCache: ['orders', 'products'],
-        description: `Vente directe ${selectedClient.clientNom} — ${cartTotal.toFixed(2)} DH`,
+        description,
       });
 
-      const clientNomSaved = selectedClient.clientNom;
+      const clientNomSaved = isWalkIn ? '🚶 Client de passage' : selectedClient!.clientNom;
       const totalSaved = cartTotal;
+      // Only offer the digital receipt option when we actually have a destination
+      // address — walk-ins must have provided one in the form, registered clients
+      // must have one on their profile. Captured before the state reset below.
+      const canEmailReceipt = isWalkIn
+        ? !!receiptEmail.trim()
+        : !!selectedClient?.clientEmail;
 
       // Marque la session POS comme CHECKED_OUT côté serveur (non bloquant).
       if (result.online) {
@@ -614,6 +734,12 @@ export default function VenteDirecteScreen() {
       setSessions(prev => prev.map((s, i) =>
         i === activeSessionIdx ? createSession() : s
       ));
+      // Reset walk-in receipt fields too — they're per-sale, not per-session.
+      setReceiptEmail('');
+      setReceiptPhone('');
+      // V95 — Code promo aussi : il s'applique a la vente courante, pas au
+      // walk-in suivant (un code 1-fois-par-client deviendrait fantome sinon).
+      setAppliedPromo(null);
       setShowCart(false);
       setShowConfirmModal(false);
       reloadProducts();
@@ -624,33 +750,37 @@ export default function VenteDirecteScreen() {
         // Auto-print (silencieux si désactivé / échoue)
         receiptPrinterService.printReceiptSilent(order.id);
 
+        const successButtons: any[] = [
+          {
+            text: '🖨️ Imprimer/Partager',
+            onPress: async () => {
+              try {
+                await receiptPrinterService.printReceipt(order.id);
+              } catch (e: any) {
+                Alert.alert('Erreur', e?.message ?? 'Impossible d\'imprimer');
+              }
+            },
+          },
+        ];
+        if (canEmailReceipt) {
+          successButtons.push({
+            text: '📧 Email',
+            onPress: async () => {
+              try {
+                await orderService.sendReceiptByEmail(order.id);
+                Alert.alert('✅', 'Reçu envoyé par email');
+              } catch (e: any) {
+                Alert.alert('Erreur', e.message || 'Impossible d\'envoyer le reçu');
+              }
+            },
+          });
+        }
+        successButtons.push({ text: 'Nouvelle vente' });
+
         Alert.alert(
           '✅ Vente enregistrée',
           `Total : ${totalSaved.toFixed(2)} DH\nCommande créée pour ${clientNomSaved}`,
-          [
-            {
-              text: '🖨️ Imprimer/Partager',
-              onPress: async () => {
-                try {
-                  await receiptPrinterService.printReceipt(order.id);
-                } catch (e: any) {
-                  Alert.alert('Erreur', e?.message ?? 'Impossible d\'imprimer');
-                }
-              },
-            },
-            {
-              text: '📧 Email',
-              onPress: async () => {
-                try {
-                  await orderService.sendReceiptByEmail(order.id);
-                  Alert.alert('✅', 'Reçu envoyé par email');
-                } catch (e: any) {
-                  Alert.alert('Erreur', e.message || 'Impossible d\'envoyer le reçu');
-                }
-              },
-            },
-            { text: 'Nouvelle vente' },
-          ]
+          successButtons
         );
       } else {
         Alert.alert(
@@ -663,7 +793,16 @@ export default function VenteDirecteScreen() {
         );
       }
     } catch (err: any) {
-      Alert.alert('Erreur', err.message || 'Impossible de créer la vente');
+      const msg = err?.response?.data?.message ?? err?.message ?? String(err);
+      // V95 — Detection refus de code promo cote serveur (course concurrente
+      // sur le quota, expiration entre le preview et l'apply, etc.).
+      const promoReason = extractPromoRejection(msg);
+      if (promoReason) {
+        setAppliedPromo(null);
+        Alert.alert('Code promo refusé', `Raison : ${promoReason}\n\nLe code a été retiré, vous pouvez relancer la vente.`);
+      } else {
+        Alert.alert('Erreur', msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -755,35 +894,95 @@ export default function VenteDirecteScreen() {
         >
           {/* ── Sélection client ── */}
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>👤 Client</Text>
-            <TouchableOpacity
-              style={[styles.clientSelector, selectedClient && styles.clientSelectorFilled]}
-              onPress={() => { setClientSearch(''); setShowClientModal(true); }}
-              activeOpacity={0.75}
-            >
-              {selectedClient ? (
-                <View style={styles.clientSelected}>
-                  <View style={styles.clientAvatar}>
-                    <Text style={styles.clientAvatarText}>
-                      {(selectedClient.clientNom ?? '?')[0].toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.clientName}>{selectedClient.clientNom}</Text>
-                    <Text style={styles.clientEmail}>{selectedClient.clientEmail}</Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setSelectedClient(null)} style={styles.clearBtn}>
-                    <Ionicons name="close-circle" size={20} color="#999" />
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.clientPlaceholder}>
-                  <Ionicons name="person-add" size={20} color={BLUE} />
-                  <Text style={styles.clientPlaceholderText}>Sélectionner un client</Text>
-                  <Ionicons name="chevron-forward" size={18} color="#bbb" />
-                </View>
-              )}
-            </TouchableOpacity>
+            {/* Toggle Passage / Inscrit — Passage par défaut car c'est le cas
+                 majoritaire en supérette. L'épicier bascule explicitement vers
+                 "Inscrit" quand il identifie le client (carnet, fidélité…). */}
+            <View style={styles.modeToggle}>
+              <TouchableOpacity
+                style={[styles.modeBtn, clientMode === 'walkIn' && styles.modeBtnActive]}
+                onPress={() => {
+                  setClientMode('walkIn');
+                  setSelectedClient(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modeBtnText, clientMode === 'walkIn' && styles.modeBtnTextActive]}>
+                  {t('walkIn.modeWalkIn')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modeBtn, clientMode === 'registered' && styles.modeBtnActive]}
+                onPress={() => setClientMode('registered')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modeBtnText, clientMode === 'registered' && styles.modeBtnTextActive]}>
+                  {t('walkIn.modeRegistered')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {clientMode === 'walkIn' ? (
+              /* Walk-in mode — header + optional digital receipt fields. */
+              <View>
+                <Text style={styles.walkInDesc}>{t('walkIn.modeWalkInDesc')}</Text>
+                <Text style={styles.walkInReceiptLabel}>{t('walkIn.receiptOptional')}</Text>
+                <TextInput
+                  style={styles.walkInInput}
+                  value={receiptEmail}
+                  onChangeText={setReceiptEmail}
+                  placeholder={t('walkIn.receiptEmailPlaceholder')}
+                  placeholderTextColor="#bbb"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+                <TextInput
+                  style={styles.walkInInput}
+                  value={receiptPhone}
+                  onChangeText={setReceiptPhone}
+                  placeholder={t('walkIn.receiptPhonePlaceholder')}
+                  placeholderTextColor="#bbb"
+                  keyboardType="phone-pad"
+                />
+                <Text style={styles.walkInHint}>
+                  {receiptEmail.trim() || receiptPhone.trim()
+                    ? t('walkIn.receiptHintFilled')
+                    : t('walkIn.receiptHintEmpty')}
+                </Text>
+              </View>
+            ) : (
+              /* Registered mode — keep the historical autocomplete + QR scan UX. */
+              <>
+                <Text style={styles.sectionLabel}>👤 Client</Text>
+                <TouchableOpacity
+                  style={[styles.clientSelector, selectedClient && styles.clientSelectorFilled]}
+                  onPress={() => { setClientSearch(''); setShowClientModal(true); }}
+                  activeOpacity={0.75}
+                >
+                  {selectedClient ? (
+                    <View style={styles.clientSelected}>
+                      <View style={styles.clientAvatar}>
+                        <Text style={styles.clientAvatarText}>
+                          {(selectedClient.clientNom ?? '?')[0].toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.clientName}>{selectedClient.clientNom}</Text>
+                        <Text style={styles.clientEmail}>{selectedClient.clientEmail}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setSelectedClient(null)} style={styles.clearBtn}>
+                        <Ionicons name="close-circle" size={20} color="#999" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.clientPlaceholder}>
+                      <Ionicons name="person-add" size={20} color={BLUE} />
+                      <Text style={styles.clientPlaceholderText}>Sélectionner un client</Text>
+                      <Ionicons name="chevron-forward" size={18} color="#bbb" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </View>
 
           {/* ── Catalogue produits ── */}
@@ -881,14 +1080,21 @@ export default function VenteDirecteScreen() {
                         </View>
                       )}
                       <View style={styles.productImageContainer}>
-                        {product.photoUrl ? (
+                        {product.photoUrl && !imageErroredIds.has(product.id) ? (
                           <Image
                             source={{ uri: product.photoUrl }}
                             style={styles.productImage}
                             resizeMode="cover"
+                            // onError marque l'id comme erronee → au prochain
+                            // render on bascule vers le placeholder texte.
+                            onError={() => markImageErrored(product.id)}
                           />
                         ) : (
-                          <Text style={styles.productImagePlaceholder}>📦</Text>
+                          <View style={styles.productImageFallback}>
+                            <Text style={styles.productImageFallbackText} numberOfLines={3}>
+                              {product.nom}
+                            </Text>
+                          </View>
                         )}
                       </View>
                       <Text style={styles.productName} numberOfLines={2}>{product.nom}</Text>
@@ -955,23 +1161,57 @@ export default function VenteDirecteScreen() {
               ))}
             </ScrollView>
 
+            {/* V95 — Code promo POS (canal=POS). Visible quand panier non-vide. */}
+            {cart.length > 0 && epicerieId != null && (
+              <View style={styles.cartPanelPromoBox}>
+                <PromoCodeInput
+                  epicerieId={epicerieId}
+                  subtotal={cartSubtotal}
+                  channel="POS"
+                  value={appliedPromo}
+                  onApplied={setAppliedPromo}
+                  onRemoved={() => setAppliedPromo(null)}
+                  disabled={submitting}
+                />
+              </View>
+            )}
+
             {/* Total + Valider */}
             <View style={styles.cartPanelFooter}>
               <View style={styles.cartPanelTotalBox}>
+                {appliedPromo && (
+                  <>
+                    <View style={styles.cartPanelSubRow}>
+                      <Text style={styles.cartPanelSubLabel}>Sous-total</Text>
+                      <Text style={styles.cartPanelSubValue}>{cartSubtotal.toFixed(2)} DH</Text>
+                    </View>
+                    <View style={styles.cartPanelSubRow}>
+                      <Text style={[styles.cartPanelSubLabel, { color: '#2e7d32' }]}>
+                        Remise ({appliedPromo.code})
+                      </Text>
+                      <Text style={[styles.cartPanelSubValue, { color: '#2e7d32', fontWeight: '700' }]}>
+                        −{appliedPromo.discountAmount.toFixed(2)} DH
+                      </Text>
+                    </View>
+                  </>
+                )}
                 <Text style={styles.cartPanelTotalLabel}>Total</Text>
                 <Text style={styles.cartPanelTotalValue}>{cartTotal.toFixed(2)} DH</Text>
               </View>
               <TouchableOpacity
-                style={[styles.cartPanelValidateBtn, (!selectedClient) && { opacity: 0.5 }]}
+                style={[
+                  styles.cartPanelValidateBtn,
+                  (clientMode === 'registered' && !selectedClient) && { opacity: 0.5 },
+                ]}
                 onPress={handleSubmit}
-                disabled={!selectedClient}
+                disabled={clientMode === 'registered' && !selectedClient}
                 activeOpacity={0.85}
               >
                 <MaterialCommunityIcons name="check-circle" size={20} color="#fff" />
                 <Text style={styles.cartPanelValidateText}>Valider</Text>
               </TouchableOpacity>
             </View>
-            {!selectedClient && (
+            {clientMode === 'registered' && !selectedClient && (
               <Text style={styles.cartPanelWarning}>⚠️ Sélectionnez un client avant de valider</Text>
             )}
           </View>
@@ -1024,16 +1264,42 @@ export default function VenteDirecteScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.searchBar} style={{ margin: 16, marginTop: 8 }}>
-            <Ionicons name="search" size={16} color="#999" />
-            <TextInput
-              style={styles.searchInput}
-              value={clientSearch}
-              onChangeText={setClientSearch}
-              placeholder="Rechercher par nom ou email…"
-              placeholderTextColor="#bbb"
-              autoFocus
-            />
+          <View style={{ flexDirection: 'row', alignItems: 'center', margin: 16, marginTop: 8, gap: 8 }}>
+            <View style={[styles.searchBar, { flex: 1, marginVertical: 0 }]}>
+              <Ionicons name="search" size={16} color="#999" />
+              <TextInput
+                style={styles.searchInput}
+                value={clientSearch}
+                onChangeText={setClientSearch}
+                placeholder="Rechercher par nom ou email…"
+                placeholderTextColor="#bbb"
+                autoFocus
+              />
+            </View>
+            {epicerieId && (
+              <ClientQrScanButton
+                epicerieId={epicerieId}
+                iconOnly
+                onResolved={(result: LoyaltyCardScanResult) => {
+                  // Map the scan response into the ClientEpicerieRelation shape
+                  // expected by the rest of the POS flow. The backend already
+                  // guarantees the relation is ACCEPTED, so status is hardcoded.
+                  const mapped: ClientEpicerieRelation = {
+                    id: result.relationId,
+                    clientId: result.clientId,
+                    epicerieId: epicerieId,
+                    status: 'ACCEPTED',
+                    createdAt: '',
+                    clientNom: result.clientName,
+                    clientEmail: result.clientEmail,
+                    allowCredit: result.allowCredit,
+                    creditLimit: result.creditLimit ?? 0,
+                  };
+                  setSelectedClient(mapped);
+                  setShowClientModal(false);
+                }}
+              />
+            )}
           </View>
 
           <FlatList
@@ -1215,6 +1481,41 @@ export default function VenteDirecteScreen() {
               ))
             )}
 
+            {/* V95 — Code promo POS (mobile : modal panier). */}
+            {cart.length > 0 && epicerieId != null && (
+              <View style={{ marginBottom: 12 }}>
+                <PromoCodeInput
+                  epicerieId={epicerieId}
+                  subtotal={cartSubtotal}
+                  channel="POS"
+                  value={appliedPromo}
+                  onApplied={setAppliedPromo}
+                  onRemoved={() => setAppliedPromo(null)}
+                  disabled={submitting}
+                />
+              </View>
+            )}
+
+            {/* Sous-total + remise (decomposition affichee si code applique) */}
+            {appliedPromo && (
+              <>
+                <View style={styles.totalRow}>
+                  <Text style={[styles.totalLabel, { fontSize: 13, color: '#666' }]}>Sous-total</Text>
+                  <Text style={[styles.totalValue, { fontSize: 13, color: '#666', fontWeight: '600' }]}>
+                    {cartSubtotal.toFixed(2)} DH
+                  </Text>
+                </View>
+                <View style={styles.totalRow}>
+                  <Text style={[styles.totalLabel, { fontSize: 13, color: '#2e7d32' }]}>
+                    Remise ({appliedPromo.code})
+                  </Text>
+                  <Text style={[styles.totalValue, { fontSize: 13, color: '#2e7d32', fontWeight: '700' }]}>
+                    −{appliedPromo.discountAmount.toFixed(2)} DH
+                  </Text>
+                </View>
+              </>
+            )}
+
             {/* Total */}
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total</Text>
@@ -1367,9 +1668,14 @@ export default function VenteDirecteScreen() {
 
             {/* Bouton valider */}
             <TouchableOpacity
-              style={[styles.submitBtn, (submitting || cart.length === 0 || !selectedClient) && styles.submitBtnDisabled]}
+              style={[
+                styles.submitBtn,
+                (submitting || cart.length === 0
+                  || (clientMode === 'registered' && !selectedClient)) && styles.submitBtnDisabled,
+              ]}
               onPress={handleSubmit}
-              disabled={submitting || cart.length === 0 || !selectedClient}
+              disabled={submitting || cart.length === 0
+                || (clientMode === 'registered' && !selectedClient)}
             >
               {submitting ? (
                 <ActivityIndicator color="#fff" />
@@ -1383,7 +1689,7 @@ export default function VenteDirecteScreen() {
               )}
             </TouchableOpacity>
 
-            {!selectedClient && (
+            {clientMode === 'registered' && !selectedClient && (
               <Text style={styles.warningText}>⚠️ Sélectionnez un client avant de valider</Text>
             )}
 
@@ -1668,6 +1974,65 @@ const styles = StyleSheet.create({
   clientEmail: { fontSize: 12, color: '#888', marginTop: 2 },
   clearBtn: { padding: 4 },
 
+  // Walk-in / registered toggle
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 12,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modeBtnActive: {
+    backgroundColor: '#fff',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  modeBtnText: { fontSize: 13, color: '#666', fontWeight: '600' },
+  modeBtnTextActive: { color: BLUE, fontWeight: '700' },
+
+  // Walk-in receipt block
+  walkInDesc: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
+  walkInReceiptLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#888',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  walkInInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    marginBottom: 8,
+    color: '#222',
+  },
+  walkInHint: {
+    fontSize: 11,
+    color: '#999',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+
   // Catalogue
   catalogHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   catalogCount: { fontSize: 12, color: '#999' },
@@ -1755,6 +2120,25 @@ const styles = StyleSheet.create({
   },
   productImage: { width: '100%', height: '100%' },
   productImagePlaceholder: { fontSize: 28 },
+  // Placeholder texte propre : nom du produit centre sur fond pastel
+  // bleu clair en typo serif italique pour donner un cote elegant.
+  productImageFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    backgroundColor: '#E0F2FE',
+  },
+  productImageFallbackText: {
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+    fontStyle: 'italic',
+    fontWeight: '600',
+    fontSize: 13,
+    lineHeight: 16,
+    color: '#1E3A8A',
+    textAlign: 'center',
+  },
 
   // Panneau panier inline
   cartPanel: {
@@ -1797,6 +2181,19 @@ const styles = StyleSheet.create({
   cartPanelTotalBox: { flex: 1 },
   cartPanelTotalLabel: { fontSize: 11, color: '#888', marginBottom: 1 },
   cartPanelTotalValue: { fontSize: 20, fontWeight: '800', color: '#222' },
+  // V95 — Code promo POS
+  cartPanelPromoBox: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#e0e0e0',
+  },
+  cartPanelSubRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: 3,
+  },
+  cartPanelSubLabel: { fontSize: 11, color: '#888' },
+  cartPanelSubValue: { fontSize: 12, color: '#444', fontWeight: '600' },
   cartPanelValidateBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#388E3C', borderRadius: 12,

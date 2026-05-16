@@ -1,20 +1,22 @@
 // ============================================
 // app/index.tsx - FIX AUTHENTIFICATION
 // ============================================
-import { useCallback, useEffect, useState } from 'react';
-import { Redirect } from 'expo-router';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authService } from '../src/services/authService';
-import { usePushNotifications } from '../src/hooks/usePushNotifications';
+import { Redirect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { STORAGE_KEYS } from '../src/constants/config';
-import { debugStorage } from '../src/utils/debugStorage';
+import { clientOnboardingService } from '../src/services/clientOnboardingService';
 
 export default function Index() {
   const [isChecking, setIsChecking] = useState<boolean>(true);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [initialCheckComplete, setInitialCheckComplete] = useState<boolean>(false);
+  /** True dès que l'onboarding client a été complété sur ce device. Mesuré
+   *  une fois au mount; pas de polling (changements internes redirigeront
+   *  via router.replace). */
+  const [onboardingDone, setOnboardingDone] = useState<boolean>(true);
 
   // ⚠️ NE PAS initialiser les push notifications ici !
   // Elles seront initialisées APRÈS authentification dans le role layout
@@ -140,6 +142,17 @@ export default function Index() {
         setUserRole(null);
       }
 
+      // Vérifie le flag d'onboarding client en parallèle. Le routing
+      // ci-dessous fera la décision finale en fonction du rôle ET de ce flag.
+      try {
+        const done = await clientOnboardingService.isCompleted();
+        setOnboardingDone(done);
+      } catch {
+        // Si le storage est inaccessible, on considère done=true pour ne pas
+        // bloquer l'utilisateur sur l'onboarding.
+        setOnboardingDone(true);
+      }
+
       setInitialCheckComplete(true);
     };
 
@@ -178,6 +191,13 @@ export default function Index() {
 
   // Now check the role
   if (userRole === 'CLIENT') {
+    // 1ère ouverture par un client → onboarding 3 écrans (langue / géoloc /
+    // catégories favorites). Une fois fait, on ne le re-déclenche plus
+    // (flag persisté côté device, indépendant de la session).
+    if (!onboardingDone) {
+      console.log('[Index] Redirection vers onboarding client (1ère ouverture)');
+      return <Redirect href="/onboarding" />;
+    }
     console.log('[Index] Redirection vers client');
     return <Redirect href="/(client)" />;
   } else if (userRole === 'EPICIER') {

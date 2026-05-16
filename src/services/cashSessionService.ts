@@ -144,7 +144,7 @@ export const cashSessionService = {
     const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
     if (!token) throw new Error('Non authentifié');
 
-    const FileSystem = await import('expo-file-system');
+    const FileSystem = await import('expo-file-system/legacy');
     const fileUri = (FileSystem as any).documentDirectory
         + `z-report-${sessionId}-${Date.now()}.pdf`;
 

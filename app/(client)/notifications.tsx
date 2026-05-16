@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -12,11 +13,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Skeleton, useToast } from '../../src/components/feedback';
 import { useLanguage } from '../../src/context/LanguageContext';
-import { Notification, notificationService } from '../../src/services/notificationService';
-import { clientManagementService } from '../../src/services/clientManagementService';
 import { authService } from '../../src/services/authService';
-import { ratingService, RatingNotificationInfo } from '../../src/services/ratingService';
+import { clientManagementService } from '../../src/services/clientManagementService';
+import { Notification, notificationService } from '../../src/services/notificationService';
+import { RatingNotificationInfo, ratingService } from '../../src/services/ratingService';
 import {
   getFamily,
   getVisuals,
@@ -33,6 +35,7 @@ interface GroupedNotifications {
 export default function NotificationsScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const toast = useToast();
   const [notifications, setNotifications] = useState<GroupedNotifications>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,7 +69,7 @@ export default function NotificationsScreen() {
       console.log('[NotificationsScreen] Notifications chargées:', Object.keys(grouped).length, 'dates');
     } catch (error) {
       console.error('[NotificationsScreen] Erreur chargement:', error);
-      Alert.alert(t('common.error'), t('notifications.loadError'));
+      toast.error(t('common.error'), t('notifications.loadError'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -74,6 +77,7 @@ export default function NotificationsScreen() {
   };
 
   const handleDeleteNotification = (notificationId: number, titre: string) => {
+    // Confirmation native conservée: action destructive (suppression).
     Alert.alert(
       t('notifications.deleteNotification'),
       `${t('notifications.confirmDelete')} "${titre}" ?`,
@@ -87,13 +91,13 @@ export default function NotificationsScreen() {
               const success = await notificationService.deleteNotification(notificationId);
               if (success) {
                 await loadNotifications();
-                Alert.alert(t('common.success'), t('notifications.deleted'));
+                toast.success(t('common.success'), t('notifications.deleted'));
               } else {
-                Alert.alert(t('common.error'), t('notifications.deleteError'));
+                toast.error(t('common.error'), t('notifications.deleteError'));
               }
             } catch (error) {
               console.error('Erreur:', error);
-              Alert.alert(t('common.error'), t('notifications.errorOccurred'));
+              toast.error(t('common.error'), t('notifications.errorOccurred'));
             }
           },
         },
@@ -162,7 +166,8 @@ export default function NotificationsScreen() {
         console.warn('[AcceptInvitation] Erreur lors de la suppression de la notification:', deleteError);
       }
 
-      Alert.alert(t('common.success'), t('notifications.invitationAccepted'));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast.success(t('common.success'), t('notifications.invitationAccepted'));
 
       // Recharger les notifications pour mettre à jour l'affichage
       await loadNotifications();
@@ -175,11 +180,12 @@ export default function NotificationsScreen() {
         errorMessage = "Cette invitation a déjà été traitée. Veuillez la supprimer ou demander à l'épicier de vous renvoyer une nouvelle invitation.";
       }
 
-      Alert.alert(t('common.error'), errorMessage);
+      toast.error(t('common.error'), errorMessage);
     }
   };
 
   const handleRejectInvitation = async (notificationId: number) => {
+    // Confirmation native conservée: action destructive (refus invitation).
     Alert.alert(
       t('notifications.rejectInvitation'),
       t('notifications.confirmReject'),
@@ -229,7 +235,7 @@ export default function NotificationsScreen() {
                 console.warn('[RejectInvitation] Erreur lors de la suppression de la notification:', deleteError);
               }
 
-              Alert.alert(t('common.success'), t('notifications.invitationRejected'));
+              toast.success(t('common.success'), t('notifications.invitationRejected'));
 
               // Recharger les notifications pour mettre à jour l'affichage
               await loadNotifications();
@@ -242,7 +248,7 @@ export default function NotificationsScreen() {
                 errorMessage = "Cette invitation a déjà été traitée. Veuillez la supprimer ou demander à l'épicier de vous renvoyer une nouvelle invitation.";
               }
 
-              Alert.alert(t('common.error'), errorMessage);
+              toast.error(t('common.error'), errorMessage);
             }
           },
         },
@@ -297,6 +303,8 @@ export default function NotificationsScreen() {
 
       // Vérifier si déjà noté - si oui, empêcher la notation
       if (info.hasRated && info.existingRating) {
+        // Alert conservée: l'info est multi-ligne et structurée (note +
+        // commentaire libre). Un toast la tronquerait.
         Alert.alert(
           'Déjà noté',
           `Vous avez déjà noté ${info.epicerieName} avec ${info.existingRating.rating} étoile(s).\n\nVotre commentaire: "${info.existingRating.comment || 'Aucun commentaire'}"`,
@@ -312,7 +320,7 @@ export default function NotificationsScreen() {
       setShowRatingModal(true);
     } catch (error: any) {
       console.error('[RateEpicier] Erreur complète:', error);
-      Alert.alert(t('common.error'), error.message || 'Impossible de charger les informations de notation');
+      toast.error(t('common.error'), error.message || 'Impossible de charger les informations de notation');
     }
   };
 
@@ -320,7 +328,7 @@ export default function NotificationsScreen() {
     if (!ratingInfo) return;
 
     if (selectedRating === 0) {
-      Alert.alert('Erreur', 'Veuillez sélectionner une note');
+      toast.warning(t('common.error'), 'Veuillez sélectionner une note');
       return;
     }
 
@@ -339,14 +347,16 @@ export default function NotificationsScreen() {
         comment: ratingComment.trim() || undefined,
       });
 
-      Alert.alert('✅ Merci!', 'Votre avis a été enregistré avec succès.');
+      // Modal fermée AVANT le toast pour qu'il soit visible immédiatement.
       setShowRatingModal(false);
       setRatingInfo(null);
       setSelectedRating(0);
       setRatingComment('');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      toast.success('Merci !', 'Votre avis a été enregistré.');
     } catch (error: any) {
       console.error('Erreur soumission notation:', error);
-      Alert.alert(t('common.error'), error.message || 'Erreur lors de l\'enregistrement de la note');
+      toast.error(t('common.error'), error.message || 'Erreur lors de l\'enregistrement de la note');
     } finally {
       setSubmittingRating(false);
     }
@@ -529,9 +539,37 @@ export default function NotificationsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-        <Text style={styles.loadingText}>{t('notifications.loading')}</Text>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Skeleton variant="text" width="55%" height={22} style={{ marginBottom: 6 }} />
+          <Skeleton variant="text" width="35%" />
+        </View>
+        <View style={styles.notificationsContainer}>
+          {/* En-tête de date + 3 cartes notification skeleton */}
+          <View style={styles.dateHeader}>
+            <Skeleton variant="text" width={120} />
+          </View>
+          {[0, 1, 2].map(i => (
+            <View key={i} style={{
+              backgroundColor: '#fff',
+              borderRadius: 12,
+              padding: 12,
+              marginBottom: 10,
+              flexDirection: 'row',
+              shadowColor: '#000',
+              shadowOpacity: 0.06,
+              shadowRadius: 4,
+              elevation: 1,
+            }}>
+              <Skeleton variant="circle" width={42} height={42} style={{ marginRight: 12 }} />
+              <View style={{ flex: 1 }}>
+                <Skeleton variant="text" width="80%" style={{ marginBottom: 6 }} />
+                <Skeleton variant="text" width="95%" style={{ marginBottom: 4 }} />
+                <Skeleton variant="text" width="40%" />
+              </View>
+            </View>
+          ))}
+        </View>
       </View>
     );
   }
@@ -659,12 +697,6 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#f5f5f5',
   },
   scrollView: {
@@ -838,11 +870,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
-  },
-  loadingText: {
-    marginTop: 15,
-    fontSize: 16,
-    color: '#666',
   },
   viewOrderButton: {
     backgroundColor: '#e3f2fd',

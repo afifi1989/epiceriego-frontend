@@ -328,13 +328,6 @@ export default function CashSessionScreen() {
               Comptez le cash physique et saisissez le total.
             </Text>
 
-            {xReport && (
-              <View style={styles.theoreticalBox}>
-                <Text style={styles.theoreticalLabel}>Théorique</Text>
-                <Text style={styles.theoreticalValue}>{xReport.expectedCash.toFixed(2)} DH</Text>
-              </View>
-            )}
-
             <Text style={styles.label}>Cash compté (DH)</Text>
             <TextInput
               style={[styles.input, styles.inputLarge]}
@@ -345,14 +338,52 @@ export default function CashSessionScreen() {
               placeholderTextColor="#bbb"
             />
 
-            {countedCash !== '' && (() => {
-              const parsed = parseFloat(countedCash.replace(',', '.')) || 0;
-              const variance = parsed - (xReport?.expectedCash ?? 0);
-              const color = variance === 0 ? '#2e7d32' : variance > 0 ? '#fb8c00' : '#e53935';
+            {/* Carte comparative Theorique / Compte / Ecart avec code couleur.
+                Plus rapide a interpreter qu'une seule ligne d'ecart : l'epicier
+                voit en un coup d'oeil si la caisse est equilibree ou pas. */}
+            {xReport && (() => {
+              const expected = xReport.expectedCash;
+              const hasCount = countedCash !== '';
+              const counted = parseFloat(countedCash.replace(',', '.')) || 0;
+              const variance = hasCount ? counted - expected : 0;
+              const absVar = Math.abs(variance);
+              // Seuils en DH : 0 = parfait, <=5 = leger, >5 = significatif.
+              // Adaptable plus tard via parametres epicerie si besoin.
+              const status: 'balanced' | 'minor' | 'major' =
+                !hasCount || absVar < 0.01 ? 'balanced' :
+                absVar <= 5 ? 'minor' :
+                'major';
+              const palette = {
+                balanced: { bg: '#e8f5e9', border: '#4caf50', text: '#1b5e20', label: '✓ Caisse equilibrée' },
+                minor:    { bg: '#fff3e0', border: '#fb8c00', text: '#e65100', label: '⚠ Léger écart' },
+                major:    { bg: '#ffebee', border: '#e53935', text: '#b71c1c', label: '⛔ Gros écart — vérifiez' },
+              }[status];
               return (
-                <Text style={[styles.varianceLabel, { color }]}>
-                  Écart : {variance >= 0 ? '+' : ''}{variance.toFixed(2)} DH
-                </Text>
+                <View style={[varStyles.card, { backgroundColor: palette.bg, borderColor: palette.border }]}>
+                  <View style={varStyles.row}>
+                    <View style={varStyles.col}>
+                      <Text style={varStyles.colLabel}>Théorique</Text>
+                      <Text style={varStyles.colValue}>{expected.toFixed(2)} DH</Text>
+                    </View>
+                    <View style={varStyles.sep} />
+                    <View style={varStyles.col}>
+                      <Text style={varStyles.colLabel}>Compté</Text>
+                      <Text style={varStyles.colValue}>
+                        {hasCount ? counted.toFixed(2) + ' DH' : '—'}
+                      </Text>
+                    </View>
+                    <View style={varStyles.sep} />
+                    <View style={varStyles.col}>
+                      <Text style={varStyles.colLabel}>Écart</Text>
+                      <Text style={[varStyles.colValue, { color: palette.text }]}>
+                        {hasCount ? (variance >= 0 ? '+' : '') + variance.toFixed(2) + ' DH' : '—'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[varStyles.statusBadge, { color: palette.text }]}>
+                    {palette.label}
+                  </Text>
+                </View>
               );
             })()}
 
@@ -480,4 +511,47 @@ const styles = StyleSheet.create({
   historyLinkText: {
     flex: 1, color: '#1976D2', fontWeight: '700', fontSize: 13
   }
+});
+
+// Carte comparative Theorique / Compte / Ecart pour la cloture caisse.
+const varStyles = StyleSheet.create({
+  card: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+  },
+  col: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  colLabel: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '600',
+    marginBottom: 4,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  colValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1f2937',
+  },
+  sep: {
+    width: 1,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    marginVertical: 4,
+  },
+  statusBadge: {
+    marginTop: 10,
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });

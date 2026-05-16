@@ -7,10 +7,14 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { getUserProfile } from '../../src/hooks/usePermissions';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 import { epicerieService } from '../../src/services/epicerieService';
+import { onboardingService } from '../../src/services/onboardingService';
+import { usePathname } from 'expo-router';
 import { LoginResponse } from '../../src/type';
 import { NetworkProvider } from '../../src/context/NetworkContext';
 import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
+import { NotificationBadge } from '../../components/NotificationBadge';
 import { useCurrency } from '../../src/context/CurrencyContext';
+import { EpicierLanguageProvider } from '../../src/context/EpicierLanguageProvider';
 
 // Composant interne pour gérer le layout authentifié
 function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) {
@@ -36,6 +40,32 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
       });
     return () => { cancelled = true; setCurrency(null); };
   }, [setCurrency]);
+
+  // ── Onboarding obligatoire ────────────────────────────────────────
+  // Si l'epicier n'a pas complete les etapes (TYPE + CATALOGUE), on
+  // redirige vers l'ecran onboarding qui occupe tout le viewport (tab bar
+  // cachee, header masque). Empeche de naviguer ailleurs en pleine
+  // session si l'onboarding n'est pas valide. Best-effort : si l'API
+  // echoue, on laisse passer (pas de regression).
+  const pathname = usePathname();
+  useEffect(() => {
+    if (pathname?.includes('/onboarding')) return; // deja sur l'onboarding
+    let cancelled = false;
+    (async () => {
+      try {
+        const epicerie = await epicerieService.getMyEpicerie();
+        if (cancelled || !epicerie) return;
+        const status = await onboardingService.getStatus(epicerie.id);
+        if (cancelled) return;
+        if (!status?.completed) {
+          router.replace('/(epicier)/onboarding');
+        }
+      } catch {
+        // service indisponible / 404 → ne pas bloquer
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [pathname, router]);
 
   useEffect(() => {
     console.log('[EpicierLayout] 🎯 Mount — initializing notifications');
@@ -107,6 +137,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
           title: 'Dashboard',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>📊</Text>,
           headerTitle: '📊 Dashboard',
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -115,6 +146,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
           title: 'Commandes',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🛍️</Text>,
           headerTitle: '🛍️ Commandes',
+          headerRight: () => <NotificationBadge />,
         }}
       />
       <Tabs.Screen
@@ -149,10 +181,49 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="parametres"
+        options={{
+          href: null, // hub paramètres unifié — accessible depuis le profil
+          title: 'Paramètres',
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          href: null, // accessible via le badge du dashboard
+          title: 'Notifications',
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="passants-a-convertir"
+        options={{
+          href: null,
+          title: 'Passants à convertir',
+          headerTitle: '🚶 Passants à convertir',
+        }}
+      />
+      <Tabs.Screen
+        name="mots-cles-recherche"
+        options={{
+          href: null,
+          title: 'Mots-clés de recherche',
+          headerTitle: '🔤 Mots-clés de recherche',
+        }}
+      />
+      <Tabs.Screen
         name="parametres-epicerie"
         options={{
           href: null,  // accessible via le profil, pas dans la tab bar
           title: 'Paramètres épicerie',
+        }}
+      />
+      <Tabs.Screen
+        name="aide-support"
+        options={{
+          href: null,  // accessible depuis "Mon compte" du profil
+          title: 'Aide & Support',
         }}
       />
       <Tabs.Screen
@@ -187,12 +258,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
       />
       <Tabs.Screen
         name="horaires"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="zones-livraison"
         options={{
           href: null,
         }}
@@ -334,6 +399,46 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="codes-promos"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: '🏷️ Codes promos',
+        }}
+      />
+      <Tabs.Screen
+        name="code-promo-form"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: 'Code promo',
+        }}
+      />
+      <Tabs.Screen
+        name="fournisseurs"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: '🏪 Fournisseurs',
+        }}
+      />
+      <Tabs.Screen
+        name="fournisseur-form"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: 'Fournisseur',
+        }}
+      />
+      <Tabs.Screen
+        name="fournisseur-detail"
+        options={{
+          href: null,
+          headerShown: true,
+          headerTitle: 'Détail fournisseur',
+        }}
+      />
+      <Tabs.Screen
         name="clients"
         options={{
           href: null,
@@ -401,7 +506,14 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
       <Tabs.Screen
         name="onboarding"
         options={{
+          // Onboarding obligatoire : on cache completement la tab bar pour
+          // que l'epicier ne puisse pas naviguer ailleurs tant qu'il n'a
+          // pas valide les etapes obligatoires (TYPE + CATALOGUE).
+          // Le header est aussi cache — l'ecran gere son propre layout
+          // plein ecran via OnboardingStepShell.
           href: null,
+          tabBarStyle: { display: 'none' },
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -425,6 +537,16 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         name="fidelite"
         options={{
           href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="mon-abonnement"
+        options={{
+          href: null,
+          headerTitle: '⭐ Mon abonnement',
+          headerStyle: { backgroundColor: '#2196F3' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: 'bold' },
         }}
       />
     </Tabs>
@@ -483,13 +605,19 @@ export default function EpicierLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
-  // ✅ Afficher le contenu authentifié avec support offline
+  // ✅ Afficher le contenu authentifié avec support offline.
+  // EpicierLanguageProvider verrouille la langue UI en français pour toute
+  // la zone épicier (cohérent avec le web Angular qui est FR-only). La
+  // recherche darija/arabe dans vente-directe reste fonctionnelle car elle
+  // passe par la map de synonymes (helper expandAndFilter), pas par t().
   return (
     <NetworkProvider>
-      <View style={{ flex: 1 }}>
-        <OfflineBanner />
-        <EpicierTabsContent loginData={loginData} />
-      </View>
+      <EpicierLanguageProvider>
+        <View style={{ flex: 1 }}>
+          <OfflineBanner />
+          <EpicierTabsContent loginData={loginData} />
+        </View>
+      </EpicierLanguageProvider>
     </NetworkProvider>
   );
 }

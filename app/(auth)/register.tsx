@@ -1,7 +1,9 @@
 // ============================================
 // app/(auth)/register.tsx
-// Écran d'inscription avec 3 types de comptes
-// EPICIER : formulaire en 2 étapes
+// Écran d'inscription. Le type de compte (CLIENT / EPICIER / LIVREUR)
+// est choisi en amont dans l'ecran select-role et passe via le param
+// `role` — aucun Picker affiche ici, l'epicier ne re-selectionne pas.
+// EPICIER : formulaire en 2 étapes (epicerie puis representant legal).
 // ============================================
 import React, { useState } from 'react';
 import {
@@ -19,8 +21,7 @@ import {
 import AbridGOLogo from '../../src/components/shared/AbridGOLogo';
 import { AddressPicker, AddressPickerValue, EMPTY_ADDRESS, flattenAddress } from '../../src/components/shared/AddressPicker';
 import { CurrencyPicker } from '../../src/components/shared/CurrencyPicker';
-import { Picker } from '@react-native-picker/picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 import { RegisterRequest, EpicerieType, EPICERIE_TYPES, Currency } from '../../src/type';
@@ -39,11 +40,26 @@ function validatePhone(v: string) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/** Mapping role -> label affiche dans le titre. */
+const ROLE_LABEL: Record<string, string> = {
+  CLIENT: 'Client',
+  EPICIER: 'Épicier',
+  LIVREUR: 'Livreur',
+};
+
+/** Valeurs autorisees pour le role (rejet defensif d'un param exotique). */
+function normalizeRoleParam(v: string | undefined): string {
+  if (v === 'CLIENT' || v === 'EPICIER' || v === 'LIVREUR') return v;
+  return 'CLIENT';
+}
+
 export default function RegisterScreen() {
   const router = useRouter();
-
-  // Rôle sélectionné
-  const [role, setRole] = useState<string>('CLIENT');
+  // Le role est choisi dans l'ecran d'accueil (select-role) et propage
+  // jusqu'ici via le param `role`. Plus de Picker dans ce formulaire —
+  // l'utilisateur ne voit que les champs de son type de compte.
+  const params = useLocalSearchParams<{ role?: string }>();
+  const [role] = useState<string>(normalizeRoleParam(params.role));
 
   // Pour EPICIER : étape courante (1 = épicerie, 2 = représentant légal)
   const [step, setStep] = useState<1 | 2>(1);
@@ -79,12 +95,6 @@ export default function RegisterScreen() {
   const [confirmPasswordCL, setConfirmPasswordCL] = useState('');
 
   const [loading, setLoading] = useState(false);
-
-  // ─── Role change: reset steps ───────────────────────────────────────────────
-  const handleRoleChange = (value: string) => {
-    setRole(value);
-    setStep(1);
-  };
 
   // ─── Devise auto depuis le pays sélectionné ─────────────────────────────────
   // Quand l'épicier choisit son pays, on pré-remplit la devise avec la
@@ -288,26 +298,11 @@ export default function RegisterScreen() {
         {/* Header */}
         <View style={styles.header}>
           <AbridGOLogo size={200} />
-          <Text style={styles.title}>Créer un compte</Text>
+          <Text style={styles.title}>Créer un compte {ROLE_LABEL[role] ?? ''}</Text>
         </View>
 
         {/* Formulaire */}
         <View style={styles.form}>
-
-          {/* Sélection du rôle */}
-          <Text style={styles.label}>Je suis :</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={role}
-              onValueChange={handleRoleChange}
-              style={styles.picker}
-              itemStyle={styles.pickerItem}
-            >
-              <Picker.Item label="🛒 Client" value="CLIENT" />
-              <Picker.Item label="🏪 Épicier" value="EPICIER" />
-              <Picker.Item label="🚚 Livreur" value="LIVREUR" />
-            </Picker>
-          </View>
 
           {/* ═══════════════════════════════════════ */}
           {/* FORMULAIRE ÉPICIER — 2 étapes           */}
@@ -652,28 +647,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 10,
-    marginBottom: 20,
-    overflow: 'hidden',
-    backgroundColor: '#f9f9f9',
-  },
-  picker: {
-    height: 50,
-    color: '#333',
-  },
-  pickerItem: {
-    fontSize: 16,
-    color: '#333',
   },
   // ── Step indicator ──────────────────────────────
   stepIndicator: {

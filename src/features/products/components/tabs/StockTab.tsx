@@ -27,8 +27,9 @@ import {
   getExpiryLevel,
   stockService
 } from '../../../../services/stockService';
-import { Product, ProductUnit } from '../../../../type';
+import { LoginResponse, Product, ProductUnit } from '../../../../type';
 import { usePermissions } from '../../../../hooks/usePermissions';
+import SupplierAutocomplete from '../../../../components/epicier/SupplierAutocomplete';
 
 const HISTORY_PAGE_SIZE = 20;
 
@@ -36,10 +37,12 @@ type Mode = 'ENTREE' | 'SORTIE';
 
 interface StockTabProps {
   product: Product;
+  /** LoginResponse chargé par le parent (cf. VariantsTab pour le contexte). */
+  user: LoginResponse | null;
 }
 
-export const StockTab: React.FC<StockTabProps> = ({ product }) => {
-  const { can } = usePermissions();
+export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
+  const { can } = usePermissions(user);
   const [units, setUnits] = useState<ProductUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -69,6 +72,9 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
   const [rcpQty, setRcpQty] = useState('1');
   const [rcpExpiry, setRcpExpiry] = useState('');          // YYYY-MM-DD
   const [rcpUnitCost, setRcpUnitCost] = useState('');
+  /** V96 — Fournisseur applique via l'autocomplete. Si null → mode texte
+   *  libre (rcpSupplier conserve pour saisie manuelle / clients legacy). */
+  const [rcpSupplierSelected, setRcpSupplierSelected] = useState<{ id: number; name: string } | null>(null);
   const [rcpSupplier, setRcpSupplier] = useState('');
   const [rcpInvoice, setRcpInvoice] = useState('');
   const [rcpNotes, setRcpNotes] = useState('');
@@ -126,6 +132,7 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
     setRcpExpiry('');
     setRcpUnitCost('');
     setRcpSupplier('');
+    setRcpSupplierSelected(null);
     setRcpInvoice('');
     setRcpNotes('');
     setReceptionVisible(true);
@@ -148,7 +155,11 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
       expiryDate: rcpExpiry || null,
       receivedAt: null,
       unitCost: rcpUnitCost ? parseFloat(rcpUnitCost) : null,
-      supplierName: rcpSupplier || null,
+      // V96 — Si un fournisseur a ete selectionne via l'autocomplete, on
+      // envoie son id (le serveur snapshot le name autoritatif). Sinon
+      // fallback en mode texte libre (rcpSupplier).
+      supplierId: rcpSupplierSelected?.id ?? null,
+      supplierName: rcpSupplierSelected?.name ?? (rcpSupplier || null),
       supplierInvoice: rcpInvoice || null,
       notes: rcpNotes || null
     };
@@ -602,9 +613,30 @@ export const StockTab: React.FC<StockTabProps> = ({ product }) => {
               </View>
               <View style={styles.field}>
                 <Text style={styles.label}>Fournisseur</Text>
-                <TextInput style={styles.input} value={rcpSupplier} onChangeText={setRcpSupplier}
-                  placeholder="Nom du fournisseur" placeholderTextColor="#bbb" />
+                {/* V96 — Autocomplete vers l'entite Supplier. Si l'utilisateur
+                    tape un nom inconnu, le composant propose "+ Creer" en
+                    quick-create. Fallback texte libre toujours possible : si
+                    aucun supplier n'est selectionne, le champ rcpSupplier
+                    (texte libre, plus bas) reste utilise. */}
+                <SupplierAutocomplete
+                  value={rcpSupplierSelected as any}
+                  onChange={(s) => {
+                    setRcpSupplierSelected(s ? { id: s.id, name: s.name } : null);
+                    // Si on lie a une vraie entite, on vide le texte libre
+                    // pour eviter la confusion (le serveur prend le snapshot
+                    // depuis le lookup de toute facon).
+                    if (s) setRcpSupplier('');
+                  }}
+                  placeholder="Rechercher un fournisseur"
+                />
               </View>
+              {!rcpSupplierSelected && (
+                <View style={styles.field}>
+                  <Text style={styles.label}>Ou nom libre</Text>
+                  <TextInput style={styles.input} value={rcpSupplier} onChangeText={setRcpSupplier}
+                    placeholder="Saisie libre (sans fiche fournisseur)" placeholderTextColor="#bbb" />
+                </View>
+              )}
               <View style={styles.field}>
                 <Text style={styles.label}>N° Facture</Text>
                 <TextInput style={styles.input} value={rcpInvoice} onChangeText={setRcpInvoice}

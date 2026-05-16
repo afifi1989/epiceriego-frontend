@@ -32,6 +32,23 @@ export interface Category {
 }
 
 /**
+ * Catégorie suggérée sur la home client.
+ * Vue allégée renvoyée par GET /categories/home-suggestions.
+ *
+ * Le flag `personalized` permet de signaler à l'UI que la catégorie vient de
+ * l'historique du client (badge "Pour vous"). `frequency` est exposé pour
+ * tri ou debug ; pas affiché par défaut.
+ */
+export interface CategorySuggestion {
+  id: number;
+  name: string;
+  iconUrl?: string;
+  level?: number;
+  personalized: boolean;
+  frequency: number;
+}
+
+/**
  * Interface pour créer/modifier une catégorie
  */
 export interface CategoryRequest {
@@ -80,6 +97,28 @@ export const categoryService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors du chargement des catégories';
+    }
+  },
+
+  /**
+   * Suggestions de catégories pour la home client (V90+).
+   *
+   * Backend: GET /categories/home-suggestions?limit=8
+   * Personnalisé selon l'historique du client connecté, complété par le
+   * tendance global. Cache serveur 3 min — appel léger, safe à faire au
+   * mount de la home.
+   */
+  getHomeSuggestions: async (limit: number = 8): Promise<CategorySuggestion[]> => {
+    try {
+      const response = await api.get<CategorySuggestion[]>('/categories/home-suggestions', {
+        params: { limit },
+      });
+      return response.data ?? [];
+    } catch (error: any) {
+      // Pas de throw : la home doit dégrader gracieusement si l'endpoint
+      // est down. Le composant affichera une grille vide ou son fallback.
+      console.warn('[categoryService.getHomeSuggestions] échec, fallback vide:', error?.message);
+      return [];
     }
   },
 

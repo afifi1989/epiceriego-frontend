@@ -1,12 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image as ExpoImage } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   Dimensions,
   FlatList,
-  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,112 +15,115 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { EpicerieCard } from '../../src/components/client/EpicerieCard';
+import { EpicerieStories } from '../../src/components/client/EpicerieStories';
+import { FlashDealsSection } from '../../src/components/client/FlashDealsSection';
+import { HomeCategories } from '../../src/components/client/HomeCategories';
+import { HomeHeader } from '../../src/components/client/HomeHeader';
+import { OngoingOrderCard } from '../../src/components/client/OngoingOrderCard';
+import { Skeleton, useToast } from '../../src/components/feedback';
+import { CategorySuggestion } from '../../src/services/categoryService';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { epicerieService } from '../../src/services/epicerieService';
+import { orderService } from '../../src/services/orderService';
 import { productService } from '../../src/services/productService';
 import { Promotion, promotionService } from '../../src/services/promotionService';
-import { Epicerie, Product } from '../../src/type';
-import { FallbackImage } from '../../components/client/FallbackImage';
+import { reorderService } from '../../src/services/reorderService';
+import { useTheme, Theme } from '../../src/theme';
+import { Epicerie, Order, Product } from '../../src/type';
+
+/** Statuts de commande "rejouables" — voir reorderService. */
+const REORDER_ALLOWED_STATUSES = new Set(['DELIVERED', 'CANCELLED']);
+/** Au-delà, on ne propose plus la dernière commande sur la home (info périmée). */
+const REORDER_HOME_MAX_AGE_DAYS = 60;
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 50) / 2;
+const EPICERIE_CARD_WIDTH = width * 0.45;
 
 export default function HomeScreen() {
   const router = useRouter();
   const { t, language } = useLanguage();
+  const theme = useTheme();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
+  const toast = useToast();
   const [searchText, setSearchText] = useState('');
   const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
   const [popularEpiceries, setPopularEpiceries] = useState<Epicerie[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [lastOrder, setLastOrder] = useState<Order | null>(null);
+  const [reordering, setReordering] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
-  // Main categories for quick access
-  const categories = [
-    { id: 1, name: t('client.home.fruits'), emoji: '🍎', color: '#FFE5E5' },
-    { id: 2, name: t('client.home.vegetables'), emoji: '🥬', color: '#E5F5E5' },
-    { id: 3, name: t('client.home.spices'), emoji: '🌶️', color: '#FFF5E5' },
-    { id: 4, name: t('client.home.dairy'), emoji: '🥛', color: '#E5F5FF' },
-    { id: 5, name: t('client.home.bakery'), emoji: '🍞', color: '#FFE5F5' },
-    { id: 6, name: t('client.home.seeMore'), emoji: '➕', color: '#F5F5F5' },
-  ];
-
-  /**
-   * Load home page data on mount
-   */
   useEffect(() => {
     loadHomeData();
   }, [language]);
 
   /**
-   * Load all home data
+   * Charge les 4 sections en parallèle (avant: séquentiellement → temps total
+   * = somme des appels). Promise.allSettled : un endpoint cassé n'empêche pas
+   * les autres sections de s'afficher. La home reste utile même si la moitié
+   * des services backend sont indisponibles.
    */
   const loadHomeData = async () => {
     try {
-      setLoading(true);
+      const trendingPromise = productService.getTrendingProducts(6)
+        .then(p => p || [])
+        .catch(() => [] as Product[]);
 
-      // Load trending products
-      try {
-        const products = await productService.getTrendingProducts(6);
-        setTrendingProducts(products || []);
-      } catch (error) {
-        console.log('Error loading trending products:', error);
-        setTrendingProducts([]);
-      }
+      const popularPromise = epicerieService.getPopularEpiceries(8)
+        .then(p => p || [])
+        .catch(() => [] as Epicerie[]);
 
-      // Load popular epiceries
-      try {
-        const epiceries = await epicerieService.getPopularEpiceries(3);
-        setPopularEpiceries(epiceries || []);
-      } catch (error) {
-        console.log('Error loading popular epiceries:', error);
-        setPopularEpiceries([]);
-      }
+      const recentPromise = productService.getRecentlyViewedProducts(4)
+        .then(p => p || [])
+        .catch(() => [] as Product[]);
 
-      // Load recently viewed products from localStorage
-      try {
-        const viewed = await productService.getRecentlyViewedProducts(4);
-        setRecentlyViewed(viewed || []);
-      } catch (error) {
-        console.log('Error loading recently viewed:', error);
-      }
+      const lastOrderPromise = orderService.getMyOrders()
+        .then(orders => pickReorderableOrder(orders || []))
+        .catch(() => null);
 
-      // Load promotions based on user location
-      try {
-        const location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-
-        const promos = await promotionService.getNearbyPromotions(
-          location.coords.latitude,
-          location.coords.longitude,
-          1 // 1 km radius
-        );
-        setPromotions(promos || []);
-      } catch (error) {
-        console.log('Error loading promotions:', error);
-        // Try to load without location data
+      const promotionsPromise = (async () => {
         try {
-          const promos = await promotionService.getFavoriteEpiceriesPromotions();
-          setPromotions(promos || []);
-        } catch (fallbackError) {
-          console.log('Error loading favorite epiceries promotions:', fallbackError);
-          setPromotions([]);
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setUserLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+          return (await promotionService.getNearbyPromotions(
+            location.coords.latitude, location.coords.longitude, 5
+          )) || [];
+        } catch {
+          try {
+            return (await promotionService.getFavoriteEpiceriesPromotions()) || [];
+          } catch {
+            return [] as Promotion[];
+          }
         }
-      }
+      })();
+
+      const [trending, popular, recent, promos, last] = await Promise.all([
+        trendingPromise, popularPromise, recentPromise, promotionsPromise, lastOrderPromise,
+      ]);
+
+      setTrendingProducts(trending);
+      setPopularEpiceries(popular);
+      setRecentlyViewed(recent);
+      setPromotions(promos);
+      setLastOrder(last);
     } catch (error) {
       console.error('Error loading home data:', error);
-      Alert.alert('Erreur', 'Impossible de charger les données');
+      toast.error(t('common.error'), 'Impossible de charger les données');
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
     }
   };
 
-  /**
-   * Handle refresh
-   */
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadHomeData();
@@ -128,8 +131,67 @@ export default function HomeScreen() {
   };
 
   /**
-   * Handle search
+   * Sélectionne la commande la plus récente rejouable parmi celles renvoyées
+   * par l'API. Critères:
+   * - status DELIVERED ou CANCELLED (action terminée)
+   * - moins de 60 jours (au-delà l'info perd sa pertinence sur la home)
+   * - au moins 1 item (sinon rien à recommander)
    */
+  const pickReorderableOrder = (orders: Order[]): Order | null => {
+    const cutoff = Date.now() - REORDER_HOME_MAX_AGE_DAYS * 24 * 3600 * 1000;
+    const candidates = orders
+      .filter(o =>
+        REORDER_ALLOWED_STATUSES.has(o.status)
+        && o.items?.length > 0
+        && new Date(o.createdAt).getTime() >= cutoff
+      )
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return candidates[0] ?? null;
+  };
+
+  const handleQuickReorder = async () => {
+    if (!lastOrder || reordering) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setReordering(true);
+    try {
+      const result = await reorderService.reorderFromOrder(lastOrder);
+      if (result.added === 0) {
+        toast.warning(
+          t('common.error'),
+          t('orders.reorderEmpty') || 'Aucun article disponible'
+        );
+        return;
+      }
+      const detail = result.skipped > 0
+        ? `${result.added} article(s) • ${result.skipped} indispo`
+        : `${result.added} article(s)`;
+      toast.success(t('orders.reorderSuccess') || 'Panier rempli', detail);
+      router.push('/(client)/cart');
+    } catch (error) {
+      console.error('[home] quick reorder failed:', error);
+      toast.error(t('common.error'), String(error));
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const formatRelativeDate = (iso: string): string => {
+    const ms = Date.now() - new Date(iso).getTime();
+    const days = Math.floor(ms / (24 * 3600 * 1000));
+    if (days <= 0) return t('common.today');
+    if (days === 1) return t('common.yesterday');
+    // Concat tolerante aux prefixes vides (ex. en anglais : "3 days ago" sans prefixe).
+    const join = (...parts: (string | number)[]) =>
+      parts.map(p => String(p)).filter(p => p.length > 0).join(' ');
+    if (days < 7) return join(t('common.daysAgoPrefix'), days, t('common.days'));
+    if (days < 30) {
+      const w = Math.floor(days / 7);
+      return join(t('common.weeksAgoPrefix'), w, w === 1 ? t('common.week') : t('common.weeks'));
+    }
+    const m = Math.floor(days / 30);
+    return join(t('common.monthsAgoPrefix'), m, m === 1 ? t('common.month') : t('common.months'));
+  };
+
   const handleSearch = () => {
     if (searchText.trim()) {
       router.push({
@@ -139,23 +201,17 @@ export default function HomeScreen() {
     }
   };
 
-  /**
-   * Handle category tap
-   */
-  const handleCategoryTap = (category: any) => {
-    if (category.id === 6) {
-      router.push('/(client)/epiceries');
-    } else {
-      router.push({
-        pathname: '/(client)/epiceries',
-        params: { category: category.name },
-      });
-    }
+  const handleCategoryTap = (category: CategorySuggestion) => {
+    router.push({
+      pathname: '/(client)/epiceries',
+      params: { categoryId: category.id.toString(), category: category.name },
+    });
   };
 
-  /**
-   * Handle product tap
-   */
+  const handleSeeMoreCategories = () => {
+    router.push('/(client)/epiceries');
+  };
+
   const handleProductTap = (product: Product) => {
     router.push({
       pathname: '/(client)/(epicerie)/[id]',
@@ -163,9 +219,6 @@ export default function HomeScreen() {
     });
   };
 
-  /**
-   * Handle epicerie tap
-   */
   const handleEpicerieTap = (epicerie: Epicerie) => {
     router.push({
       pathname: '/(client)/(epicerie)/[id]',
@@ -174,8 +227,44 @@ export default function HomeScreen() {
   };
 
   /**
-   * Render promotional banner carousel
+   * Carte "Reprendre votre commande" — différenciateur 2026: 1 tap = panier
+   * rempli avec la commande précédente. Affichée uniquement si on a une
+   * commande rejouable récente.
    */
+  const renderQuickReorder = () => {
+    if (!lastOrder) return null;
+    return (
+      <TouchableOpacity
+        style={styles.reorderCard}
+        onPress={handleQuickReorder}
+        disabled={reordering}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={`Recommander chez ${lastOrder.epicerieNom}`}
+      >
+        <View style={styles.reorderIconBox}>
+          <Ionicons name="repeat" size={22} color={theme.colors.onBrand} />
+        </View>
+        <View style={styles.reorderContent}>
+          <Text style={styles.reorderTitle} numberOfLines={1}>
+            {t('client.home.reorderTitle') || 'Reprendre votre commande'}
+          </Text>
+          <Text style={styles.reorderSubtitle} numberOfLines={1}>
+            {lastOrder.epicerieNom} • {formatRelativeDate(lastOrder.createdAt)}
+          </Text>
+          <Text style={styles.reorderMeta} numberOfLines={1}>
+            {lastOrder.nombreItems} {lastOrder.nombreItems > 1 ? (t('orders.items') || 'articles') : (t('orders.item') || 'article')}
+          </Text>
+        </View>
+        <View style={styles.reorderCta}>
+          <Text style={styles.reorderCtaText}>
+            {reordering ? '…' : '→'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const renderPromoBanner = () => {
     if (promotions.length === 0) {
       return null;
@@ -201,9 +290,11 @@ export default function HomeScreen() {
           >
             <View style={styles.promoContent}>
               {item.imageUrl ? (
-                <Image
+                <ExpoImage
                   source={{ uri: item.imageUrl }}
                   style={styles.promoImage}
+                  contentFit="cover"
+                  transition={200}
                 />
               ) : (
                 <Text style={styles.promoEmoji}>🎉</Text>
@@ -222,9 +313,9 @@ export default function HomeScreen() {
                 )}
               </View>
             </View>
-            <TouchableOpacity style={styles.promoButton}>
+            <View style={styles.promoButton}>
               <Text style={styles.promoButtonText}>→</Text>
-            </TouchableOpacity>
+            </View>
           </TouchableOpacity>
         )}
         scrollEventThrottle={16}
@@ -235,65 +326,32 @@ export default function HomeScreen() {
     );
   };
 
-  /**
-   * Render search bar
-   */
   const renderSearchBar = () => (
     <View style={styles.searchContainer}>
-      <TextInput
-        style={styles.searchInput}
-        placeholder={t('client.home.searchPlaceholder')}
-        placeholderTextColor="#999"
-        value={searchText}
-        onChangeText={setSearchText}
-        onSubmitEditing={handleSearch}
-      />
-      {searchText.length > 0 && (
-        <TouchableOpacity
-          style={styles.clearButton}
-          onPress={() => setSearchText('')}
-        >
-          <Text style={styles.clearButtonText}>✕</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-
-  /**
-   * Render categories grid
-   */
-  const renderCategories = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{t('client.home.categories')}</Text>
-      <View style={styles.categoriesGrid}>
-        {categories.map((category) => (
+      <View style={styles.searchInputWrapper}>
+        <Ionicons name="search" size={18} color={theme.colors.textMuted} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder={t('client.home.searchPlaceholder')}
+          placeholderTextColor={theme.colors.textMuted}
+          value={searchText}
+          onChangeText={setSearchText}
+          onSubmitEditing={handleSearch}
+          returnKeyType="search"
+        />
+        {searchText.length > 0 && (
           <TouchableOpacity
-            key={category.id}
-            style={[styles.categoryCard, { backgroundColor: category.color }]}
-            onPress={() => handleCategoryTap(category)}
+            style={styles.clearButton}
+            onPress={() => setSearchText('')}
+            hitSlop={8}
           >
-            <Text style={styles.categoryEmoji}>{category.emoji}</Text>
-            <Text style={styles.categoryName}>{category.name}</Text>
+            <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
           </TouchableOpacity>
-        ))}
+        )}
       </View>
     </View>
   );
 
-  /**
-   * Handle image error for epiceries
-   */
-  const handleImageError = (epicerieId: number) => {
-    console.log(`[Home] Failed to load image for epicerie ${epicerieId}, showing fallback`);
-    setFailedImages(prev => ({
-      ...prev,
-      [epicerieId]: true,
-    }));
-  };
-
-  /**
-   * Render popular epiceries
-   */
   const renderPopularEpiceries = () =>
     popularEpiceries.length > 0 ? (
       <View style={styles.section}>
@@ -308,77 +366,20 @@ export default function HomeScreen() {
           scrollEnabled
           data={popularEpiceries}
           keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => {
-            // Vérifier si l'image a échoué
-            const imageFailed = failedImages[item.id];
-
-            // Debug: Afficher l'objet complet
-            console.log('[Home] === Épicerie complète ===');
-            console.log(JSON.stringify(item, null, 2));
-
-            // Utiliser presentationPhotoUrl en priorité, puis photoUrl comme fallback
-            const imageUrl = item.presentationPhotoUrl || item.photoUrl;
-            // Temporairement: accepter les placeholders pour tester
-            const shouldShowImage = imageUrl && imageUrl.trim() !== '' && !imageFailed;
-            // const shouldShowImage = imageUrl && imageUrl.trim() !== '' && !imageFailed && !imageUrl.includes('placeholder');
-            console.log('[Home] shouldShowImage:', shouldShowImage);
-
-            return (
-              <TouchableOpacity
-                style={styles.epicerieCard}
-                onPress={() => handleEpicerieTap(item)}
-              >
-                {shouldShowImage ? (
-                  <FallbackImage
-                    urls={[imageUrl]}
-                    style={styles.epicerieImage}
-                    resizeMode="cover"
-                    onError={() => handleImageError(item.id)}
-                  />
-                ) : (
-                  <View style={[styles.epicerieImage, styles.epicerieImagePlaceholder]}>
-                    <Text style={styles.placeholderEmoji}>🏪</Text>
-                  </View>
-                )}
-                <View style={styles.epicerieInfo}>
-                  <Text style={styles.epicerieName} numberOfLines={1}>
-                    {item.nomEpicerie}
-                  </Text>
-                  <Text style={styles.epicerieAddress} numberOfLines={1}>
-                    {item.adresse}
-                  </Text>
-                  <View style={styles.epicerieStatus}>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        item.isOpen ? styles.statusOpen : styles.statusClosed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.statusBadgeText,
-                          item.isOpen
-                            ? styles.statusBadgeTextOpen
-                            : styles.statusBadgeTextClosed,
-                        ]}
-                      >
-                        {item.isOpen ? t('client.home.open') : t('client.home.closed')}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          }}
-          scrollEventThrottle={16}
+          contentContainerStyle={{ paddingRight: theme.spacing.md }}
+          renderItem={({ item }) => (
+            <EpicerieCard
+              epicerie={item}
+              onPress={handleEpicerieTap}
+              userLocation={userLocation}
+              promotions={promotions}
+            />
+          )}
           showsHorizontalScrollIndicator={false}
         />
       </View>
     ) : null;
 
-  /**
-   * Render trending products
-   */
   const renderTrendingProducts = () => (
     trendingProducts.length > 0 && (
       <View style={styles.section}>
@@ -394,12 +395,19 @@ export default function HomeScreen() {
               key={product.id}
               style={styles.productCard}
               onPress={() => handleProductTap(product)}
+              activeOpacity={0.85}
             >
-              {product.photoUrl && (
-                <Image
+              {product.photoUrl ? (
+                <ExpoImage
                   source={{ uri: product.photoUrl }}
                   style={styles.productImage}
+                  contentFit="cover"
+                  transition={200}
                 />
+              ) : (
+                <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                  <Text style={styles.placeholderEmoji}>📦</Text>
+                </View>
               )}
               <View style={styles.productInfo}>
                 <Text style={styles.productName} numberOfLines={2}>
@@ -419,9 +427,6 @@ export default function HomeScreen() {
     )
   );
 
-  /**
-   * Render recently viewed
-   */
   const renderRecentlyViewed = () => (
     recentlyViewed.length > 0 && (
       <View style={styles.section}>
@@ -432,12 +437,19 @@ export default function HomeScreen() {
               key={product.id}
               style={styles.productCard}
               onPress={() => handleProductTap(product)}
+              activeOpacity={0.85}
             >
-              {product.photoUrl && (
-                <Image
+              {product.photoUrl ? (
+                <ExpoImage
                   source={{ uri: product.photoUrl }}
                   style={styles.productImage}
+                  contentFit="cover"
+                  transition={200}
                 />
+              ) : (
+                <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                  <Text style={styles.placeholderEmoji}>📦</Text>
+                </View>
               )}
               <View style={styles.productInfo}>
                 <Text style={styles.productName} numberOfLines={2}>
@@ -457,11 +469,39 @@ export default function HomeScreen() {
     )
   );
 
-  if (loading) {
+  if (initialLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-      </View>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <HomeHeader />
+        {renderSearchBar()}
+        <Skeleton variant="rect" height={90} style={{ marginHorizontal: 15, marginVertical: 15, borderRadius: 15 }} />
+        <View style={styles.section}>
+          <Skeleton variant="text" width="40%" height={18} style={{ marginBottom: 12, marginLeft: 15 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 15 }}>
+            {[0, 1, 2, 3].map(i => (
+              <View key={i} style={{ width: 84, alignItems: 'center', marginRight: 12 }}>
+                <Skeleton variant="circle" width={64} height={64} style={{ marginBottom: 8 }} />
+                <Skeleton variant="text" width={60} height={10} />
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+        <View style={styles.section}>
+          <Skeleton variant="text" width="50%" height={18} style={{ marginBottom: 12, marginLeft: 15 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 15 }}>
+            {[0, 1, 2].map(i => (
+              <View key={i} style={styles.epicerieCard}>
+                <Skeleton variant="rect" height={100} style={{ borderTopLeftRadius: 12, borderTopRightRadius: 12 }} />
+                <View style={styles.epicerieInfo}>
+                  <Skeleton variant="text" width="80%" style={{ marginBottom: 6 }} />
+                  <Skeleton variant="text" width="60%" />
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+        <View style={styles.spacer} />
+      </ScrollView>
     );
   }
 
@@ -472,18 +512,35 @@ export default function HomeScreen() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor="#4CAF50"
+          tintColor={theme.colors.brand}
         />
       }
       showsVerticalScrollIndicator={false}
     >
+      <HomeHeader />
+      <OngoingOrderCard />
+      {renderSearchBar()}
+      <EpicerieStories
+        epiceries={popularEpiceries}
+        onPress={handleEpicerieTap}
+      />
+      <FlashDealsSection
+        promotions={promotions}
+        onPress={(p) => router.push({
+          pathname: '/(client)/(epicerie)/[id]',
+          params: { id: p.epicerieId.toString() },
+        })}
+      />
       {renderPromoBanner()}
-      {renderCategories()}
+      {renderQuickReorder()}
+      <HomeCategories
+        onPress={handleCategoryTap}
+        onSeeMore={handleSeeMoreCategories}
+      />
       {renderPopularEpiceries()}
       {renderTrendingProducts()}
       {renderRecentlyViewed()}
 
-      {/* Empty state */}
       {trendingProducts.length === 0 &&
         popularEpiceries.length === 0 &&
         recentlyViewed.length === 0 && (
@@ -508,35 +565,75 @@ export default function HomeScreen() {
   );
 }
 
-/**
- * Styles
- */
-const styles = StyleSheet.create({
+const makeStyles = (theme: Theme) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f8f8',
+    backgroundColor: theme.colors.background,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+  reorderCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: theme.colors.surface,
+    marginHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.xs,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    gap: theme.spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.brand,
+    ...theme.shadows.sm,
+  },
+  reorderIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reorderContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  reorderTitle: {
+    ...theme.typography.titleSm,
+    color: theme.colors.textPrimary,
+  },
+  reorderSubtitle: {
+    ...theme.typography.body,
+    color: theme.colors.textSecondary,
+    marginTop: 2,
+  },
+  reorderMeta: {
+    ...theme.typography.caption,
+    color: theme.colors.textMuted,
+    marginTop: 1,
+  },
+  reorderCta: {
+    width: 36,
+    height: 36,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.brandSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reorderCtaText: {
+    color: theme.colors.brand,
+    fontSize: 18,
+    fontWeight: '700',
   },
   promoBanner: {
     backgroundColor: '#FF6B6B',
-    marginHorizontal: 15,
-    marginVertical: 15,
-    borderRadius: 15,
+    marginHorizontal: theme.spacing.lg,
+    marginVertical: theme.spacing.lg,
+    borderRadius: theme.radius.lg,
     flexDirection: 'row',
-    padding: 15,
+    padding: theme.spacing.lg,
     alignItems: 'center',
     justifyContent: 'space-between',
     width: width - 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    ...theme.shadows.md,
   },
   promoContent: {
     flexDirection: 'row',
@@ -546,30 +643,30 @@ const styles = StyleSheet.create({
   promoImage: {
     width: 60,
     height: 60,
-    borderRadius: 10,
-    marginRight: 12,
-    backgroundColor: '#f0f0f0',
+    borderRadius: theme.radius.md,
+    marginRight: theme.spacing.md,
+    backgroundColor: theme.colors.surfaceMuted,
   },
   promoEmoji: {
     fontSize: 40,
-    marginRight: 12,
+    marginRight: theme.spacing.md,
   },
   promoText: {
     flex: 1,
   },
   promoTitle: {
-    color: '#fff',
+    color: theme.colors.onBrand,
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   promoDesc: {
-    color: '#fff',
+    color: theme.colors.onBrand,
     fontSize: 13,
     opacity: 0.9,
     marginTop: 2,
   },
   promoStore: {
-    color: '#fff',
+    color: theme.colors.onBrand,
     fontSize: 11,
     opacity: 0.8,
     marginTop: 4,
@@ -578,156 +675,122 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: theme.radius.pill,
     justifyContent: 'center',
     alignItems: 'center',
   },
   promoButtonText: {
-    color: '#fff',
+    color: theme.colors.onBrand,
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   searchContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.xs,
+  },
+  searchInputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadows.sm,
+  },
+  searchIcon: {
+    marginRight: theme.spacing.sm,
   },
   searchInput: {
     flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: theme.spacing.md,
     fontSize: 14,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    color: theme.colors.textPrimary,
   },
   clearButton: {
-    marginLeft: 8,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  clearButtonText: {
-    fontSize: 18,
-    color: '#999',
+    padding: 4,
+    marginLeft: theme.spacing.xs,
   },
   section: {
-    paddingHorizontal: 15,
-    marginTop: 20,
-    marginBottom: 10,
+    paddingHorizontal: theme.spacing.lg,
+    marginTop: theme.spacing.xl,
+    marginBottom: theme.spacing.sm,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: theme.spacing.md,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+    ...theme.typography.titleMd,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.md,
   },
   seeAllLink: {
-    color: '#4CAF50',
+    color: theme.colors.brand,
     fontSize: 13,
     fontWeight: '600',
   },
-  categoriesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  categoryCard: {
-    width: '30%',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-    minHeight: 100,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  categoryEmoji: {
-    fontSize: 40,
-    marginBottom: 6,
-  },
-  categoryName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-  },
   epicerieCard: {
-    width: width - 50,
-    marginRight: 12,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    width: EPICERIE_CARD_WIDTH,
+    marginRight: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    ...theme.shadows.sm,
   },
   epicerieImage: {
     width: '100%',
-    height: 120,
-    backgroundColor: '#f0f0f0',
+    height: 110,
+    backgroundColor: theme.colors.surfaceMuted,
   },
   epicerieImagePlaceholder: {
     justifyContent: 'center',
     alignItems: 'center',
   },
   placeholderEmoji: {
-    fontSize: 48,
+    fontSize: 40,
   },
   epicerieInfo: {
-    padding: 12,
+    padding: theme.spacing.md,
   },
   epicerieName: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
+    ...theme.typography.bodyStrong,
+    color: theme.colors.textPrimary,
     marginBottom: 4,
   },
   epicerieAddress: {
     fontSize: 12,
-    color: '#999',
-    marginBottom: 8,
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.sm,
   },
   epicerieStatus: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   statusBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: theme.spacing.sm,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: theme.radius.sm,
   },
   statusOpen: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: theme.colors.successSubtle,
   },
   statusClosed: {
-    backgroundColor: '#FFEBEE',
+    backgroundColor: theme.colors.dangerSubtle,
   },
   statusBadgeText: {
     fontSize: 11,
     fontWeight: '600',
   },
   statusBadgeTextOpen: {
-    color: '#4CAF50',
+    color: theme.colors.success,
   },
   statusBadgeTextClosed: {
-    color: '#F44336',
+    color: theme.colors.danger,
   },
   productsGrid: {
     flexDirection: 'row',
@@ -736,39 +799,39 @@ const styles = StyleSheet.create({
   },
   productCard: {
     width: CARD_WIDTH,
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
     overflow: 'hidden',
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    marginBottom: theme.spacing.md,
+    ...theme.shadows.sm,
   },
   productImage: {
     width: '100%',
     height: 140,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  productImagePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   productInfo: {
-    padding: 10,
+    padding: theme.spacing.sm,
   },
   productName: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#333',
+    color: theme.colors.textPrimary,
     marginBottom: 4,
   },
   productStore: {
     fontSize: 11,
-    color: '#999',
+    color: theme.colors.textMuted,
     marginBottom: 6,
   },
   productPrice: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#4CAF50',
+    fontWeight: '700',
+    color: theme.colors.brand,
   },
   emptyState: {
     alignItems: 'center',
@@ -777,26 +840,26 @@ const styles = StyleSheet.create({
   },
   emptyStateEmoji: {
     fontSize: 60,
-    marginBottom: 12,
+    marginBottom: theme.spacing.md,
   },
   emptyStateText: {
     fontSize: 16,
-    color: '#999',
-    marginBottom: 20,
+    color: theme.colors.textMuted,
+    marginBottom: theme.spacing.xl,
     fontWeight: '500',
   },
   emptyStateButton: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
+    backgroundColor: theme.colors.brand,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.radius.md,
   },
   emptyStateButtonText: {
-    color: '#fff',
+    color: theme.colors.onBrand,
     fontSize: 14,
-    fontWeight: 'bold',
+    fontWeight: '700',
   },
   spacer: {
-    height: 20,
+    height: theme.spacing.xl,
   },
 });

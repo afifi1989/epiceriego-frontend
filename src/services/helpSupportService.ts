@@ -28,9 +28,18 @@ export interface HelpPage {
   contactInfo: ContactInfo[];
 }
 
+/** Public servi par /help/page — voir backend V92__help_audience.sql. */
+export type HelpAudience = 'CLIENT' | 'EPICIER';
+
 const helpSupportService = {
-  getHelpPage: async (): Promise<HelpPage> => {
-    const response = await api.get<HelpPage>('/help/page');
+  /**
+   * Charge la page Aide pour l'audience demandée. Sans paramètre, le backend
+   * retombe sur 'CLIENT' (comportement historique pour le mobile client).
+   */
+  getHelpPage: async (audience?: HelpAudience): Promise<HelpPage> => {
+    const response = await api.get<HelpPage>('/help/page', {
+      params: audience ? { audience } : undefined,
+    });
     return response.data;
   },
 };

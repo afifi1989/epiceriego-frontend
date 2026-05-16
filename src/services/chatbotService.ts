@@ -1,8 +1,36 @@
 import api from './api';
 
 /**
- * Service for AI chatbot to parse natural language messages and extract products
+ * Service for AI chatbot to parse natural language messages and extract products.
+ *
+ * Localization contract: this service does NOT own translation strings. The
+ * caller passes a `t` function (from useLanguage) so that all assistant-facing
+ * text honors the user's chosen language. Backend response codes (parsingStatus,
+ * errorCode) are mapped to translation keys via the chatbot.status / chatbot.error
+ * sections in src/i18n/translations.ts (kept in sync with the backend
+ * ParsingStatusCodes / ParsingErrorCodes constants).
  */
+
+/** Translator function shape — matches useLanguage().t */
+export type Translator = (key: string) => string;
+
+/**
+ * Substitute {{name}} placeholders in a template. Lightweight; we don't depend
+ * on a full i18n framework yet, and the placeholder set is closed (defined in
+ * translations.ts), so a 5-line replace is enough.
+ */
+export const interpolate = (template: string, params: Record<string, string | number> = {}): string => {
+  return Object.entries(params).reduce(
+    (acc, [key, value]) => acc.replaceAll(`{{${key}}}`, String(value)),
+    template,
+  );
+};
+
+/** Translate then interpolate. The two-step is exported so consumers (e.g. ChatbotModal)
+ *  can reuse the same formatting logic without re-implementing the helper. */
+export const tFmt = (t: Translator, key: string, params?: Record<string, string | number>): string => {
+  return interpolate(t(key), params);
+};
 
 export interface ChatMessage {
   id: string;
@@ -92,7 +120,10 @@ export interface ChatbotResponse {
 
 export const chatbotService = {
   /**
-   * Parse a natural language message to extract products
+   * Parse a natural language message to extract products.
+   *
+   * @param language ISO code (fr/ar/en/tz). Drives the backend prompt strategy
+   *                 and the localization of returned product names.
    */
   parseMessage: async (
     messageContent: string,
@@ -106,47 +137,75 @@ export const chatbotService = {
         epicerieId,
         clientId,
         language,
-        minimumConfidence: 0.5,
-        maxSuggestions: 3,
+        minimumConfidence: 0.3,
+        maxSuggestions: 5,
       });
 
       return response.data;
     } catch (error: any) {
       console.error('Error parsing message:', error);
-      throw new Error(error.response?.data?.message || 'Erreur lors de l\'analyse du message');
+      // Surface the backend errorCode when available so the UI can resolve a
+      // localized label via t(`chatbot.error.${code}`); fall back to a stable
+      // sentinel that the UI translates as a generic parse error.
+      const code = error.response?.data?.errorCode || 'PARSING_ERROR';
+      const err = new Error(code);
+      (err as any).errorCode = code;
+      throw err;
     }
   },
 
   /**
-   * Generate a response message for the user based on parsing results
+   * Build the assistant-facing reply from a parsing response.
+   *
+   * <p>The translator is injected so the caller (ChatbotModal) controls the
+   * language. All user-visible text comes from the chatbot.* translation keys;
+   * structural data (counts, prices, names) stays as-is. Currency token comes
+   * from chatbot.currency to keep the formatting locale-friendly.
    */
-  generateResponseMessage: (response: ChatbotResponse): string => {
+  generateResponseMessage: (response: ChatbotResponse, t: Translator): string => {
     if (response.parsingStatus === 'FAILED') {
-      return `Désolé, je n'ai pas pu analyser votre message. ${response.errorMessage || 'Veuillez réessayer.'}`;
+      const detail = response.errorCode
+        ? t(`chatbot.error.${response.errorCode}`)
+        : (response.errorMessage || '');
+      return tFmt(t, 'chatbot.status.FAILED', { error: detail }).trim();
     }
 
     if (response.parsingStatus === 'NO_PRODUCTS') {
-      return "Je n'ai détecté aucun produit dans votre message. Pouvez-vous préciser ce que vous souhaitez commander ? Par exemple : '1kg de pommes et 2 bouteilles de lait'";
+      return t('chatbot.status.NO_PRODUCTS');
     }
 
+    const currency = t('chatbot.currency');
     let message = '';
 
-    // Produits identifiés
+    // Identified products
     if (response.matchedCount > 0) {
-      message += `✅ J'ai trouvé ${response.matchedCount} produit(s) :\n\n`;
+      message += tFmt(t, 'chatbot.generated.foundProducts', { count: response.matchedCount });
       response.produitsIdentifies.forEach((product, index) => {
-        message += `${index + 1}. **${product.matchedProductName}** (${product.matchedUnitLabel}) - ${product.matchedPrice?.toFixed(2)} DH\n`;
-        message += `   Quantité : ${product.quantity} ${product.unit}\n`;
+        message += tFmt(t, 'chatbot.generated.productLine', {
+          index: index + 1,
+          name: product.matchedProductName ?? '',
+          unitLabel: product.matchedUnitLabel ?? '',
+          price: product.matchedPrice?.toFixed(2) ?? '',
+          currency,
+        });
+        message += tFmt(t, 'chatbot.generated.quantityLine', {
+          quantity: product.quantity,
+          unit: product.unit,
+        });
         if (product.matchedStock !== undefined) {
-          message += `   Stock : ${product.matchedStock}\n`;
+          message += tFmt(t, 'chatbot.generated.stockLine', { stock: product.matchedStock });
         }
-        // Show variant options if ambiguous
         if (product.hasMultipleVariants && product.alternativeUnits && product.alternativeUnits.length > 1) {
-          message += `   ⚠️ Plusieurs formats disponibles :\n`;
+          message += t('chatbot.generated.multipleVariants');
           product.alternativeUnits.forEach((variant, vIdx) => {
-            message += `      ${vIdx + 1}. ${variant.label} — ${variant.price.toFixed(2)} DH\n`;
+            message += tFmt(t, 'chatbot.generated.variantLine', {
+              index: vIdx + 1,
+              label: variant.label,
+              price: variant.price.toFixed(2),
+              currency,
+            });
           });
-          message += `   Sélectionnez le format souhaité ci-dessous.\n`;
+          message += t('chatbot.generated.selectVariantHint');
         }
         message += '\n';
       });
@@ -162,41 +221,48 @@ export const chatbotService = {
 
     if (ambiguousProducts.length > 0) {
       ambiguousProducts.forEach((amb) => {
-        message += `\n🤔 Pour *${amb.productName}*, plusieurs produits correspondent :\n\n`;
+        message += tFmt(t, 'chatbot.generated.productAmbiguityHeader', { name: amb.productName });
         amb.productOptions!.forEach((opt, idx) => {
           const brandSuffix =
             opt.brandName && !opt.productName.toLowerCase().includes(opt.brandName.toLowerCase())
               ? ` (${opt.brandName})`
               : '';
           const unitSuffix = opt.unitLabel ? ` — ${opt.unitLabel}` : '';
-          message += `${idx + 1}. ${opt.productName}${brandSuffix}${unitSuffix} — ${opt.price.toFixed(2)} DH\n`;
+          message += tFmt(t, 'chatbot.generated.productAmbiguityLine', {
+            index: idx + 1,
+            name: opt.productName,
+            brand: brandSuffix,
+            unit: unitSuffix,
+            price: opt.price.toFixed(2),
+            currency,
+          });
         });
-        message += `\n${amb.ambiguityHint || 'Touchez le produit souhaité ou précisez la marque (ex: huile Afia).'}\n`;
+        // Backend ambiguityHint is FR; prefer it when present so the épicier can
+        // craft a custom hint, otherwise fall back to the localized default.
+        const hint = amb.ambiguityHint || t('chatbot.generated.productAmbiguityHintDefault');
+        message += `\n${hint}\n`;
       });
     }
 
-    // Produits non identifiés (vraiment pas trouvés)
+    // Truly unmatched products
     if (trulyUnmatched.length > 0) {
-      message += `\n❓ Je n'ai pas trouvé ${trulyUnmatched.length} produit(s) :\n\n`;
+      message += tFmt(t, 'chatbot.generated.notFoundHeader', { count: trulyUnmatched.length });
       trulyUnmatched.forEach((product, index) => {
-        message += `${index + 1}. "${product.productName}" (${product.quantity} ${product.unit})\n`;
+        message += tFmt(t, 'chatbot.generated.notFoundLine', {
+          index: index + 1,
+          name: product.productName,
+          quantity: product.quantity,
+          unit: product.unit,
+        });
       });
 
-      // Suggestions
       if (response.suggestions && response.suggestions.length > 0) {
-        message += '\n💡 Suggestions :\n\n';
-        response.suggestions.forEach((suggestion) => {
-          message += `Pour "${suggestion.searchedProductName}" :\n`;
-          suggestion.options.slice(0, 2).forEach((option, idx) => {
-            message += `  ${idx + 1}. ${option.productName} (${option.unitLabel}) - ${option.price.toFixed(2)} DH\n`;
-          });
-          message += '\n';
-        });
+        message += t('chatbot.generated.suggestionsHint');
       }
     }
 
     if (response.matchedCount > 0) {
-      message += '\n📦 Voulez-vous ajouter ces produits au panier ?';
+      message += t('chatbot.generated.addToCartHint');
     }
 
     return message.trim();

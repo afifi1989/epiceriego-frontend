@@ -166,6 +166,19 @@ export const StepCatalogue = forwardRef<StepHandle, StepProps>(
 
     return (
       <View style={{ flex: 1, minHeight: 400 }}>
+        {/* ── Bandeau d'info : produits importés indisponibles + stock 0 ── */}
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoIcon}>💡</Text>
+          <Text style={styles.infoText}>
+            Sélectionnez les produits que vous vendez — vous pouvez choisir
+            une catégorie entière via le filtre, puis « Tout cocher ».
+            {'\n\n'}
+            <Text style={styles.infoBold}>Tous les produits importés seront indisponibles à la vente avec un stock à 0.</Text>
+            {' '}Vous pourrez ensuite paramétrer chaque produit (stock réel,
+            photo, prix définitif) et le rendre disponible.
+          </Text>
+        </View>
+
         {/* ── Barre de stats + actions ── */}
         <View style={styles.header}>
           <Text style={styles.headerStat}>
@@ -183,7 +196,9 @@ export const StepCatalogue = forwardRef<StepHandle, StepProps>(
                 return next;
               })}
             >
-              <Text style={styles.headerLink}>Tout</Text>
+              <Text style={styles.headerLink}>
+                {selectedCategoryId != null ? 'Tout cocher cette catégorie' : 'Tout cocher'}
+              </Text>
             </TouchableOpacity>
             <Text style={styles.headerSep}>·</Text>
             <TouchableOpacity
@@ -275,13 +290,22 @@ export const StepCatalogue = forwardRef<StepHandle, StepProps>(
                     {item.nomAr && (
                       <Text style={styles.rowNameAr}>{item.nomAr}</Text>
                     )}
-                    <Text style={styles.rowCategory}>{item.categoryName}</Text>
+                    <View style={styles.rowMetaRow}>
+                      <Text style={styles.rowCategory}>{item.categoryName}</Text>
+                      {item.brand && (
+                        <View style={styles.brandPill}>
+                          <Text style={styles.brandPillText}>{item.brand}</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                   <View style={styles.rowRight}>
                     <Text style={styles.rowPrice}>
                       {formatCurrency(item.prixSuggere, currency)}
                     </Text>
-                    <Text style={styles.rowStock}>Stock {item.stockSuggere}</Text>
+                    {/* Stock affiche en gris pour rappeler qu'il sera 0 a l'import
+                        et que l'epicier devra l'ajuster apres. */}
+                    <Text style={styles.rowStock}>Stock 0 (à régler)</Text>
                   </View>
                 </TouchableOpacity>
               );
@@ -304,6 +328,29 @@ export const StepCatalogue = forwardRef<StepHandle, StepProps>(
 );
 
 const styles = StyleSheet.create({
+  // ── Bandeau info import ──
+  infoBanner: {
+    flexDirection: 'row',
+    gap: 10,
+    padding: 14,
+    backgroundColor: '#FEF3C7',
+    borderLeftWidth: 3,
+    borderLeftColor: '#F59E0B',
+    borderRadius: 10,
+    marginBottom: 14,
+  },
+  infoIcon: { fontSize: 18, lineHeight: 22 },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#92400E',
+  },
+  infoBold: {
+    fontWeight: '700',
+    color: '#78350F',
+  },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -420,7 +467,28 @@ const styles = StyleSheet.create({
   checkmark: { color: '#fff', fontSize: 12, fontWeight: '700' },
   rowName: { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
   rowNameAr: { fontSize: 12, color: '#9aa3ad', marginTop: 1 },
-  rowCategory: { fontSize: 11, color: '#9aa3ad', marginTop: 2 },
+  rowCategory: { fontSize: 11, color: '#9aa3ad' },
+  rowMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 3,
+    flexWrap: 'wrap',
+  },
+  brandPill: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  brandPillText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#1D4ED8',
+    letterSpacing: 0.2,
+  },
   rowRight: { alignItems: 'flex-end' },
   rowPrice: { fontSize: 14, fontWeight: '700', color: PRIMARY },
   rowStock: { fontSize: 11, color: '#9aa3ad', marginTop: 2 },

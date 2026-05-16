@@ -1,15 +1,16 @@
 /**
- * StepDelivery — Étape "Zones de livraison" du wizard.
+ * StepDelivery — Étape "Livraison" du wizard.
  *
- * Format JSON serialisé sur Epicerie.deliveryZones (cf.
- * EpicerieController.validateDeliveryZones backend) :
- *   [
- *     { "name": "Zone proche",  "deliveryFee": 10, "maxDistance": 3,  "isActive": true },
- *     { "name": "Zone étendue", "deliveryFee": 20, "maxDistance": 10, "isActive": true }
- *   ]
+ * 3 stratégies de calcul (Epicerie.deliveryMode) :
+ *  - ZONES      : tableau de zones tarifaires basées sur la distance.
+ *                 JSON Epicerie.deliveryZones :
+ *                   [{ name, deliveryFee, maxDistance, isActive }, ...]
+ *  - FLAT_RATE  : un montant fixe (Epicerie.flatDeliveryFee), peu importe la distance.
+ *  - NONE       : pas de livraison du tout, retrait en boutique uniquement.
  *
- * Validation backend : tableau non vide, chaque zone a name + deliveryFee + maxDistance,
- * deliveryFee >= 0, maxDistance > 0, et au moins une zone avec isActive=true.
+ * Validation backend (mode ZONES) : tableau non vide, chaque zone a
+ * name + deliveryFee + maxDistance, deliveryFee >= 0, maxDistance > 0,
+ * et au moins une zone avec isActive=true.
  *
  * Migration : les anciens contenus `{mode: 'RADIUS', radiusKm}` ou
  * `{mode: 'NEIGHBORHOODS', ...}` sont convertis en zone unique au mount.
@@ -37,6 +38,8 @@ interface DeliveryZone {
   isActive: boolean;
 }
 
+type DeliveryMode = 'ZONES' | 'FLAT_RATE' | 'NONE';
+
 const STARTER_ZONES: DeliveryZone[] = [
   { name: 'Zone proche',   deliveryFee: 10, maxDistance: 3,  isActive: true },
   { name: 'Zone étendue',  deliveryFee: 20, maxDistance: 10, isActive: true },
@@ -44,6 +47,12 @@ const STARTER_ZONES: DeliveryZone[] = [
 
 export const StepDelivery = forwardRef<StepHandle, StepProps>(
   function StepDelivery({ epicerie, busy }, ref) {
+    const [mode, setMode] = useState<DeliveryMode>(
+      () => (epicerie.deliveryMode as DeliveryMode | undefined) ?? 'ZONES',
+    );
+    const [flatDeliveryFee, setFlatDeliveryFee] = useState<number>(
+      () => epicerie.flatDeliveryFee ?? 0,
+    );
     const [zones, setZones] = useState<DeliveryZone[]>(
       () => parseZones(epicerie.deliveryZones) ?? [...STARTER_ZONES],
     );
@@ -79,6 +88,36 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
 
     useImperativeHandle(ref, () => ({
       async submit() {
+        // Mode NONE : rien à valider, l'épicerie ne livre tout simplement pas.
+        if (mode === 'NONE') {
+          try {
+            await epicerieService.updateMyEpicerie({ deliveryMode: 'NONE' });
+            return true;
+          } catch (err: any) {
+            Alert.alert('Erreur', err?.message ?? 'Sauvegarde impossible');
+            return false;
+          }
+        }
+
+        // Mode FLAT_RATE : un seul montant à valider.
+        if (mode === 'FLAT_RATE') {
+          if (flatDeliveryFee == null || flatDeliveryFee < 0) {
+            Alert.alert('Forfait invalide', 'Le forfait ne peut pas être négatif.');
+            return false;
+          }
+          try {
+            await epicerieService.updateMyEpicerie({
+              deliveryMode: 'FLAT_RATE',
+              flatDeliveryFee,
+            });
+            return true;
+          } catch (err: any) {
+            Alert.alert('Erreur', err?.message ?? 'Sauvegarde impossible');
+            return false;
+          }
+        }
+
+        // Mode ZONES : validation locale alignée sur le backend.
         if (zones.length === 0) {
           Alert.alert('Aucune zone', 'Ajoutez au moins une zone de livraison.');
           return false;
@@ -118,6 +157,7 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
 
         try {
           await epicerieService.updateMyEpicerie({
+            deliveryMode: 'ZONES',
             deliveryZones: JSON.stringify(payload),
           });
           return true;
@@ -134,13 +174,80 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
         <View style={styles.introBanner}>
           <MaterialIcons name="local-shipping" size={22} color={colors.primary} />
           <View style={styles.introText}>
-            <Text style={styles.introTitle}>Vos zones de livraison</Text>
+            <Text style={styles.introTitle}>Mode de livraison</Text>
             <Text style={styles.introSubtitle}>
-              Définissez plusieurs zones tarifaires (proche, étendue) avec un
-              rayon max et des frais propres. Le client paiera selon la distance.
+              Choisissez comment vous facturez la livraison à vos clients.
             </Text>
           </View>
         </View>
+
+        {/* Sélecteur de mode (3 cartes) */}
+        <View style={styles.modePicker}>
+          <ModeCard
+            active={mode === 'ZONES'}
+            icon="map"
+            title="Par zones"
+            subtitle="Tarifs selon la distance"
+            onPress={() => setMode('ZONES')}
+            disabled={busy}
+          />
+          <ModeCard
+            active={mode === 'FLAT_RATE'}
+            icon="attach-money"
+            title="Forfait unique"
+            subtitle="Un montant fixe pour toute livraison"
+            onPress={() => setMode('FLAT_RATE')}
+            disabled={busy}
+          />
+          <ModeCard
+            active={mode === 'NONE'}
+            icon="block"
+            title="Pas de livraison"
+            subtitle="Retrait en boutique uniquement"
+            onPress={() => setMode('NONE')}
+            disabled={busy}
+          />
+        </View>
+
+        {/* Mode FLAT_RATE : un seul champ */}
+        {mode === 'FLAT_RATE' && (
+          <View style={styles.flatSection}>
+            <Text style={styles.fieldLabel}>💰 Forfait livraison</Text>
+            <View style={styles.inputWithSuffix}>
+              <TextInput
+                style={styles.numericInput}
+                value={flatDeliveryFee != null ? String(flatDeliveryFee) : ''}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/[^\d.]/g, '');
+                  const n = parseFloat(cleaned);
+                  setFlatDeliveryFee(Number.isNaN(n) ? 0 : n);
+                }}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor="#9aa3ad"
+                editable={!busy}
+              />
+              <Text style={styles.suffix}>{currencySymbol}</Text>
+            </View>
+            <Text style={styles.hint}>
+              Ce montant sera ajouté à toute commande livrée à domicile, peu importe la distance.
+            </Text>
+          </View>
+        )}
+
+        {/* Mode NONE : juste un message */}
+        {mode === 'NONE' && (
+          <View style={styles.noneSection}>
+            <MaterialIcons name="info-outline" size={20} color="#F57C00" />
+            <Text style={styles.noneText}>
+              Vos clients ne pourront que <Text style={styles.noneTextStrong}>retirer leurs commandes en boutique</Text>.
+              L'option "livraison à domicile" sera désactivée dans l'app mobile.
+            </Text>
+          </View>
+        )}
+
+        {/* Mode ZONES : configuration multi-zones existante */}
+        {mode === 'ZONES' && <>
 
         {/* Liste des zones */}
         {zones.map((zone, index) => (
@@ -248,10 +355,39 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
           Conseil : créez au moins 2 zones (proche / étendue) pour mieux refléter
           vos coûts. Les zones désactivées ne livreront pas mais sont conservées.
         </Text>
+        </>}
       </View>
     );
   }
 );
+
+interface ModeCardProps {
+  active: boolean;
+  icon: React.ComponentProps<typeof MaterialIcons>['name'];
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+
+function ModeCard({ active, icon, title, subtitle, onPress, disabled }: ModeCardProps) {
+  return (
+    <TouchableOpacity
+      style={[styles.modeCard, active && styles.modeCardActive, disabled && styles.modeCardDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.8}
+    >
+      <MaterialIcons
+        name={icon}
+        size={20}
+        color={active ? colors.success : colors.textMuted}
+      />
+      <Text style={[styles.modeCardTitle, active && styles.modeCardTitleActive]}>{title}</Text>
+      <Text style={styles.modeCardSubtitle}>{subtitle}</Text>
+    </TouchableOpacity>
+  );
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -454,5 +590,74 @@ const styles = StyleSheet.create({
     ...typography.caption,
     fontSize: 12,
     color: colors.textMuted,
+  },
+
+  // ── Mode picker (ZONES / FLAT_RATE / NONE) ──────────────────
+  modePicker: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginBottom: space.md,
+  },
+  modeCard: {
+    flex: 1,
+    padding: space.sm,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    alignItems: 'flex-start',
+    gap: 4,
+  },
+  modeCardActive: {
+    borderColor: colors.success,
+    backgroundColor: colors.successSoft,
+  },
+  modeCardDisabled: {
+    opacity: 0.5,
+  },
+  modeCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  modeCardTitleActive: {
+    color: colors.success,
+  },
+  modeCardSubtitle: {
+    fontSize: 11,
+    color: colors.textMuted,
+    lineHeight: 14,
+  },
+
+  // ── Flat-rate section ────────────────────────────────────────
+  flatSection: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    padding: space.md,
+    marginBottom: space.md,
+  },
+
+  // ── None section ─────────────────────────────────────────────
+  noneSection: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    padding: space.md,
+    backgroundColor: '#FFF8E1',
+    borderColor: '#FFE082',
+    borderWidth: 1,
+    borderRadius: radii.md,
+    marginBottom: space.md,
+  },
+  noneText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#5D4037',
+    lineHeight: 18,
+  },
+  noneTextStrong: {
+    fontWeight: '700',
   },
 });

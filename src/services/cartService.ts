@@ -37,6 +37,15 @@ export const cartService = {
             migratedItem.epicerieId = 0; // Invalide - sera rejeté à la checkout
           }
 
+          // Migration: les anciens paniers stockaient `unitId: 0` pour les
+          // produits sans variante. Le backend interprète ce 0 comme un id
+          // de ProductUnit valide et déclenche "Unit not found". On le
+          // supprime ici pour que le payload bascule en branche legacy.
+          if (item.unitId === 0 || item.unitId === null) {
+            console.warn('[CartService] 🛠 Migration unitId=0 → undefined pour:', item.productNom);
+            delete migratedItem.unitId;
+          }
+
           return migratedItem;
         });
 
@@ -186,3 +195,38 @@ export const cartService = {
     }
   },
 };
+
+/**
+ * Helper pur (synchrone) : groupe une liste de CartItem par epicerieId.
+ *
+ * <p>Retourne un Array d'entrees {@code { epicerieId, items, subtotal }}
+ * tri par epicerieId pour un ordre stable a l'affichage. Les items
+ * sans epicerieId valide sont regroupes sous la cle 0 (a traiter
+ * comme invalide cote checkout).</p>
+ *
+ * <p>Utilise par l'ecran panier pour afficher des sections par boutique
+ * et par le checkout pour generer une requete par epicerie.</p>
+ */
+export interface CartGroup {
+  epicerieId: number;
+  items: CartItem[];
+  subtotal: number;
+  itemCount: number;
+}
+
+export function groupCartByEpicerie(cart: CartItem[]): CartGroup[] {
+  const map = new Map<number, CartItem[]>();
+  for (const item of cart) {
+    const id = item.epicerieId || 0;
+    if (!map.has(id)) map.set(id, []);
+    map.get(id)!.push(item);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([epicerieId, items]) => ({
+      epicerieId,
+      items,
+      subtotal: items.reduce((s, it) => s + (it.totalPrice || 0), 0),
+      itemCount: items.reduce((s, it) => s + (it.quantity || 0), 0),
+    }));
+}

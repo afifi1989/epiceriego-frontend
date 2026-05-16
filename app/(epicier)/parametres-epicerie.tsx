@@ -14,7 +14,7 @@
  *    components sont utilisés.
  */
 
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -56,13 +56,35 @@ const SECTIONS: SectionDef[] = [
   { key: 'WHATSAPP',    icon: '💬', title: 'WhatsApp Business', description: 'Réception de commandes via WhatsApp' },
 ];
 
+const SECTION_KEYS: readonly SectionKey[] = ['LOCATION', 'PHOTOS', 'DESCRIPTION', 'HOURS', 'DELIVERY', 'WHATSAPP'];
+
+function isSectionKey(value: unknown): value is SectionKey {
+  return typeof value === 'string' && (SECTION_KEYS as readonly string[]).includes(value);
+}
+
 export default function ParametresEpicerieScreen() {
   const router = useRouter();
+  // Deep-link entry points (e.g. profil-epicerie's "🚚 Livraison" shortcut)
+  // pass `?section=DELIVERY` to land directly inside the right config dialog.
+  const { section: sectionParam } = useLocalSearchParams<{ section?: string }>();
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
   const [country, setCountry] = useState<Country | null>(null);
   const [loading, setLoading] = useState(true);
   const [openSection, setOpenSection] = useState<SectionKey | null>(null);
   const stepRef = useRef<StepHandle>(null);
+
+  // Open the requested section once the epicerie is loaded — opening before
+  // would render the modal with empty data. Tracked via a ref so a manual
+  // close inside the same session isn't undone by the same param.
+  const sectionParamConsumed = useRef(false);
+  useEffect(() => {
+    if (sectionParamConsumed.current) return;
+    if (!epicerie) return;
+    if (isSectionKey(sectionParam)) {
+      setOpenSection(sectionParam);
+      sectionParamConsumed.current = true;
+    }
+  }, [epicerie, sectionParam]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -92,7 +114,14 @@ export default function ParametresEpicerieScreen() {
       case 'PHOTOS':      return !!epicerie.photoUrl || !!epicerie.presentationPhotoUrl;
       case 'DESCRIPTION': return !!epicerie.description?.trim() || !!epicerie.telephonePro;
       case 'HOURS':       return !!epicerie.horaires;
-      case 'DELIVERY':    return !!epicerie.deliveryZones;
+      case 'DELIVERY':
+        // Toute combinaison valide compte comme "complète" :
+        //   ZONES + au moins 1 zone définie, FLAT_RATE + flatDeliveryFee >= 0, ou NONE.
+        if (epicerie.deliveryMode === 'NONE') return true;
+        if (epicerie.deliveryMode === 'FLAT_RATE') {
+          return epicerie.flatDeliveryFee != null && epicerie.flatDeliveryFee >= 0;
+        }
+        return !!epicerie.deliveryZones;
       case 'WHATSAPP':    return epicerie.whatsappEnabled === true;
     }
   };
@@ -117,6 +146,13 @@ export default function ParametresEpicerieScreen() {
       case 'HOURS':
         return epicerie.horaires ? 'Horaires configurés' : 'Non configurés';
       case 'DELIVERY':
+        // Branche par mode : NONE / FLAT_RATE explicites, sinon comportement zones.
+        if (epicerie.deliveryMode === 'NONE') return 'Pas de livraison (retrait uniquement)';
+        if (epicerie.deliveryMode === 'FLAT_RATE') {
+          if (epicerie.flatDeliveryFee == null) return 'Forfait à définir';
+          const sym = epicerie.currency?.symbol ?? '';
+          return `Forfait : ${epicerie.flatDeliveryFee} ${sym}`.trim();
+        }
         if (!epicerie.deliveryZones) return 'Aucune zone définie';
         try {
           const parsed = JSON.parse(epicerie.deliveryZones);

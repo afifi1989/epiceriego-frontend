@@ -82,12 +82,18 @@ export default function WhatsAppSettingsScreen() {
         text1: 'Enregistré',
         text2: 'Paramètres WhatsApp mis à jour',
       });
-    } catch (error) {
-      Toast.show({
-        type: 'error',
-        text1: 'Erreur',
-        text2: 'Impossible de sauvegarder les paramètres',
-      });
+    } catch (error: any) {
+      // Si l'intercepteur 402 a deja affiche l'Alert d'abonnement,
+      // on n'empile pas un Toast generique. Sinon on affiche le
+      // message du backend en priorite (clair) sinon fallback statique.
+      if (!error?.__subscriptionGateHandled) {
+        const backendMsg = error?.response?.data?.message ?? error?.message;
+        Toast.show({
+          type: 'error',
+          text1: 'Erreur',
+          text2: backendMsg ?? 'Impossible de sauvegarder les paramètres',
+        });
+      }
     } finally {
       setSaving(false);
     }

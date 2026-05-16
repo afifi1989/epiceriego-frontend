@@ -57,6 +57,47 @@ console.log('[API] URL de base:', API_CONFIG.BASE_URL);
 console.log('[API] Timeout:', API_CONFIG.TIMEOUT + 'ms');
 console.log('========================================');
 
+// ── Feedback erreurs reseau / backend down ──────────────────────────────
+// Throttle a 1 Alert toutes les 5 secondes pour eviter le spam quand plusieurs
+// requetes echouent en cascade (typique d'un ecran avec 3-4 fetchs au mount).
+let lastBackendErrorAt = 0;
+const BACKEND_ERROR_THROTTLE_MS = 5000;
+
+/** Libelle humain des codes plan (mirror FeaturePlanMappingService.humanPlanName). */
+function planHumanName(planCode: string): string {
+  switch (planCode) {
+    case 'DECOUVERTE': return 'Découverte';
+    case 'ESSENTIEL':  return 'Essentiel';
+    case 'PRO':        return 'Pro';
+    case 'PREMIUM':    return 'Premium';
+    default:           return planCode;
+  }
+}
+
+function showBackendErrorOnce(kind: 'network' | 'timeout' | 'server'): void {
+  const now = Date.now();
+  if (now - lastBackendErrorAt < BACKEND_ERROR_THROTTLE_MS) return;
+  lastBackendErrorAt = now;
+  try {
+    const { Alert } = require('react-native');
+    let title: string;
+    let message: string;
+    if (kind === 'network') {
+      title = 'Pas de connexion';
+      message = "Verifiez votre connexion Internet (Wi-Fi ou donnees mobiles) puis reessayez.";
+    } else if (kind === 'timeout') {
+      title = 'Le serveur est lent';
+      message = 'Le serveur met du temps a repondre. Reessayez dans quelques instants.';
+    } else {
+      title = 'Service indisponible';
+      message = 'Le serveur rencontre un probleme. Reessayez dans quelques instants — nous travaillons a remettre tout en ordre.';
+    }
+    Alert.alert(title, message);
+  } catch (e) {
+    console.warn('[API] showBackendErrorOnce echec:', e);
+  }
+}
+
 const api: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
@@ -135,6 +176,30 @@ async function performRefresh(): Promise<string | null> {
       [STORAGE_KEYS.TOKEN, newAccess],
       [STORAGE_KEYS.REFRESH_TOKEN, newRefresh],
     ]);
+
+    // Le backend ré-émet permissions[] et collaboratorRole à chaque refresh :
+    // on aligne le user persisté pour que usePermissions voie tout changement
+    // de rôle côté serveur sans nécessiter un re-login complet.
+    try {
+      const userStr = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        let changed = false;
+        if (data?.permissions !== undefined) { user.permissions = data.permissions; changed = true; }
+        if (data?.collaboratorRole !== undefined) { user.collaboratorRole = data.collaboratorRole; changed = true; }
+        if (data?.role) { user.role = data.role; changed = true; }
+        if (changed) {
+          await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+          // Notifie PermissionGate sans attendre un re-mount
+          try {
+            const { setCachedUser } = require('../hooks/useCurrentUser');
+            setCachedUser(user);
+          } catch { /* hook pas encore charge, ignore */ }
+        }
+      }
+    } catch {
+      // user storage corrompu ou JSON invalide : on n'écrase pas
+    }
 
     console.log('[API] 🔄 Refresh token rotated');
     return newAccess;
@@ -267,6 +332,99 @@ api.interceptors.response.use(
       // Refresh impossible → déconnexion propre
       await clearAuthStorage();
       return Promise.reject(error);
+    }
+
+    // ── Backend down / timeout / pas de reseau ────────────────────────
+    // Le caller (ecran) catch deja et peut afficher son propre message,
+    // mais beaucoup de boutons silencieux dans l'app ne reagissent pas.
+    // On affiche ici un Alert global *throttle* pour rassurer l'utilisateur
+    // ("rien ne se passe quand je clique" → "ah il y a un probleme reseau").
+    //
+    // Skip si :
+    //   - on est sur un endpoint /auth/* (login gere son propre toast)
+    //   - on a deja servi du cache pour ce GET (fallback reussi plus haut)
+    //   - un autre Alert reseau est deja sorti il y a moins de 5s
+    //   - c'est un 4xx attendu (404, 400, 422...) que l'ecran va gerer
+    {
+      const status = error.response?.status;
+      const code = error.code;
+      const isNetworkError = code === 'ERR_NETWORK' || !error.response;
+      const isTimeout = code === 'ECONNABORTED';
+      const isServerDown = typeof status === 'number' && status >= 500;
+
+      if ((isNetworkError || isTimeout || isServerDown) && !isAuthUrl(originalConfig?.url)) {
+        showBackendErrorOnce(isServerDown ? 'server' : isTimeout ? 'timeout' : 'network');
+      }
+    }
+
+    // ── 402 Payment Required : feature d'abonnement manquante ───────────
+    // Le backend renvoie SubscriptionGateResponse { type, feature,
+    // currentPlan, requiredPlan, message, upgradeUrl } depuis l'aspect
+    // SubscriptionFeatureAspect. On affiche un Alert avec CTA vers la
+    // page Mon abonnement pour que l'epicier puisse upgrade en un tap.
+    // Throttle implicite : l'epicier doit dismiss le precedent Alert avant
+    // qu'un nouveau s'affiche, donc pas besoin de gestion specifique.
+    if (error.response?.status === 402) {
+      const data: any = error.response.data;
+      const message: string | undefined = data?.message;
+      const requiredPlan: string | undefined = data?.requiredPlan;
+      try {
+        const { Alert } = require('react-native');
+        const { router } = require('expo-router');
+        const planLabel = requiredPlan ? planHumanName(requiredPlan) : 'supérieur';
+        const body = message
+          ?? `Cette fonctionnalité nécessite le plan ${planLabel} ou supérieur. Souhaitez-vous voir les offres ?`;
+        Alert.alert(
+          '🔒 Fonctionnalité bloquée',
+          body,
+          [
+            { text: 'Plus tard', style: 'cancel' },
+            {
+              text: 'Voir les offres',
+              onPress: () => {
+                try { router.push('/(epicier)/mon-abonnement'); } catch (e) {
+                  console.warn('[API] redirect mon-abonnement failed:', e);
+                }
+              },
+            },
+          ],
+        );
+      } catch (e) {
+        console.warn('[API] 402 modal impossible:', e);
+      }
+      // Tagger l'erreur pour que les ecrans en aval (catch + Alert.alert
+      // generique "Sauvegarde impossible") puissent l'ignorer.
+      (error as any).__subscriptionGateHandled = true;
+    }
+
+    // ── 403 enrichi : permission manquante identifiee ────────────────────
+    // Le backend (V97+) renvoie PermissionDeniedResponse {message, requiredPermission}
+    // depuis l'aspect EpicierPermissionAspect. On affiche un Alert contextualise
+    // une seule fois plutot que de laisser chaque ecran improviser son propre
+    // "Erreur" generique.
+    if (error.response?.status === 403) {
+      const data: any = error.response.data;
+      const requiredPermission: string | undefined = data?.requiredPermission;
+      if (requiredPermission) {
+        try {
+          const { Alert } = require('react-native');
+          const { labelForPermission, COLLABORATOR_ROLE_LABELS_FR } = require('../constants/permissionLabels');
+          const cached = (() => {
+            try { return require('../hooks/useCurrentUser').getCachedUser(); } catch { return null; }
+          })();
+          const collabRole: string | undefined = cached?.collaboratorRole;
+          const roleLabel = collabRole
+            ? (COLLABORATOR_ROLE_LABELS_FR[collabRole] ?? collabRole)
+            : null;
+          const featureLabel = labelForPermission(requiredPermission);
+          const detail = roleLabel
+            ? `L'action « ${featureLabel} » n'est pas disponible pour le rôle ${roleLabel}.`
+            : `L'action « ${featureLabel} » n'est pas autorisée.`;
+          Alert.alert('Accès refusé', detail);
+        } catch (e) {
+          console.warn('[API] 403 toast impossible:', e);
+        }
+      }
     }
 
     return Promise.reject(error);

@@ -15,12 +15,14 @@
  */
 
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { STORAGE_KEYS } from '../../src/constants/config';
 import { productService } from '../../src/services/productService';
-import { Product } from '../../src/type';
+import { LoginResponse, Product } from '../../src/type';
 import { ProductTabs, Tab } from '../../src/features/products/components/ProductTabs';
 import { InfoTab } from '../../src/features/products/components/tabs/InfoTab';
 import { VariantsTab } from '../../src/features/products/components/tabs/VariantsTab';
@@ -41,8 +43,18 @@ export default function FicheProduitScreen() {
   const [loading, setLoading] = useState(!!id);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const [activeTab, setActiveTab] = useState(0);
+  /** LoginResponse partagé aux onglets pour qu'ils dérivent leurs permissions
+   *  via usePermissions(user). Chargé une fois au montage — sinon les onglets
+   *  retombent sur le profil 'caissier' par défaut et masquent leurs actions. */
+  const [loginData, setLoginData] = useState<LoginResponse | null>(null);
 
   const isNew = !id;
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.USER).then(raw => {
+      if (raw) setLoginData(JSON.parse(raw));
+    });
+  }, []);
 
   // Réinitialiser l'état à chaque focus :
   // — sans id → nouveau produit (reset)
@@ -144,13 +156,13 @@ export default function FicheProduitScreen() {
           <InfoTab key={currentProduct?.id ?? 'new'} product={currentProduct} onSaved={onInfoSaved} />
         )}
         {activeTab === 1 && currentProduct && (
-          <VariantsTab product={currentProduct} onChanged={() => loadProduct(currentProduct.id)} />
+          <VariantsTab product={currentProduct} user={loginData} onChanged={() => loadProduct(currentProduct.id)} />
         )}
         {activeTab === 2 && currentProduct && (
-          <StockTab product={currentProduct} />
+          <StockTab product={currentProduct} user={loginData} />
         )}
         {activeTab === 3 && currentProduct && (
-          <BarcodesTab product={currentProduct} />
+          <BarcodesTab product={currentProduct} user={loginData} />
         )}
       </View>
 

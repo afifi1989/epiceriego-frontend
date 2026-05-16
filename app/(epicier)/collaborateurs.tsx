@@ -11,6 +11,8 @@ import {
   COLLABORATOR_ROLE_CONFIG, COLLABORATOR_STATUS_CONFIG,
 } from '../../src/type';
 import { collaborateurService } from '../../src/services/collaborateurService';
+import { PermissionsMatrixModal } from '../../src/components/epicier/PermissionsMatrixModal';
+import { UserProfile } from '../../src/hooks/usePermissions';
 
 const ROLES: { value: CollaboratorRole; label: string; desc: string }[] = [
   { value: 'MANAGER',      label: 'Manager',      desc: 'Accès complet (sauf suppression)' },
@@ -30,6 +32,23 @@ export default function CollaborateursScreen() {
   const [form, setForm]                 = useState<CollaboratorDirectCreateRequest>({
     nom: '', email: '', telephone: '', collaboratorRole: 'GESTIONNAIRE',
   });
+
+  // ── Matrice permissions (modale) ─────────────────────────────────────────
+  const [showMatrix, setShowMatrix]         = useState(false);
+  const [matrixHighlight, setMatrixHighlight] = useState<UserProfile | undefined>(undefined);
+
+  /** Mappe CollaboratorRole → UserProfile pour le highlight de colonne. */
+  const roleToProfile = (role: CollaboratorRole | string): UserProfile => {
+    const m: Record<string, UserProfile> = {
+      MANAGER: 'manager', GESTIONNAIRE: 'gestionnaire', CAISSIER: 'caissier',
+    };
+    return m[String(role).toUpperCase()] ?? 'caissier';
+  };
+
+  const openMatrixFor = (role?: CollaboratorRole) => {
+    setMatrixHighlight(role ? roleToProfile(role) : undefined);
+    setShowMatrix(true);
+  };
 
   // ── Détail ────────────────────────────────────────────────────────────────
   const [selected, setSelected]         = useState<Collaborateur | null>(null);
@@ -78,7 +97,9 @@ export default function CollaborateursScreen() {
         `Un email avec les identifiants a été envoyé à ${collab.email}.${idMsg}`
       );
     } catch (e: any) {
-      Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de créer le collaborateur');
+      if (!e?.__subscriptionGateHandled) {
+        Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de créer le collaborateur');
+      }
     } finally {
       setCreating(false);
     }
@@ -107,7 +128,9 @@ export default function CollaborateursScreen() {
               setShowDetail(false);
               loadData(true);
             } catch (e: any) {
-              Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de suspendre');
+              if (!e?.__subscriptionGateHandled) {
+                Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de suspendre');
+              }
             } finally {
               setActionLoading(false);
             }
@@ -125,7 +148,9 @@ export default function CollaborateursScreen() {
       setShowDetail(false);
       loadData(true);
     } catch (e: any) {
-      Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de réactiver');
+      if (!e?.__subscriptionGateHandled) {
+        Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de réactiver');
+      }
     } finally {
       setActionLoading(false);
     }
@@ -147,7 +172,9 @@ export default function CollaborateursScreen() {
               setShowDetail(false);
               loadData(true);
             } catch (e: any) {
-              Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de révoquer');
+              if (!e?.__subscriptionGateHandled) {
+                Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de révoquer');
+              }
             } finally {
               setActionLoading(false);
             }
@@ -215,6 +242,22 @@ export default function CollaborateursScreen() {
           <Text style={styles.statLabel}>En attente</Text>
         </View>
       </View>
+
+      {/* Bouton "Voir la matrice de permissions" — vue globale */}
+      <TouchableOpacity
+        style={matrixBtnStyles.btn}
+        onPress={() => openMatrixFor(undefined)}
+        activeOpacity={0.85}
+      >
+        <Text style={matrixBtnStyles.icon}>🛡️</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={matrixBtnStyles.title}>Voir les rôles et permissions</Text>
+          <Text style={matrixBtnStyles.subtitle}>
+            Comparer ce que chaque rôle peut faire
+          </Text>
+        </View>
+        <Text style={matrixBtnStyles.chev}>›</Text>
+      </TouchableOpacity>
 
       {/* Liste */}
       {loading ? (
@@ -387,6 +430,25 @@ export default function CollaborateursScreen() {
                       )}
                     </View>
 
+                    {/* Voir permissions du role (matrice avec colonne surlignee) */}
+                    <TouchableOpacity
+                      style={detailMatrixStyles.btn}
+                      onPress={() => {
+                        setShowDetail(false);
+                        openMatrixFor(selected.collaboratorRole);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={detailMatrixStyles.icon}>🛡️</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={detailMatrixStyles.title}>Voir les permissions du rôle</Text>
+                        <Text style={detailMatrixStyles.subtitle}>
+                          Détail de ce que peut faire un {roleConf.label}
+                        </Text>
+                      </View>
+                      <Text style={detailMatrixStyles.chev}>›</Text>
+                    </TouchableOpacity>
+
                     {/* Actions */}
                     {selected.status === 'ACTIVE' && (
                       <>
@@ -438,9 +500,55 @@ export default function CollaborateursScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modale matrice des permissions */}
+      <PermissionsMatrixModal
+        visible={showMatrix}
+        onClose={() => setShowMatrix(false)}
+        highlightProfile={matrixHighlight}
+      />
     </View>
   );
 }
+
+// Styles des 2 boutons "Voir permissions" (header + detail).
+const matrixBtnStyles = StyleSheet.create({
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#eef6ff',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  icon: { fontSize: 22 },
+  title: { fontSize: 14, fontWeight: '700', color: '#1d4ed8' },
+  subtitle: { fontSize: 12, color: '#1e3a8a', marginTop: 2, lineHeight: 16 },
+  chev: { fontSize: 22, color: '#1d4ed8' },
+});
+
+const detailMatrixStyles = StyleSheet.create({
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#eef6ff',
+    marginTop: 14,
+    marginBottom: 4,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  icon: { fontSize: 20 },
+  title: { fontSize: 13, fontWeight: '700', color: '#1d4ed8' },
+  subtitle: { fontSize: 11, color: '#1e3a8a', marginTop: 2 },
+  chev: { fontSize: 20, color: '#1d4ed8' },
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f6fa' },

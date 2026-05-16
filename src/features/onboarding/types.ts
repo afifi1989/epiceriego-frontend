@@ -64,6 +64,8 @@ export interface CatalogueItem {
   prixSuggere: number;
   stockSuggere: number;
   preSelected: boolean;
+  /** Marque optionnelle (Lesieur, Centrale Danone, Sidi Ali...). */
+  brand?: string;
 }
 
 export interface EpicerieTypeOption {

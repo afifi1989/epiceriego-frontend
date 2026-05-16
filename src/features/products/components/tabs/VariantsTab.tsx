@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Switch,
@@ -12,8 +13,9 @@ import {
   View
 } from 'react-native';
 import { unitService } from '../../../../services/unitService';
-import { Product, ProductUnit, ProductUnitRequest, UnitType } from '../../../../type';
+import { LoginResponse, Product, ProductUnit, ProductUnitRequest, UnitType } from '../../../../type';
 import { usePermissions } from '../../../../hooks/usePermissions';
+import { UnitPhotoPicker } from '../UnitPhotoPicker';
 
 const UNIT_TYPES: { value: UnitType; label: string; hint: string }[] = [
   { value: UnitType.PIECE,  label: 'À la pièce', hint: '1 = 1 pièce' },
@@ -29,11 +31,15 @@ const emptyForm = (): ProductUnitRequest => ({
 
 interface VariantsTabProps {
   product: Product;
+  /** LoginResponse chargé par le parent depuis AsyncStorage. Sans ça, le hook
+   *  retombe sur le profil 'caissier' par défaut et masque tous les boutons
+   *  d'action (regression observée sur la fiche produit unifiée). */
+  user: LoginResponse | null;
   onChanged?: () => void;
 }
 
-export const VariantsTab: React.FC<VariantsTabProps> = ({ product, onChanged }) => {
-  const { can } = usePermissions();
+export const VariantsTab: React.FC<VariantsTabProps> = ({ product, user, onChanged }) => {
+  const { can } = usePermissions(user);
   const [units, setUnits] = useState<ProductUnit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -135,6 +141,28 @@ export const VariantsTab: React.FC<VariantsTabProps> = ({ product, onChanged }) 
               <Ionicons name="close" size={24} color="#666" />
             </TouchableOpacity>
           </View>
+
+          {/* Photo dédiée — affichée en haut du formulaire pour visibilité.
+              N'apparaît qu'à l'édition (besoin d'un unitId pour l'upload). */}
+          {editingUnit ? (
+            <UnitPhotoPicker
+              productId={product.id}
+              unitId={editingUnit.id}
+              photoUrl={editingUnit.photoUrl}
+              onChanged={(newUrl) => {
+                setEditingUnit({ ...editingUnit, photoUrl: newUrl });
+                setUnits(us => us.map(u => u.id === editingUnit.id ? { ...u, photoUrl: newUrl } : u));
+                onChanged?.();
+              }}
+            />
+          ) : (
+            <View style={styles.photoHintCreate}>
+              <Ionicons name="information-circle-outline" size={14} color="#888" />
+              <Text style={styles.photoHintCreateText}>
+                Vous pourrez ajouter une photo à cette variante après l'avoir enregistrée.
+              </Text>
+            </View>
+          )}
 
           {/* Type */}
           <Text style={styles.label}>Type de vente <Text style={styles.required}>*</Text></Text>
@@ -281,6 +309,14 @@ export const VariantsTab: React.FC<VariantsTabProps> = ({ product, onChanged }) 
         units.map(unit => (
           <View key={unit.id} style={[styles.unitCard, editingUnit?.id === unit.id && styles.unitCardEditing]}>
             <View style={styles.unitTop}>
+              {/* Mini-thumb : photo dédiée si présente, sinon placeholder. */}
+              {unit.photoUrl ? (
+                <Image source={{ uri: unit.photoUrl }} style={styles.rowThumb} />
+              ) : (
+                <View style={[styles.rowThumb, styles.rowThumbEmpty]}>
+                  <Ionicons name="image-outline" size={18} color="#bbb" />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Text style={styles.unitLabel}>{unit.label}</Text>
                 <Text style={styles.unitSub}>{unit.formattedQuantity ?? unit.quantity} · {unit.unitType}</Text>
@@ -360,6 +396,12 @@ const styles = StyleSheet.create({
   },
   switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
 
+  photoHintCreate: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#f5f5f5', borderRadius: 8, padding: 8, marginBottom: 12
+  },
+  photoHintCreateText: { flex: 1, fontSize: 11, color: '#666', fontStyle: 'italic' },
+
   formActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   cancelBtn: {
     flex: 1, paddingVertical: 12, borderRadius: 10,
@@ -389,7 +431,13 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2
   },
   unitCardEditing: { borderColor: '#2196F3', borderWidth: 1.5 },
-  unitTop: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+  unitTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  rowThumb: {
+    width: 44, height: 44, borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1, borderColor: '#e0e0e0'
+  },
+  rowThumbEmpty: { alignItems: 'center', justifyContent: 'center' },
   unitLabel: { fontSize: 16, fontWeight: '700', color: '#222' },
   unitSub: { fontSize: 12, color: '#888', marginTop: 2 },
   unitActions: { flexDirection: 'row', gap: 8 },

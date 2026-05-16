@@ -1,8 +1,7 @@
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,14 +10,16 @@ import {
 } from 'react-native';
 import { FallbackImage } from '../../../../components/client/FallbackImage';
 import { ProductUnitDisplay } from '../../../../components/client/ProductUnitDisplay';
+import { BrandChip } from '../../../../src/components/client/BrandChip';
+import { Skeleton, useToast } from '../../../../src/components/feedback';
 import { useLanguage } from '../../../../src/context/LanguageContext';
-import { cartService } from '../../../../src/services/cartService';
-import { productService } from '../../../../src/services/productService';
-import { promotionService, Promotion } from '../../../../src/services/promotionService';
 import {
   activePromosForEpicerie,
   bestPromoForProduct,
 } from '../../../../src/features/promotions/utils';
+import { cartService } from '../../../../src/services/cartService';
+import { productService } from '../../../../src/services/productService';
+import { Promotion, promotionService } from '../../../../src/services/promotionService';
 import { Product, ProductUnit } from '../../../../src/type';
 import { formatPrice } from '../../../../src/utils/helpers';
 
@@ -26,6 +27,7 @@ export default function ProductDetailScreen() {
   const { productId, epicerieId } = useLocalSearchParams<{ productId: string; epicerieId: string }>();
   const router = useRouter();
   const { t, language } = useLanguage();
+  const toast = useToast();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,14 @@ export default function ProductDetailScreen() {
   const [showImageZoom, setShowImageZoom] = useState(false);
   const [epicerieName, setEpicerieName] = useState<string>('');
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
+  // Variant currently picked in <ProductUnitDisplay>. Used only to switch
+  // the hero image — the actual selection logic stays inside the component.
+  const [selectedUnit, setSelectedUnit] = useState<ProductUnit | null>(null);
+
+  // The hero photo follows the selected variant; falls back to the product's
+  // main photo when the variant has none. Switch is instant (no crossfade) —
+  // React's normal re-render is enough.
+  const heroPhotoUrl = selectedUnit?.photoUrl || product?.photoUrl || null;
 
   useEffect(() => {
     loadProduct();
@@ -63,46 +73,50 @@ export default function ProductDetailScreen() {
           setActivePromos([]);
         }
       } else {
-        Alert.alert(t('common.error'), t('products.productNotFound'));
+        toast.error(t('common.error'), t('products.productNotFound'));
         router.back();
       }
     } catch (error) {
       console.error('Erreur lors du chargement du produit:', error);
-      Alert.alert(t('common.error'), String(error));
+      toast.error(t('common.error'), String(error));
       router.back();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddToCart = async (unitId: number, quantity: number, totalPrice: number, unit: ProductUnit) => {
+  const handleAddToCart = async (unitId: number | null, quantity: number, totalPrice: number, unit: ProductUnit) => {
     if (!product) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
     try {
       setAddingToCart(true);
 
-      // Créer l'item du panier avec les informations d'unité
+      // unitId === null → produit sans variante (tarif Product.prix).
+      // On stocke `undefined` dans le CartItem pour qu'il soit omis du payload
+      // de commande (le backend déclenche "Unit not found" sur unitId=0/null
+      // explicite si la ProductUnit n'existe pas).
       const cartItem = {
         productId: product.id,
         productNom: product.nom,
         epicerieId: product.epicerieId,
-        unitId: unitId,
+        unitId: unitId ?? undefined,
         unitLabel: unit.label,
         quantity: quantity,
         requestedQuantity: quantity,
         pricePerUnit: unit.prix,
         totalPrice: totalPrice,
-        photoUrl: product.photoUrl,
+        photoUrl: unit.photoUrl || product.photoUrl,
       };
 
       await cartService.addToCart(cartItem);
 
-      Alert.alert('✅', `${product.nom} (${unit.label}) ${t('products.addedToCart')}`);
-      // Retourner à la page précédente
+      // Toast + back immédiat — pas de OK à fermer.
+      toast.success(t('products.addedToCart'), `${product.nom} (${unit.label})`);
       router.back();
     } catch (error) {
       console.error('Erreur lors de l\'ajout au panier:', error);
-      Alert.alert(t('common.error'), t('products.errorAdding'));
+      toast.error(t('common.error'), t('products.errorAdding'));
     } finally {
       setAddingToCart(false);
     }
@@ -110,10 +124,43 @@ export default function ProductDetailScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-        <Text style={styles.loadingText}>{t('common.loading')}</Text>
-      </View>
+      <ScrollView style={styles.container}>
+        {/* Image hero placeholder */}
+        <Skeleton variant="rect" height={280} animated />
+
+        <View style={{ padding: 16 }}>
+          {/* Nom + prix */}
+          <Skeleton variant="text" width="75%" height={22} style={{ marginBottom: 8 }} />
+          <Skeleton variant="text" width="40%" height={20} style={{ marginBottom: 16 }} />
+
+          {/* Description */}
+          <Skeleton variant="text" width="95%" style={{ marginBottom: 6 }} />
+          <Skeleton variant="text" width="90%" style={{ marginBottom: 6 }} />
+          <Skeleton variant="text" width="60%" style={{ marginBottom: 20 }} />
+
+          {/* Variantes / unités (3 lignes) */}
+          {[0, 1, 2].map(i => (
+            <View key={i} style={{
+              backgroundColor: '#fff',
+              borderRadius: 10,
+              padding: 12,
+              marginBottom: 10,
+              shadowColor: '#000',
+              shadowOpacity: 0.04,
+              shadowRadius: 3,
+              elevation: 1,
+            }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flex: 1 }}>
+                  <Skeleton variant="text" width="50%" style={{ marginBottom: 6 }} />
+                  <Skeleton variant="text" width="35%" />
+                </View>
+                <Skeleton variant="rect" width={90} height={36} style={{ borderRadius: 8 }} />
+              </View>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     );
   }
 
@@ -142,7 +189,7 @@ export default function ProductDetailScreen() {
       </View>
 
       {/* === IMAGE ZOOM MODAL === */}
-      {showImageZoom && product.photoUrl && (
+      {showImageZoom && heroPhotoUrl && (
         <View style={styles.zoomModal}>
           <TouchableOpacity
             style={styles.zoomModalOverlay}
@@ -150,7 +197,7 @@ export default function ProductDetailScreen() {
           />
           <View style={styles.zoomModalContent}>
             <FallbackImage
-              urls={[product.photoUrl]}
+              urls={[heroPhotoUrl]}
               style={styles.zoomedImage}
               resizeMode="contain"
             />
@@ -172,9 +219,10 @@ export default function ProductDetailScreen() {
             onPress={() => setShowImageZoom(true)}
             activeOpacity={0.9}
           >
-            {product.photoUrl ? (
+            {heroPhotoUrl ? (
               <FallbackImage
-                urls={[product.photoUrl]}
+                key={heroPhotoUrl}
+                urls={[heroPhotoUrl]}
                 style={styles.productImage}
                 resizeMode="cover"
               />
@@ -199,9 +247,18 @@ export default function ProductDetailScreen() {
                 <Text style={styles.categoryTagText}>{product.categoryName}</Text>
               </View>
             )}
-            {product.brandName && (
-              <View style={styles.brandTag}>
-                <Text style={styles.brandTagText}>{product.brandName}</Text>
+            {product.brandName && product.brandId && (
+              <View style={{ marginTop: 6 }}>
+                <BrandChip
+                  name={product.brandName}
+                  logoUrl={product.brandLogoUrl}
+                  size="md"
+                  variant="badge"
+                  onPress={() => {
+                    Haptics.selectionAsync().catch(() => {});
+                    router.push(`/(client)/(epicerie)/${product.epicerieId}?brandId=${product.brandId}`);
+                  }}
+                />
               </View>
             )}
           </View>
@@ -213,6 +270,7 @@ export default function ProductDetailScreen() {
                 product={product}
                 onAddToCart={handleAddToCart}
                 promo={bestPromoForProduct(activePromos, product)}
+                onUnitChanged={setSelectedUnit}
               />
             </View>
           )}
@@ -298,11 +356,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
-  },
-  loadingText: {
-    marginTop: 15,
-    fontSize: 16,
-    color: '#666',
   },
   errorText: {
     fontSize: 16,
@@ -429,21 +482,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#2e7d32',
-  },
-  brandTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#E3F2FD',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    marginTop: 6,
-    borderWidth: 1,
-    borderColor: '#90CAF9',
-  },
-  brandTagText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#1565C0',
   },
   /* === QUANTITY SECTION === */
   quantitySection: {

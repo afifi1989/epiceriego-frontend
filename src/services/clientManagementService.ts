@@ -497,4 +497,50 @@ export const clientManagementService = {
       return false; // If error, assume cannot afford
     }
   },
+
+  /**
+   * Liste les comptes mobile reels dont le telephone (normalise sur 9 chiffres)
+   * correspond a celui du client virtuel. Sert d'aide a la decision avant link.
+   */
+  getLinkCandidates: async (
+    epicerieId: number,
+    clientId: number
+  ): Promise<LinkCandidate[]> => {
+    try {
+      const response = await api.get<LinkCandidate[]>(
+        `/epiceries/${epicerieId}/clients/${clientId}/link-candidates`
+      );
+      return response.data || [];
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error fetching link candidates:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de la recherche de candidats';
+    }
+  },
+
+  /**
+   * Fusionne le client virtuel {@code clientId} dans le compte mobile reel
+   * {@code targetUserId}. Apres ce call, factures/avances/commandes sont
+   * visibles cote client connecte.
+   */
+  linkVirtualToReal: async (
+    epicerieId: number,
+    clientId: number,
+    targetUserId: number
+  ): Promise<void> => {
+    try {
+      await api.post(`/epiceries/${epicerieId}/clients/${clientId}/link`, {
+        targetUserId,
+      });
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error linking virtual client:', error.message);
+      throw error.response?.data?.message || 'Erreur lors du rattachement';
+    }
+  },
 };
+
+export interface LinkCandidate {
+  userId: number;
+  nom: string;
+  email: string;
+  telephone: string;
+}

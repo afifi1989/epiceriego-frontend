@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -12,6 +13,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { EpicerieLogo } from '../../src/components/client/EpicerieLogo';
+import { Skeleton, useToast } from '../../src/components/feedback';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { epicerieService } from '../../src/services/epicerieService';
 import { favoritesService } from '../../src/services/favoritesService';
@@ -22,6 +25,7 @@ type SearchMode = 'proximity' | 'name' | 'address' | 'combined';
 export default function EpiceriesScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const toast = useToast();
   const [epiceries, setEpiceries] = useState<Epicerie[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -107,13 +111,13 @@ export default function EpiceriesScreen() {
         setLocationEnabled(true);
         getCurrentLocation();
       } else {
-        Alert.alert(
+        toast.warning(
           t('epiceries.permissionDenied'),
           t('epiceries.permissionMessage')
         );
       }
     } catch {
-      Alert.alert(t('common.error'), t('epiceries.permissionRequestError'));
+      toast.error(t('common.error'), t('epiceries.permissionRequestError'));
     }
   };
 
@@ -121,8 +125,11 @@ export default function EpiceriesScreen() {
     try {
       setLocationLoading(true);
       const { status } = await Location.getForegroundPermissionsAsync();
-      
+
       if (status !== 'granted') {
+        // Confirmation native conservée: prompt avec deux choix (Oui/Non)
+        // qui déclenche éventuellement la requête de permission. Pattern
+        // utilisateur attendu (système-natif) pour ce type de demande.
         Alert.alert(
           t('epiceries.locationDisabled'),
           t('epiceries.enableLocationMessage'),
@@ -141,7 +148,7 @@ export default function EpiceriesScreen() {
       setLatitude(location.coords.latitude.toFixed(6));
       setLongitude(location.coords.longitude.toFixed(6));
     } catch {
-      Alert.alert(t('common.error'), t('epiceries.gpsError'));
+      toast.error(t('common.error'), t('epiceries.gpsError'));
     } finally {
       setLocationLoading(false);
     }
@@ -157,7 +164,7 @@ export default function EpiceriesScreen() {
       switch (searchMode) {
         case 'proximity':
           if (!latitude || !longitude) {
-            Alert.alert(t('common.error'), t('epiceries.enterCoordinates'));
+            toast.warning(t('common.error'), t('epiceries.enterCoordinates'));
             return;
           }
           data = await epicerieService.searchByProximity(
@@ -169,7 +176,7 @@ export default function EpiceriesScreen() {
 
         case 'name':
           if (!searchName.trim()) {
-            Alert.alert(t('common.error'), t('epiceries.enterName'));
+            toast.warning(t('common.error'), t('epiceries.enterName'));
             return;
           }
           data = await epicerieService.searchByName(searchName.trim());
@@ -177,7 +184,7 @@ export default function EpiceriesScreen() {
 
         case 'address':
           if (!searchAddress.trim()) {
-            Alert.alert(t('common.error'), t('epiceries.enterAddress'));
+            toast.warning(t('common.error'), t('epiceries.enterAddress'));
             return;
           }
           data = await epicerieService.searchByAddress(searchAddress.trim());
@@ -185,7 +192,7 @@ export default function EpiceriesScreen() {
 
         case 'combined':
           if (!latitude || !longitude || !searchName.trim()) {
-            Alert.alert(t('common.error'), t('epiceries.fillAllFields'));
+            toast.warning(t('common.error'), t('epiceries.fillAllFields'));
             return;
           }
           data = await epicerieService.searchByProximityAndName(
@@ -201,11 +208,10 @@ export default function EpiceriesScreen() {
       // Recharger les favoris après la recherche
       await loadFavoriteIds();
 
-      if (data.length === 0) {
-        Alert.alert(t('epiceries.noResults'), t('epiceries.noResultsMessage'));
-      }
+      // L'empty state inline du composant suffit — pas besoin d'un dialog
+      // qui interrompt la lecture des résultats. (avant: Alert "0 résultat")
     } catch (error) {
-      Alert.alert(t('common.error'), String(error));
+      toast.error(t('common.error'), String(error));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -245,9 +251,9 @@ export default function EpiceriesScreen() {
       // Recharger les favoris après la recherche
       await loadFavoriteIds();
 
-      if (data.length === 0) {
-        Alert.alert(t('epiceries.noResults'), t('epiceries.noResultsMessage'));
-      }
+      // Auto-search silencieuse: on laisse l'empty state inline gérer le
+      // "0 résultat". Pas de dialog ni de toast (auto-déclenché → l'utilisateur
+      // n'a pas demandé d'action explicite).
     } catch (error) {
       console.error('[EpiceriesScreen] Erreur auto-recherche:', error);
       // Silently fail on auto-search to avoid annoying users
@@ -404,22 +410,28 @@ export default function EpiceriesScreen() {
     );
   };
 
+  /**
+   * UI optimiste: toggle local immédiat (cœur réactif), persist API en
+   * arrière-plan, rollback si échec. Le tap d'un cœur a un retour visuel
+   * sans latence — différenciateur UX majeur sur ce type d'interaction.
+   */
   const handleToggleFavorite = async (epicerieId: number, isCurrentlyFavorite: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+
+    // Snapshot pour rollback éventuel
+    const snapshot = favoriteIds;
+    const optimistic = isCurrentlyFavorite
+      ? favoriteIds.filter(id => id !== epicerieId)
+      : [...favoriteIds, epicerieId];
+    setFavoriteIds(optimistic);
+
     try {
       const success = await favoritesService.toggleFavorite(epicerieId, isCurrentlyFavorite);
-      if (success) {
-        // Mettre à jour la liste des favoris localement
-        if (isCurrentlyFavorite) {
-          setFavoriteIds(favoriteIds.filter(id => id !== epicerieId));
-          console.log('[EpiceriesScreen] Retiré des favoris:', epicerieId);
-        } else {
-          setFavoriteIds([...favoriteIds, epicerieId]);
-          console.log('[EpiceriesScreen] Ajouté aux favoris:', epicerieId);
-        }
-      }
+      if (!success) throw new Error('toggleFavorite returned false');
     } catch (error) {
       console.error('[EpiceriesScreen] Erreur toggle favori:', error);
-      Alert.alert(t('common.error'), t('epiceries.favoritesError'));
+      setFavoriteIds(snapshot); // rollback
+      toast.error(t('common.error'), t('epiceries.favoritesError'));
     }
   };
 
@@ -433,7 +445,8 @@ export default function EpiceriesScreen() {
           onPress={() => router.push(`/(client)/(epicerie)/${item.id}`)}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.emoji}>🏪</Text>
+            {/* Logo épicerie à gauche — tap pour agrandir, fallback emoji si pas de photo. */}
+            <EpicerieLogo photoUrl={item.photoUrl} accessibilityLabel={item.nomEpicerie} />
             <View style={styles.cardInfo}>
               <Text style={styles.cardTitle}>{item.nomEpicerie}</Text>
               <Text style={styles.cardAddress}>{item.adresse}</Text>
@@ -483,6 +496,31 @@ export default function EpiceriesScreen() {
               {renderEpicerie({ item })}
             </View>
           ))}
+          {loading && epiceries.length === 0 && (
+            // Skeleton cards pendant la 1ère recherche/auto-search.
+            // Avant: rien ne s'affichait → utilisateur restait dans le doute
+            // pendant 1-3s pendant que la requête tournait.
+            <>
+              {[0, 1, 2].map(i => (
+                <View key={i} style={styles.cardContainer}>
+                  <View style={styles.card}>
+                    <View style={styles.cardHeader}>
+                      {/* Skeleton logo aligné sur la position réelle du logo (à gauche, 64×64) */}
+                      <Skeleton variant="rect" width={64} height={64} style={{ borderRadius: 12 }} />
+                      <View style={{ flex: 1 }}>
+                        <Skeleton variant="text" width="65%" style={{ marginBottom: 8 }} />
+                        <Skeleton variant="text" width="85%" style={{ marginBottom: 10 }} />
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                          <Skeleton variant="text" width={50} />
+                          <Skeleton variant="text" width={80} />
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
           {!loading && epiceries.length === 0 && (
             <View style={styles.emptyContainer}>
               <Text style={styles.emptyEmoji}>🔍</Text>
@@ -710,10 +748,8 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row',
-  },
-  emoji: {
-    fontSize: 50,
-    marginRight: 15,
+    alignItems: 'center',
+    gap: 12,
   },
   cardInfo: {
     flex: 1,

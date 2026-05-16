@@ -6,6 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NotificationBadge } from '../../components/NotificationBadge';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { NetworkProvider } from '../../src/context/NetworkContext';
+import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 // Composant interne pour gérer le layout authentifié
@@ -83,8 +85,7 @@ function ClientTabsContent() {
         options={{
           title: t('client.tabs.home'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏠</Text>,
-          headerTitle: t('client.headers.home'),
-          headerRight: () => <NotificationBadge />,
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -93,6 +94,15 @@ function ClientTabsContent() {
           title: t('client.tabs.epiceries'),
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏪</Text>,
           headerTitle: t('client.headers.epiceries'),
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+      <Tabs.Screen
+        name="cartes"
+        options={{
+          title: t('cards.tabLabel'),
+          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🪪</Text>,
+          headerTitle: t('cards.headerTitle'),
           headerRight: () => <NotificationBadge />,
         }}
       />
@@ -141,6 +151,13 @@ function ClientTabsContent() {
           href: null,
           headerTitle: t('client.headers.epiceries'),
           headerRight: () => <NotificationBadge />,
+        }}
+      />
+      <Tabs.Screen
+        name="cartes/[epicerieId]"
+        options={{
+          href: null,
+          headerTitle: t('cards.headerTitle'),
         }}
       />
       <Tabs.Screen
@@ -274,5 +291,12 @@ export default function ClientLayout() {
   }
 
   // ✅ Afficher le contenu authentifié
-  return <ClientTabsContent />;
+  return (
+    <NetworkProvider>
+      <View style={{ flex: 1 }}>
+        <OfflineBanner />
+        <ClientTabsContent />
+      </View>
+    </NetworkProvider>
+  );
 }

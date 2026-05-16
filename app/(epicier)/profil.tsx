@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -209,7 +210,7 @@ export default function ProfilScreen() {
           }}
         />
 
-        {/* Lien vers l'épicerie — propriétaire uniquement */}
+        {/* Lien vers l'épicerie — vue d'ensemble (résumé stats + infos) */}
         {can('settings:edit') && (
           <ActionButton
             icon="🏪"
@@ -219,51 +220,54 @@ export default function ProfilScreen() {
           />
         )}
 
-        {/* Paramètres détaillés (réutilisent les step components de
-            l'onboarding pour rééditer chaque section indépendamment). */}
-        {can('settings:edit') && (
+        {/* Mon abonnement — visible uniquement au owner. Les collaborateurs
+            (manager/gestionnaire/caissier) n'ont pas vocation à changer
+            le plan de l'épicerie qu'ils ne possèdent pas. */}
+        {profile === 'owner' && (
+          <ActionButton
+            icon="⭐"
+            label="Mon abonnement"
+            onPress={() => router.push('/(epicier)/mon-abonnement' as any)}
+            accent="#7C3AED"
+          />
+        )}
+
+        {/* Hub paramètres unifié — regroupe Épicerie / Horaires / Livraison /
+            Caisse / WhatsApp / Fidélité / Synonymes / Équipe en une seule
+            entrée. Filtré par permissions au niveau du hub. */}
+        {(can('settings:edit') || can('collaborateurs:view') || can('synonyms:manage')) && (
           <ActionButton
             icon="⚙️"
-            label="Paramètres épicerie"
-            onPress={() => router.push('/(epicier)/parametres-epicerie')}
+            label="Paramètres"
+            onPress={() => router.push('/(epicier)/parametres' as any)}
             accent="#2196F3"
           />
         )}
 
-        {/* Collaborateurs */}
-        {can('collaborateurs:view') && (
-          <ActionButton
-            icon="👥"
-            label="Collaborateurs"
-            onPress={() => router.push('/(epicier)/collaborateurs')}
-          />
-        )}
-
-        {/* WhatsApp Business — propriétaire uniquement */}
-        {can('settings:edit') && (
-          <ActionButton
-            icon="💬"
-            label="WhatsApp Business"
-            onPress={() => router.push('/(epicier)/whatsapp-settings')}
-            accent="#25D366"
-          />
-        )}
-
-        {/* Synonymes de recherche (darija → fr) */}
-        {can('synonyms:manage') && (
-          <ActionButton
-            icon="🔤"
-            label="Synonymes de recherche"
-            onPress={() => router.push('/(epicier)/synonymes')}
-            accent="#6366f1"
-          />
-        )}
-
-        {/* Diagnostic push notifications */}
+        {/* Diagnostic push notifications — outil debug, accès direct */}
         <ActionButton
           icon="🔧"
           label="Diagnostic Push"
           onPress={() => router.push('/push-diagnostic' as any)}
+        />
+      </View>
+
+      {/* ── Aide & légal ── */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Aide & légal</Text>
+
+        <ActionButton
+          icon="❓"
+          label="Aide & Support"
+          onPress={() => router.push('/(epicier)/aide-support' as any)}
+        />
+
+        <ActionButton
+          icon="📄"
+          label="Conditions d'utilisation"
+          // CGU épicier hébergées en statique côté landing — ouverture dans
+          // le navigateur natif pour ne pas surcharger l'app avec une WebView.
+          onPress={() => Linking.openURL('https://afifi-mostafa.com/legal/cgu-epicier')}
         />
       </View>
 

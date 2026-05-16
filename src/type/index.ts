@@ -145,6 +145,51 @@ export interface LoginResponse {
   preferredLanguage?: SupportedLanguage;
   /** Identifiant de connexion épicier (format ALXXXXX). Null pour CLIENT/LIVREUR. */
   identifiant?: string;
+  /**
+   * Liste des permissions effectives renvoyée par le backend (source de vérité).
+   * Ex: ["PRODUCT_VIEW","ORDER_PROCESS",...]. Absent sur anciennes API ;
+   * dans ce cas usePermissions retombe sur la matrice statique côté client.
+   */
+  permissions?: string[];
+}
+
+/**
+ * Réponse 202 quand le device n'est pas trusted. Le mobile doit naviguer vers
+ * l'écran de validation device, demander l'envoi du code OTP email, puis
+ * appeler /auth/devices/{verificationToken}/verify avec le code.
+ */
+export interface DeviceVerificationRequiredResponse {
+  requiresDeviceVerification: true;
+  verificationToken: string;
+  maskedEmail: string;
+  deviceLabel?: string;
+  expiryMinutes: number;
+}
+
+/** Discriminated union retournée par les flows login : tokens ou demande OTP device. */
+export type LoginOutcome =
+  | { kind: 'authenticated'; data: LoginResponse }
+  | { kind: 'deviceVerificationRequired'; data: DeviceVerificationRequiredResponse };
+
+/** Résultat de POST /auth/login-phone-otp/request : token public à utiliser dans /verify. */
+export interface PhoneOtpRequestResponse {
+  success: boolean;
+  token?: string;
+  expiryMinutes?: number;
+  maskedPhone?: string;
+  message?: string;
+}
+
+/** Une entrée de la liste des devices retournée par GET /auth/devices */
+export interface UserDeviceItem {
+  id: number;
+  deviceLabel?: string;
+  platform?: string;
+  osVersion?: string;
+  appVersion?: string;
+  trusted: boolean;
+  lastSeenAt?: string;
+  createdAt?: string;
 }
 
 /** Réponse de POST /api/auth/refresh — rotation du refresh token. */
@@ -158,6 +203,8 @@ export interface TokenRefreshResponse {
   epicerieName?: string;
   livreurId?: number;
   collaboratorRole?: string;
+  /** Permissions effectives ré-émises à chaque refresh (cf. LoginResponse). */
+  permissions?: string[];
 }
 
 // ── Collaborateurs ────────────────────────────────────────────────────────────
@@ -251,6 +298,12 @@ export interface Epicerie {
   isOpen?: boolean;
   nombreProducts: number;
   deliveryZones?: string;
+  /** Stratégie de calcul des frais : 'ZONES' | 'FLAT_RATE' | 'NONE'. */
+  deliveryMode?: 'ZONES' | 'FLAT_RATE' | 'NONE';
+  /** Forfait fixe quand deliveryMode = 'FLAT_RATE'. */
+  flatDeliveryFee?: number;
+  /** True si l'épicerie a au moins un livreur rattaché. */
+  hasLivreur?: boolean;
   averageRating?: number;
   totalRatings?: number;
   // Adresse structurée
@@ -290,6 +343,9 @@ export interface ProductUnit {
   stock: number;
   isAvailable: boolean;
   displayOrder: number;
+  /** Optional per-variant photo (filename relative to /api/images/).
+   *  When null, the client UI falls back to Product.photoUrl. */
+  photoUrl?: string | null;
   formattedQuantity: string;  // "500g", "1 pcs", "1.0 L"
   formattedPrice: string;     // "1.20 DH / 500g"
   baseUnit: string;           // "kg", "pcs", "L"
@@ -446,11 +502,30 @@ export interface CreateOrderRequest {
   longitudeLivraison?: number;
   telephoneLivraison?: string;
   paymentMethod: PaymentMethod;
+  /**
+   * V95 — Code promo optionnel saisi au checkout. Si fourni, le serveur tente
+   * l'application via PromoCodeApplicationPort.redeem. Un code invalide echoue
+   * avec HTTP 400 et un body `PROMO_CODE_REJECTED:<REASON>` (cf.
+   * `PromoCodeRejectionReason`).
+   */
+  promoCode?: string;
 }
 
 export interface Order {
   id: number;
   total: number;
+  /**
+   * V95 — Sous-total avant remise et hors livraison. Permet l'affichage
+   * decompose : sous-total / livraison / remise / total. Pour les commandes
+   * pre-V95 : equivalent a `total` (defauts a 0 sur livraison/promo).
+   */
+  subTotal?: number;
+  /** Quote-part livraison comprise dans `total`. 0 pour PICKUP / commandes pré-V88. */
+  deliveryFee?: number;
+  /** V95 — Libelle du code promo applique. Null si aucune remise. */
+  promoCode?: string;
+  /** V95 — Montant deduit du subtotal. 0 si aucune remise (defaut). */
+  promoDiscountAmount?: number;
   /** Devise figée à la création de la commande — utiliser pour formater les prix. */
   currency?: Currency;
   status: string;
@@ -470,6 +545,52 @@ export interface Order {
   livreurNom?: string;
   items: OrderItemDetail[];
   nombreItems: number;
+}
+
+/**
+ * V96 — Payload allege pour les listes de commandes (active list + archive
+ * paginee). Pas d'items detailles ; juste le resume necessaire pour la
+ * carte. Le detail complet reste accessible via getOrderById(id).
+ */
+export interface OrderListItem {
+  id: number;
+  total: number;
+  subTotal?: number;
+  deliveryFee?: number;
+  promoDiscountAmount?: number;
+  currency?: Currency;
+  status: string;
+  paymentMethod: PaymentMethod;
+  deliveryType: DeliveryType;
+  createdAt: string;
+  clientId?: number;
+  clientNom?: string;
+  clientTelephone?: string;
+  nombreItems: number;
+  adresseLivraison?: string;
+  telephoneLivraison?: string;
+  livreurNom?: string;
+  source?: OrderSource;
+}
+
+/** Page Spring Data classique (subset utile au front). */
+export interface SpringPage<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+  first: boolean;
+  last: boolean;
+  empty: boolean;
+}
+
+/** Compteurs des badges de tabs côté épicier. */
+export interface OrderCounts {
+  active: number;
+  delivered: number;
+  cancelled: number;
+  today: number;
 }
 
 export type OrderItemStatus = 'PENDING' | 'SCANNED' | 'UNAVAILABLE' | 'MODIFIED' | 'COMPLETED';

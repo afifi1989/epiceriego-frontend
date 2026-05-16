@@ -4,9 +4,12 @@
  */
 
 import { MaterialIcons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
+  Modal,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -17,11 +20,17 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import { Product, ProductUnit, UnitType } from '../../src/type';
 import { canOrder, getStockLevel } from '../../src/utils/unitCalculations';
 import type { ActivePromotionSummary } from '../../src/features/promotions/types';
-import { effectivePriceForUnit } from '../../src/features/promotions/utils';
+import { effectivePriceForProduct, effectivePriceForUnit } from '../../src/features/promotions/utils';
 
 interface ProductUnitDisplayProps {
   product: Product;
-  onAddToCart: (unitId: number, quantity: number, totalPrice: number, unit: ProductUnit) => void;
+  /**
+   * `unitId` est `null` quand le produit n'a pas de variantes (produit "legacy"
+   * tarifé sur `Product.prix`). Les consommateurs doivent traiter `null`
+   * comme "pas de variante" — ne JAMAIS envoyer `0` au backend (cela
+   * déclenche "Unit not found" lors de la création de la commande).
+   */
+  onAddToCart: (unitId: number | null, quantity: number, totalPrice: number, unit: ProductUnit) => void;
   /**
    * Promotion active résolue pour ce produit (ou pour une unité), côté parent.
    * Sert de fallback quand le backend n'a pas encore écrit `prixBarre` sur
@@ -29,21 +38,39 @@ interface ProductUnitDisplayProps {
    * `unit.prixBarre` est présent, il prévaut.
    */
   promo?: ActivePromotionSummary | null;
+  /**
+   * Notifies the parent screen each time the user picks a different variant —
+   * lets the page swap its hero image to the variant's dedicated photo
+   * (falling back to {@code product.photoUrl} when the variant has none).
+   * The component still owns the selection state internally; this is just
+   * a side-channel for the parent's UI.
+   */
+  onUnitChanged?: (unit: ProductUnit | null) => void;
 }
 
 export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
   product,
   onAddToCart,
   promo = null,
+  onUnitChanged,
 }) => {
   const { t } = useLanguage();
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(
     product.units && product.units.length > 0 ? product.units[0].id : null
   );
   const [quantity, setQuantity] = useState<string>('1');
+  // Variant-photo zoom (independent of the page-level product zoom).
+  const [zoomedPhotoUrl, setZoomedPhotoUrl] = useState<string | null>(null);
 
   // Sélectionner l'unité
   const selectedUnit = product.units?.find(u => u.id === selectedUnitId);
+
+  // Notifie le parent du changement (initial mount + chaque sélection) pour
+  // qu'il puisse switcher l'image principale vers `unit.photoUrl`.
+  useEffect(() => {
+    onUnitChanged?.(selectedUnit ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUnitId]);
 
   // Calculer le prix total — applique la promo résolue quand prixBarre n'a
   // pas (encore) été écrit sur l'unité par le backend.
@@ -74,31 +101,40 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
 
     // Pour les produits sans unités (legacy), créer une unité par défaut
     if (!selectedUnit && (!product.units || product.units.length === 0)) {
+      // Prix remisé si la promo runtime touche ce produit legacy. Sinon le
+      // panier persisterait product.prix (prix barré) au lieu du prix réel.
+      const effectivePrice = effectivePriceForProduct(product, promo).display;
+
       // Legacy product - create default unit
       const defaultUnit: ProductUnit = {
         id: 0, // No specific unit ID for legacy products
         unitType: UnitType.PIECE,
         quantity: 1,
         label: 'À l\'unité',
-        prix: product.prix,
+        prix: effectivePrice,
         stock: product.stock,
         isAvailable: product.isAvailable,
         displayOrder: 0,
         formattedQuantity: '1 pcs',
-        formattedPrice: `${product.prix.toFixed(2)} DH`,
+        formattedPrice: `${effectivePrice.toFixed(2)} DH`,
         baseUnit: 'pcs',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
 
-      const totalPrice = product.prix * qty;
+      const totalPrice = effectivePrice * qty;
       console.log('[ProductUnitDisplay] Ajout produit legacy au panier:', {
         quantity: qty,
         totalPrice,
-        pricePerUnit: product.prix,
+        pricePerUnit: effectivePrice,
+        rawPrice: product.prix,
+        promoActive: !!promo,
         label: defaultUnit.label
       });
-      onAddToCart(0, qty, totalPrice, defaultUnit);
+      // `null` (pas `0`) = produit sans variante. Le backend lit ce champ et
+      // déclenche "Unit not found" si on lui envoie `0` (qui correspond à
+      // aucune ProductUnit en base).
+      onAddToCart(null, qty, totalPrice, defaultUnit);
       return;
     }
 
@@ -251,15 +287,33 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                 }}
                 disabled={!isInStock}
               >
-                {/* Icône de format */}
-                <View style={styles.unitIconContainer}>
-                  <Text style={styles.unitIcon}>
-                    {unit.unitType === 'PIECE' ? '📦'
-                      : unit.unitType === 'WEIGHT' ? '⚖️'
-                        : unit.unitType === 'VOLUME' ? '🧃'
-                          : '📏'}
-                  </Text>
-                </View>
+                {/* Mini-thumb (variant photo > product photo > emoji fallback).
+                    Tappable séparément pour zoom — sans re-déclencher la sélection. */}
+                {(() => {
+                  const thumbUrl = unit.photoUrl || product.photoUrl;
+                  if (thumbUrl) {
+                    return (
+                      <TouchableOpacity
+                        onPress={() => setZoomedPhotoUrl(thumbUrl)}
+                        activeOpacity={0.85}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        style={styles.unitThumbWrap}
+                      >
+                        <Image source={{ uri: thumbUrl }} style={styles.unitThumb} />
+                      </TouchableOpacity>
+                    );
+                  }
+                  return (
+                    <View style={styles.unitIconContainer}>
+                      <Text style={styles.unitIcon}>
+                        {unit.unitType === 'PIECE' ? '📦'
+                          : unit.unitType === 'WEIGHT' ? '⚖️'
+                            : unit.unitType === 'VOLUME' ? '🧃'
+                              : '📏'}
+                      </Text>
+                    </View>
+                  );
+                })()}
 
                 {/* Label */}
                 <Text style={[styles.unitLabel, !isInStock && styles.unitLabelDisabled]}>
@@ -363,6 +417,27 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
           )}
         </View>
       </View>
+
+      {/* Zoom modal sur le mini-thumb d'une variante */}
+      <Modal
+        visible={!!zoomedPhotoUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setZoomedPhotoUrl(null)}
+      >
+        <Pressable style={styles.thumbZoomBackdrop} onPress={() => setZoomedPhotoUrl(null)}>
+          {zoomedPhotoUrl && (
+            <Image
+              source={{ uri: zoomedPhotoUrl }}
+              style={styles.thumbZoomImage}
+              resizeMode="contain"
+            />
+          )}
+          <View style={styles.thumbZoomCloseBtn}>
+            <MaterialIcons name="close" size={24} color="#fff" />
+          </View>
+        </Pressable>
+      </Modal>
     </>
   );
 };
@@ -509,6 +584,45 @@ const styles = StyleSheet.create({
 
   unitIcon: {
     fontSize: 32,
+  },
+
+  unitThumbWrap: {
+    marginBottom: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    backgroundColor: '#fff',
+    padding: 2,
+  },
+
+  unitThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+  },
+
+  thumbZoomBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  thumbZoomImage: {
+    width: '92%',
+    height: '78%',
+  },
+
+  thumbZoomCloseBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   unitLabel: {

@@ -154,14 +154,32 @@ export default function ProfilEpicerieScreen() {
           />
           <ActionButton
             icon="🚚"
-            label="Zones de livraison"
-            onPress={() => router.push('/(epicier)/zones-livraison')}
+            label="Livraison"
+            // Redirige vers la page Paramètres avec la section Livraison ouverte —
+            // unique source de vérité (zones / forfait / pas de livraison) au
+            // lieu de l'ancien écran zones-livraison qui ne gérait que les zones.
+            onPress={() => router.push('/(epicier)/parametres-epicerie?section=DELIVERY')}
           />
           <ActionButton
             icon="📸"
             label="Photo de présentation"
             onPress={() => scrollViewRef.current?.scrollTo({ y: 260, animated: true })}
             highlighted
+          />
+          <ActionButton
+            icon="🔤"
+            label="Mots-clés de recherche"
+            onPress={() => router.push('/(epicier)/mots-cles-recherche' as any)}
+          />
+          <ActionButton
+            icon="🏷️"
+            label="Codes promos"
+            onPress={() => router.push('/(epicier)/codes-promos' as any)}
+          />
+          <ActionButton
+            icon="🏪"
+            label="Fournisseurs"
+            onPress={() => router.push('/(epicier)/fournisseurs' as any)}
           />
         </View>
       )}

@@ -22,9 +22,20 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { WIZARD_STEPS, WizardStepMeta } from '../stepDefinitions';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { WIZARD_STEPS, WizardStepMeta, formatEstimatedTime } from '../stepDefinitions';
 import { colors, radii, shadow, space, typography } from '../theme';
+
+/**
+ * Format "≈ X min" / "< 1 min" pour le temps total restant.
+ * Volontairement plus lisse que formatEstimatedTime (qui affiche en secondes).
+ */
+function formatRemainingTime(seconds: number | undefined): string | null {
+  if (seconds == null || seconds <= 0) return null;
+  if (seconds < 60) return '< 1 min';
+  const min = Math.round(seconds / 60);
+  return `${min} min`;
+}
 
 interface OnboardingStepShellProps {
   meta: WizardStepMeta;
@@ -38,6 +49,18 @@ interface OnboardingStepShellProps {
   onSkip?: () => void;
   onBack?: () => void;
   onJumpTo?: (index: number) => void;
+  /**
+   * Temps total estimé restant (somme des estimatedSeconds des étapes
+   * non encore résolues, en secondes). Affiché en pill dans le top bar
+   * pour rassurer l'utilisateur sur l'effort restant.
+   */
+  timeRemainingSec?: number;
+  /**
+   * Si fourni, affiche un bouton "⚡ Mode Express" dans le top bar qui
+   * permet de skipper toutes les étapes optionnelles restantes en lot
+   * — utile quand l'épicier est pressé et veut juste accéder au dashboard.
+   */
+  onExpressMode?: () => void;
 }
 
 export function OnboardingStepShell({
@@ -52,10 +75,14 @@ export function OnboardingStepShell({
   onSkip,
   onBack,
   onJumpTo,
+  timeRemainingSec,
+  onExpressMode,
 }: OnboardingStepShellProps) {
   const total = WIZARD_STEPS.length;
   const stepNumber = currentIndex + 1;
   const progressPct = (resolvedIndices.size / total) * 100;
+  const timeRemainingLabel = formatRemainingTime(timeRemainingSec);
+  const insets = useSafeAreaInsets();
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -78,6 +105,9 @@ export function OnboardingStepShell({
           <Text style={styles.stepCounter}>
             Étape {stepNumber} sur {total}
           </Text>
+          {timeRemainingLabel && (
+            <Text style={styles.timeRemaining}>⏱ {timeRemainingLabel} restant</Text>
+          )}
         </View>
 
         {onSkip && !meta.required ? (
@@ -96,6 +126,29 @@ export function OnboardingStepShell({
           <View style={styles.iconBtn} />
         )}
       </View>
+
+      {/* Mode Express : bandeau d'opportunité quand l'épicier est sur une
+          étape optionnelle et qu'il reste plusieurs optionnelles à venir.
+          Permet de tout skipper d'un coup pour atteindre l'étape obligatoire
+          ou la fin plus vite. */}
+      {onExpressMode && !meta.required && !busy && (
+        <Pressable
+          onPress={onExpressMode}
+          style={({ pressed }) => [
+            styles.expressBar,
+            pressed && styles.expressBarPressed,
+          ]}
+        >
+          <Text style={styles.expressBarIcon}>⚡</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.expressBarTitle}>Mode Express</Text>
+            <Text style={styles.expressBarSubtitle}>
+              Sauter toutes les étapes optionnelles d'un coup
+            </Text>
+          </View>
+          <Text style={styles.expressBarChev}>›</Text>
+        </Pressable>
+      )}
 
       {/* ── Barre de progression continue ──────────────────────── */}
       <View style={styles.progressTrack}>
@@ -144,16 +197,23 @@ export function OnboardingStepShell({
           </View>
           <Text style={styles.heroTitle}>{meta.title}</Text>
           <Text style={styles.heroSubtitle}>{meta.subtitle}</Text>
-          <View style={[
-            styles.heroBadge,
-            meta.required ? styles.heroBadgeRequired : styles.heroBadgeOptional,
-          ]}>
-            <Text style={[
-              styles.heroBadgeText,
-              meta.required ? styles.heroBadgeTextRequired : styles.heroBadgeTextOptional,
+          <View style={styles.heroBadgeRow}>
+            <View style={[
+              styles.heroBadge,
+              meta.required ? styles.heroBadgeRequired : styles.heroBadgeOptional,
             ]}>
-              {meta.required ? 'Étape obligatoire' : 'Optionnel — modifiable plus tard'}
-            </Text>
+              <Text style={[
+                styles.heroBadgeText,
+                meta.required ? styles.heroBadgeTextRequired : styles.heroBadgeTextOptional,
+              ]}>
+                {meta.required ? 'Étape obligatoire' : 'Optionnel — modifiable plus tard'}
+              </Text>
+            </View>
+            <View style={styles.heroTimeBadge}>
+              <Text style={styles.heroTimeBadgeText}>
+                ⏱ {formatEstimatedTime(meta.estimatedSeconds)}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -163,7 +223,7 @@ export function OnboardingStepShell({
 
       {/* ── Footer fixe ─────────────────────────────────────────── */}
       {onContinue && (
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(space.lg, insets.bottom + space.sm) }]}>
           <Pressable
             onPress={onContinue}
             disabled={busy || continueDisabled}
@@ -342,5 +402,65 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+
+  // ── Temps restant + hero time badge + Express bar ──
+  timeRemaining: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  heroBadgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  heroTimeBadge: {
+    backgroundColor: '#eef2f7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+  },
+  heroTimeBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  expressBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: space.lg,
+    marginBottom: space.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#fff8e1',
+    borderRadius: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
+  },
+  expressBarPressed: {
+    backgroundColor: '#fff3cd',
+    transform: [{ scale: 0.98 }],
+  },
+  expressBarIcon: { fontSize: 20 },
+  expressBarTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#92400e',
+  },
+  expressBarSubtitle: {
+    fontSize: 11,
+    color: '#a16207',
+    marginTop: 1,
+    lineHeight: 14,
+  },
+  expressBarChev: {
+    fontSize: 20,
+    color: '#92400e',
+    fontWeight: '700',
   },
 });

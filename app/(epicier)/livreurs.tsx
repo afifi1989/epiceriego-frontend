@@ -169,7 +169,9 @@ export default function LivreursScreen() {
       await loadLivreurs();
     } catch (error: any) {
       console.error('[confirmAssign] ❌ Erreur:', error);
-      Alert.alert('Erreur', error.message || 'Impossible d\'assigner le livreur');
+      if (!error?.__subscriptionGateHandled) {
+        Alert.alert('Erreur', error?.response?.data?.message || error.message || 'Impossible d\'assigner le livreur');
+      }
     } finally {
       setAssigningLivreurId(null);
       setSelectedLivreur(null);

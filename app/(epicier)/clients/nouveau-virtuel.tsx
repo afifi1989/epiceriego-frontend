@@ -120,14 +120,17 @@ export default function NouveauClientVirtuelScreen() {
         );
       }
     } catch (error: any) {
-      Alert.alert(
-        'Erreur',
-        typeof error === 'string'
-          ? error
-          : isEditMode
-            ? 'Impossible de modifier le client virtuel'
-            : 'Impossible de créer le client virtuel'
-      );
+      if (!error?.__subscriptionGateHandled) {
+        Alert.alert(
+          'Erreur',
+          error?.response?.data?.message
+            ?? (typeof error === 'string'
+              ? error
+              : isEditMode
+                ? 'Impossible de modifier le client virtuel'
+                : 'Impossible de créer le client virtuel')
+        );
+      }
     } finally {
       setSaving(false);
     }

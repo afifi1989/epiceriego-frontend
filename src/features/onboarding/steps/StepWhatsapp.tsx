@@ -52,6 +52,9 @@ export const StepWhatsapp = forwardRef<StepHandle, StepProps>(
           });
           return true;
         } catch (err: any) {
+          // Si l'intercepteur 402 a deja affiche le dialog d'abonnement,
+          // on n'empile pas un Alert "Sauvegarde impossible" generique.
+          if (err?.__subscriptionGateHandled) return false;
           Alert.alert('Erreur', err?.message ?? 'Sauvegarde impossible');
           return false;
         }

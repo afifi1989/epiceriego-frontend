@@ -17,9 +17,14 @@ import { useCallback } from 'react';
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { invoiceService } from '../../src/services/invoiceService';
 import { ClientCard } from '../../src/components/epicier/ClientCard';
+import { ClientQrScanButton } from '../../src/components/epicier/ClientQrScanButton';
 import { ClientEpicerieRelation, ClientAccount } from '../../src/type';
 import { Colors, FontSizes } from '../../src/constants/colors';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { tFmt } from '../../src/services/chatbotService';
+import { walkInConversionService } from '../../src/services/walkInConversionService';
+import { useCurrentUser } from '../../src/hooks/useCurrentUser';
+import { usePermissions } from '../../src/hooks/usePermissions';
 
 interface ClientWithDetails extends ClientEpicerieRelation {
   totalDebt?: number;
@@ -30,6 +35,12 @@ interface ClientWithDetails extends ClientEpicerieRelation {
 export default function ClientsScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const currentUser = useCurrentUser();
+  const { can } = usePermissions(currentUser);
+  const canManageCredit = can('clients:credit');
+  // Remove client est equivalent a un retrait de la liste : reserve aux roles qui
+  // peuvent gerer le credit (les caissiers n'ont pas a faire ce menage).
+  const canRemoveClient = can('clients:credit');
   const [clients, setClients] = useState<ClientWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,6 +52,9 @@ export default function ClientsScreen() {
     totalAdvances: 0,
     unpaidInvoices: 0,
   });
+  /** Walk-in customers eligible for promotion to a virtual client.
+   *  Loaded silently on mount; surfaces as a badge on the dedicated button. */
+  const [walkInCandidatesCount, setWalkInCandidatesCount] = useState(0);
 
   /**
    * Get epicerie ID from storage
@@ -65,6 +79,13 @@ export default function ClientsScreen() {
     useCallback(() => {
       if (epicerieId) {
         loadClients();
+        // Refresh the walk-in conversion suggestion count silently. Failures
+        // here don't block the page — the badge just stays at its previous
+        // value, and the dedicated screen will surface the real error if the
+        // épicier opens it.
+        walkInConversionService.getSuggestions(epicerieId)
+          .then(list => setWalkInCandidatesCount(list.length))
+          .catch(() => { /* non-blocking, ignore */ });
       }
     }, [epicerieId])
   );
@@ -81,8 +102,11 @@ export default function ClientsScreen() {
       // Load clients with their account information (includes balanceDue, totalAdvances, etc.)
       const clientsWithAccounts = await clientManagementService.getClientsWithAccounts(epicerieId);
 
-      // Load invoice stats
-      const invoiceStats = await invoiceService.getInvoiceStats(epicerieId);
+      // Stats factures : reserve aux roles avec invoices:view (caissier exclu)
+      const canViewInvoices = can('invoices:view');
+      const invoiceStats = canViewInvoices
+        ? await invoiceService.getInvoiceStats(epicerieId).catch(() => ({ totalUnpaid: 0 }))
+        : { totalUnpaid: 0 };
 
       // Map to ClientWithDetails format
       const enrichedClients: ClientWithDetails[] = clientsWithAccounts.map(client => ({
@@ -242,22 +266,49 @@ export default function ClientsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Walk-in conversion banner — only shown when the backend reports
+           recurring anonymous customers worth promoting. The badge wraps under
+           the action row so it doesn't compete with the always-visible buttons
+           when there's no candidate. */}
+      {walkInCandidatesCount > 0 && (
+        <TouchableOpacity
+          style={styles.walkInBanner}
+          onPress={() => router.push('/(epicier)/passants-a-convertir' as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.walkInBannerEmoji}>🚶</Text>
+          <Text style={styles.walkInBannerText}>
+            {tFmt(t, 'walkInConversion.badgeShort', { count: walkInCandidatesCount })}
+          </Text>
+          <Text style={styles.walkInBannerArrow}>→</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Search Bar */}
-      <View style={styles.searchSection}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Rechercher un client..."
-          placeholderTextColor="#999"
-          value={searchText}
-          onChangeText={setSearchText}
-        />
-        {searchText.length > 0 && (
-          <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => setSearchText('')}
-          >
-            <Text style={styles.clearButtonText}>✕</Text>
-          </TouchableOpacity>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16 }}>
+        <View style={[styles.searchSection, { flex: 1, marginHorizontal: 0 }]}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Rechercher un client..."
+            placeholderTextColor="#999"
+            value={searchText}
+            onChangeText={setSearchText}
+          />
+          {searchText.length > 0 && (
+            <TouchableOpacity
+              style={styles.clearButton}
+              onPress={() => setSearchText('')}
+            >
+              <Text style={styles.clearButtonText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {epicerieId && (
+          <ClientQrScanButton
+            epicerieId={epicerieId}
+            iconOnly
+            onResolved={(result) => handleClientPress(result.clientId)}
+          />
         )}
       </View>
 
@@ -269,10 +320,12 @@ export default function ClientsScreen() {
           <ClientCard
             client={item}
             onPress={() => handleClientPress(item.clientId)}
-            onEditCredit={() => handleEditCredit(item.clientId)}
-            onRemove={() =>
-              handleRemoveClient(item.clientId, item.clientNom)
-            }
+            onEditCredit={canManageCredit
+              ? () => handleEditCredit(item.clientId)
+              : undefined}
+            onRemove={canRemoveClient
+              ? () => handleRemoveClient(item.clientId, item.clientNom)
+              : undefined}
             showActions={true}
           />
         )}
@@ -391,6 +444,26 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     fontWeight: '600',
   },
+
+  // Walk-in conversion banner — amber tint to match the dashboard bucket.
+  walkInBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 15,
+    marginBottom: 10,
+    backgroundColor: '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#FFB300',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  walkInBannerEmoji: { fontSize: 18 },
+  walkInBannerText: {
+    flex: 1, fontSize: 14, fontWeight: '700', color: '#5D4037',
+  },
+  walkInBannerArrow: { fontSize: 18, color: '#5D4037' },
   searchSection: {
     paddingHorizontal: 15,
     paddingVertical: 10,

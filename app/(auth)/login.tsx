@@ -21,6 +21,9 @@ import AbridGOLogo from '../../src/components/shared/AbridGOLogo';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
+import { signInWithGoogle, isGoogleCancelError } from '../../src/services/googleAuthService';
+import { epicerieService } from '../../src/services/epicerieService';
+import { onboardingService } from '../../src/services/onboardingService';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,6 +121,7 @@ export default function LoginScreen() {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
   /** Rôle effectif utilisé pour l'UI et pour expectedRole côté API. */
   const [selectedRole, setSelectedRole] = useState<string | null>(lockedRole);
@@ -173,6 +177,50 @@ export default function LoginScreen() {
     router.replace('/(auth)/select-role');
   }, [router]);
 
+  /**
+   * Google Sign-In : récupère un idToken via la lib native, puis l'envoie au
+   * backend qui find-or-create un user CLIENT et applique le device check.
+   * Disponible uniquement pour le rôle CLIENT.
+   */
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      const { idToken } = await signInWithGoogle();
+      const fcmToken = await pushNotificationService.getTokenForLogin();
+      const outcome = await authService.loginWithGoogle(idToken, fcmToken);
+
+      if (outcome.kind === 'deviceVerificationRequired') {
+        router.replace({
+          pathname: '/(auth)/verify-device' as any,
+          params: {
+            verificationToken: outcome.data.verificationToken,
+            maskedEmail: outcome.data.maskedEmail,
+            deviceLabel: outcome.data.deviceLabel || '',
+          },
+        });
+        return;
+      }
+      const data = outcome.data;
+      await saveAccount({ login: data.email, nom: data.nom, role: data.role });
+      if (data.mustChangePassword) router.replace('/change-password');
+      else if (data.role === 'CLIENT') router.replace('/(client)');
+      else router.replace('/');
+    } catch (err: any) {
+      if (isGoogleCancelError(err)) {
+        // L'utilisateur a fermé la modal Google — pas d'erreur à afficher
+        return;
+      }
+      const msg = typeof err === 'string' ? err : err?.message || 'Erreur Google Sign-In';
+      Alert.alert('Erreur', msg);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handlePhoneOtpLogin = () => {
+    router.push('/(auth)/phone-otp' as any);
+  };
+
   const handleLogin = async () => {
     const v = login.trim();
     if (!v || !password) { Alert.alert('Erreur', 'Veuillez remplir tous les champs'); return; }
@@ -185,13 +233,54 @@ export default function LoginScreen() {
       const fcmToken = await pushNotificationService.getTokenForLogin();
       // Le rôle attendu envoyé au backend : lockedRole en priorité, sinon celui du compte sélectionné
       const expectedRole = lockedRole ?? (selectedRole ?? null);
-      const userData = await authService.login(v, password, fcmToken, expectedRole);
+      const outcome = await authService.login(v, password, fcmToken, expectedRole);
+
+      // Device pas trusted → écran verify-device
+      if (outcome.kind === 'deviceVerificationRequired') {
+        router.replace({
+          // Cast : la route est ajoutée à .expo/types lors du prochain `npx expo start`
+          pathname: '/(auth)/verify-device' as any,
+          params: {
+            verificationToken: outcome.data.verificationToken,
+            maskedEmail: outcome.data.maskedEmail,
+            deviceLabel: outcome.data.deviceLabel || '',
+          },
+        });
+        return;
+      }
+
+      const userData = outcome.data;
       await saveAccount({ login: v, nom: userData.nom, role: userData.role, identifiant: userData.identifiant || undefined });
 
       if (userData.mustChangePassword) { router.replace('/change-password'); return; }
+
+      // Pour EPICIER : vérifier l'onboarding AVANT redirection pour éviter
+      // le flash dashboard → onboarding. Si l'onboarding n'est pas terminé,
+      // on route directement vers /onboarding sans passer par le dashboard.
+      // Le check est best-effort : en cas d'erreur API, on retombe sur le
+      // comportement standard (le layout fera un second check au mount).
+      if (userData.role === 'EPICIER') {
+        let needsOnboarding = false;
+        try {
+          const epicerie = await epicerieService.getMyEpicerie();
+          const status = await onboardingService.getStatus(epicerie.id);
+          needsOnboarding = !status?.completed;
+        } catch {
+          // Service indisponible — fallback dashboard, le layout corrigera.
+        }
+        if (needsOnboarding) {
+          router.replace('/(epicier)/onboarding');
+        } else if (redirectTarget) {
+          router.replace(redirectTarget as any);
+          setRedirectTarget(null);
+        } else {
+          router.replace('/(epicier)/dashboard');
+        }
+        return;
+      }
+
       if (redirectTarget) { router.replace(redirectTarget as any); setRedirectTarget(null); }
       else if (userData.role === 'CLIENT') router.replace('/(client)');
-      else if (userData.role === 'EPICIER') router.replace('../(epicier)/dashboard');
       else if (userData.role === 'LIVREUR') router.replace('/(livreur)/deliveries');
     } catch (error: any) {
       if (error.isUnverified) {
@@ -283,6 +372,43 @@ export default function LoginScreen() {
             <View style={s.card}>
               <Text style={s.cardTitle}>Connexion</Text>
 
+              {/* ── Boutons auth alternative (CLIENT seulement) ── */}
+              {selectedRole === 'CLIENT' && (
+                <View style={{ marginBottom: 16 }}>
+                  <TouchableOpacity
+                    style={[s.googleBtn, googleLoading && { opacity: 0.6 }]}
+                    onPress={handleGoogleSignIn}
+                    disabled={googleLoading || loading}
+                    activeOpacity={0.7}
+                  >
+                    {googleLoading ? (
+                      <ActivityIndicator color="#1B2A4A" size="small" />
+                    ) : (
+                      <>
+                        <Text style={s.googleIcon}>G</Text>
+                        <Text style={s.googleBtnText}>Continuer avec Google</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={s.phoneBtn}
+                    onPress={handlePhoneOtpLogin}
+                    disabled={loading || googleLoading}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={s.phoneIcon}>📱</Text>
+                    <Text style={s.phoneBtnText}>Connexion par téléphone</Text>
+                  </TouchableOpacity>
+
+                  <View style={s.sep}>
+                    <View style={s.sepLine} />
+                    <Text style={s.sepText}>ou par email</Text>
+                    <View style={s.sepLine} />
+                  </View>
+                </View>
+              )}
+
               <TextInput style={s.input} placeholder="Identifiant (AL00001) ou Email"
                 placeholderTextColor="#aaa" value={login} onChangeText={setLogin}
                 keyboardType={isIdentifiant ? 'default' : 'email-address'}
@@ -314,7 +440,13 @@ export default function LoginScreen() {
 
               <TouchableOpacity
                 style={[s.registerBtn, { borderColor: primaryColor }]}
-                onPress={() => router.push('/(auth)/register')}
+                // Le role choisi dans select-role est propage a register pour
+                // eviter de redemander le type de compte (deja choisi a l'ecran
+                // d'accueil). Fallback CLIENT si aucun role n'est en param.
+                onPress={() => router.push({
+                  pathname: '/(auth)/register',
+                  params: { role: selectedRole ?? 'CLIENT' },
+                })}
                 activeOpacity={0.7}>
                 <Text style={[s.registerBtnText, { color: primaryColor }]}>Créer un compte</Text>
               </TouchableOpacity>
@@ -582,5 +714,53 @@ const s = StyleSheet.create({
     color: '#bbb',
     textAlign: 'center',
     marginTop: 6,
+  },
+
+  // ── Boutons Google + Phone (CLIENT only) ──────────────────────────────
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#dadce0',
+    borderRadius: 10,
+    paddingVertical: 14,
+    marginBottom: 10,
+  },
+  googleIcon: {
+    width: 24,
+    height: 24,
+    marginRight: 12,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#4285F4',
+    textAlign: 'center',
+    lineHeight: 24,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+  },
+  googleBtnText: {
+    color: '#1B2A4A',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  phoneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 10,
+    paddingVertical: 14,
+    marginBottom: 4,
+  },
+  phoneIcon: {
+    fontSize: 18,
+    marginRight: 10,
+  },
+  phoneBtnText: {
+    color: '#1B2A4A',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

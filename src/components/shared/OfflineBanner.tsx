@@ -82,11 +82,11 @@ export function OfflineBanner() {
     message = 'Connexion restaurée';
   } else if (!isOnline && pendingCount > 0) {
     backgroundColor = '#FF9800';
-    message = `Hors-ligne — ${pendingCount} op. en attente`;
+    message = `Pas de connexion — ${pendingCount} op. en attente. Vérifiez votre réseau (Wi-Fi / données mobiles).`;
     showRetry = false;
   } else if (!isOnline) {
     backgroundColor = '#FF9800';
-    message = 'Mode hors-ligne';
+    message = 'Pas de connexion Internet. Vérifiez votre Wi-Fi ou vos données mobiles.';
   } else if (isOnline && pendingCount > 0) {
     backgroundColor = '#2196F3';
     message = `${pendingCount} op. en attente`;

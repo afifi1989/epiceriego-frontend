@@ -8,6 +8,8 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -26,6 +28,8 @@ import { onboardingService } from '../../src/services/onboardingService';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../src/utils/helpers';
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { DashboardPromoWidget } from '../../src/features/promotions/components';
+import { DashboardPromoCodesWidget } from '../../src/components/epicier/DashboardPromoCodesWidget';
+import { DashboardStockWidget } from '../../src/components/epicier/DashboardStockWidget';
 
 export default function EpicierDashboardScreen() {
   const router = useRouter();
@@ -46,6 +50,10 @@ export default function EpicierDashboardScreen() {
   });
   const { can } = usePermissions(loginData);
   const { isOnline } = useNetwork();
+  // Modale "Plus d'actions" : regroupe les raccourcis secondaires pour ne
+  // pas saturer le dashboard. La grille principale ne montre que les 6
+  // actions les plus utilisees.
+  const [showMoreActions, setShowMoreActions] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -232,13 +240,34 @@ export default function EpicierDashboardScreen() {
         </View>
       </View>
 
-      {/* Widget Promotions (V70+) */}
-      <DashboardPromoWidget />
+      {/* Widget Stock — alertes a reapprovisionner (auto-masque si stock OK).
+          Place EN PREMIER car critique pour l'operationnel quotidien. */}
+      <DashboardStockWidget />
 
-      {/* Actions rapides */}
+      {/* Widget Promotions (V70+) — necessite promotions:manage cote backend */}
+      {can('promotions:manage') && <DashboardPromoWidget />}
+
+      {/* V95 Phase 6 — Widget Codes promos (économies offertes 30j) */}
+      {can('stats:view') && <DashboardPromoCodesWidget />}
+
+      {/* Actions rapides — 6 raccourcis principaux + bouton "Plus" pour le reste.
+          Selection basee sur la frequence d'usage quotidienne d'un epicier :
+          vente directe (POS) > catalogue > stats > approvisionnement > promotions > caisse.
+          Le reste (livreurs, fournisseurs, alertes, imprimante, fidelite...) est
+          accessible via la modale "Plus d'actions". */}
       <View style={styles.quickActions}>
         <Text style={styles.sectionTitle}>Actions Rapides</Text>
         <View style={styles.actionsGrid}>
+          {/* 1. Vente directe — l'action #1 du quotidien, mise en highlight */}
+          <TouchableOpacity
+            style={[styles.actionButton, styles.actionButtonHighlight]}
+            onPress={() => router.push('/(epicier)/vente-directe')}
+          >
+            <Text style={styles.actionEmoji}>🛒</Text>
+            <Text style={styles.actionText}>Vente Directe</Text>
+          </TouchableOpacity>
+
+          {/* 2. Produits — catalogue */}
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => router.push('/(epicier)/produits')}
@@ -247,6 +276,7 @@ export default function EpicierDashboardScreen() {
             <Text style={styles.actionText}>Produits</Text>
           </TouchableOpacity>
 
+          {/* 3. Statistiques — suivi des ventes */}
           {can('stats:view') && (
             <TouchableOpacity
               style={styles.actionButton}
@@ -257,26 +287,7 @@ export default function EpicierDashboardScreen() {
             </TouchableOpacity>
           )}
 
-          {can('livreurs:manage') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/livreurs')}
-            >
-              <Text style={styles.actionEmoji}>🚚</Text>
-              <Text style={styles.actionText}>Livreurs</Text>
-            </TouchableOpacity>
-          )}
-
-          {can('settings:edit') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/profil')}
-            >
-              <Text style={styles.actionEmoji}>⚙️</Text>
-              <Text style={styles.actionText}>Paramètres</Text>
-            </TouchableOpacity>
-          )}
-
+          {/* 4. Approvisionner — geste recurrent stock */}
           {can('stock:adjust') && (
             <TouchableOpacity
               style={styles.actionButton}
@@ -287,56 +298,7 @@ export default function EpicierDashboardScreen() {
             </TouchableOpacity>
           )}
 
-          {can('stock:view') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/stock-alerts' as any)}
-            >
-              <Text style={styles.actionEmoji}>🚨</Text>
-              <Text style={styles.actionText}>Alertes stock</Text>
-            </TouchableOpacity>
-          )}
-
-          {can('stock:adjust') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/inventaire' as any)}
-            >
-              <Text style={styles.actionEmoji}>📋</Text>
-              <Text style={styles.actionText}>Inventaire</Text>
-            </TouchableOpacity>
-          )}
-
-          {can('settings:edit') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/cash-session' as any)}
-            >
-              <Text style={styles.actionEmoji}>💰</Text>
-              <Text style={styles.actionText}>Caisse</Text>
-            </TouchableOpacity>
-          )}
-
-          {can('settings:edit') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/printer-settings' as any)}
-            >
-              <Text style={styles.actionEmoji}>🖨️</Text>
-              <Text style={styles.actionText}>Imprimante</Text>
-            </TouchableOpacity>
-          )}
-
-          {can('settings:edit') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/fidelite' as any)}
-            >
-              <Text style={styles.actionEmoji}>⭐</Text>
-              <Text style={styles.actionText}>Fidelite</Text>
-            </TouchableOpacity>
-          )}
-
+          {/* 5. Promotions — levier commercial */}
           {can('promotions:manage') && (
             <TouchableOpacity
               style={styles.actionButton}
@@ -347,12 +309,24 @@ export default function EpicierDashboardScreen() {
             </TouchableOpacity>
           )}
 
+          {/* 6. Caisse — ouverture/cloture du jour */}
+          {can('settings:edit') && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push('/(epicier)/cash-session' as any)}
+            >
+              <Text style={styles.actionEmoji}>💰</Text>
+              <Text style={styles.actionText}>Caisse</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* 7. Bouton "Plus" — ouvre la modale avec le reste des actions */}
           <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonHighlight]}
-            onPress={() => router.push('/(epicier)/vente-directe')}
+            style={[styles.actionButton, styles.actionButtonMore]}
+            onPress={() => setShowMoreActions(true)}
           >
-            <Text style={styles.actionEmoji}>🛒</Text>
-            <Text style={styles.actionText}>Vente Directe</Text>
+            <Text style={styles.actionEmoji}>⋯</Text>
+            <Text style={styles.actionText}>Plus</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -462,9 +436,158 @@ export default function EpicierDashboardScreen() {
           </View>
         )}
       </View>
+
+      {/* Modale "Plus d'actions" : grille secondaire avec les raccourcis
+          peu frequents. Chaque entree est conditionnee par sa permission. */}
+      <Modal
+        visible={showMoreActions}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMoreActions(false)}
+      >
+        <Pressable style={moreStyles.overlay} onPress={() => setShowMoreActions(false)}>
+          <Pressable style={moreStyles.sheet} onPress={e => e.stopPropagation()}>
+            <View style={moreStyles.handle} />
+            <Text style={moreStyles.title}>Plus d'actions</Text>
+            <View style={moreStyles.grid}>
+              {can('livreurs:manage') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/livreurs'); }}
+                >
+                  <Text style={moreStyles.emoji}>🚚</Text>
+                  <Text style={moreStyles.label}>Livreurs</Text>
+                </TouchableOpacity>
+              )}
+              {can('settings:edit') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/parametres' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>⚙️</Text>
+                  <Text style={moreStyles.label}>Paramètres</Text>
+                </TouchableOpacity>
+              )}
+              {can('promoCodes:manage') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/codes-promos' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>🎟️</Text>
+                  <Text style={moreStyles.label}>Codes promos</Text>
+                </TouchableOpacity>
+              )}
+              {can('suppliers:manage') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/fournisseurs' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>🏪</Text>
+                  <Text style={moreStyles.label}>Fournisseurs</Text>
+                </TouchableOpacity>
+              )}
+              {can('stock:view') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/stock-alerts' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>🚨</Text>
+                  <Text style={moreStyles.label}>Alertes stock</Text>
+                </TouchableOpacity>
+              )}
+              {can('stock:adjust') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/inventaire' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>📋</Text>
+                  <Text style={moreStyles.label}>Inventaire</Text>
+                </TouchableOpacity>
+              )}
+              {can('settings:edit') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/printer-settings' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>🖨️</Text>
+                  <Text style={moreStyles.label}>Imprimante</Text>
+                </TouchableOpacity>
+              )}
+              {can('settings:edit') && (
+                <TouchableOpacity
+                  style={moreStyles.item}
+                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/fidelite' as any); }}
+                >
+                  <Text style={moreStyles.emoji}>⭐</Text>
+                  <Text style={moreStyles.label}>Fidélité</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity style={moreStyles.closeBtn} onPress={() => setShowMoreActions(false)}>
+              <Text style={moreStyles.closeText}>Fermer</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
+
+const moreStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 22,
+    maxHeight: '80%',
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 40, height: 4,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 2,
+    marginBottom: 10,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    justifyContent: 'flex-start',
+  },
+  item: {
+    width: '30%',
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    padding: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#eef2f7',
+  },
+  emoji: { fontSize: 26, marginBottom: 6 },
+  label: { fontSize: 13, fontWeight: '600', color: '#374151', textAlign: 'center' },
+  closeBtn: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+  },
+  closeText: { color: '#374151', fontSize: 14, fontWeight: '600' },
+});
 
 /**
  * Styles
@@ -540,8 +663,8 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   statLabel: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 13,
+    color: '#4b5563',
     textAlign: 'center',
   },
   quickActions: {
@@ -574,6 +697,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5E9',
     borderWidth: 1.5,
     borderColor: '#4CAF50',
+  },
+  actionButtonMore: {
+    backgroundColor: '#f5f7fa',
+    borderWidth: 1,
+    borderColor: '#e0e6ed',
+    borderStyle: 'dashed',
   },
   actionEmoji: {
     fontSize: 40,
@@ -610,8 +739,8 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   orderDate: {
-    fontSize: 12,
-    color: '#999',
+    fontSize: 13,
+    color: '#6b7280',
   },
   orderTotalContainer: {
     alignItems: 'flex-end',
@@ -623,8 +752,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   orderItems: {
-    fontSize: 12,
-    color: '#999',
+    fontSize: 13,
+    color: '#6b7280',
   },
   orderAddress: {
     flexDirection: 'row',

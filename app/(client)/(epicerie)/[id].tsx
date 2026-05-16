@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import {
   useFocusEffect,
   useLocalSearchParams,
@@ -7,7 +8,6 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -20,12 +20,15 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Skeleton, useToast } from "../../../src/components/feedback";
+import { searchHistoryService } from "../../../src/services/searchHistoryService";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 import { ProductUnitDisplay } from "../../../components/client/ProductUnitDisplay";
 import { ProductImageModal } from "../../../src/components/client/ProductImageModal";
 import { FallbackImage } from "../../../components/client/FallbackImage";
 import { ChatbotModal } from "../../../src/components/client/ChatbotModal";
+import { BrandChip } from "../../../src/components/client/BrandChip";
 import { useLanguage } from "../../../src/context/LanguageContext";
 import { cartService } from "../../../src/services/cartService";
 import {
@@ -49,13 +52,15 @@ import {
   bestPromoForCategory,
   bestPromoForProduct,
   effectivePriceForProduct,
+  effectivePriceForUnit,
 } from "../../../src/features/promotions/utils";
 
 export default function EpicerieDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, brandId: brandIdParam } = useLocalSearchParams<{ id: string; brandId?: string }>();
   const router = useRouter();
   const { t } = useLanguage();
   const { setCurrency } = useCurrency();
+  const toast = useToast();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
@@ -69,6 +74,10 @@ export default function EpicerieDetailScreen() {
   const [categorySearch, setCategorySearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Bascule à false après le 1er loadProducts. Sert à montrer le skeleton
+   *  uniquement au tout 1er chargement. Les refetch suivants (filtre, recherche)
+   *  laissent la liste actuelle visible pour éviter un flash. */
+  const [initialLoading, setInitialLoading] = useState(true);
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
   const [showUnitSelector, setShowUnitSelector] = useState(false);
   const [selectedProductForCart, setSelectedProductForCart] = useState<Product | null>(null);
@@ -91,6 +100,19 @@ export default function EpicerieDetailScreen() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [loyaltyBalance, setLoyaltyBalance] = useState<LoyaltyBalance | null>(null);
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
+  /** Historique de recherche local par épicerie (8 dernières, MRU). */
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  // Brand filter applied client-side over the already-fetched product list.
+  // Seeded from a ?brandId= query param so deep-links from the product detail
+  // page land directly on a filtered list.
+  const initialBrandId = brandIdParam ? parseInt(brandIdParam, 10) : null;
+  const [selectedBrandId, setSelectedBrandId] = useState<number | null>(
+    Number.isFinite(initialBrandId) ? initialBrandId : null,
+  );
+  const [selectedBrandName, setSelectedBrandName] = useState<string | null>(null);
+  const [selectedBrandLogoUrl, setSelectedBrandLogoUrl] = useState<string | null>(null);
 
   // Load loyalty balance when store loads
   useEffect(() => {
@@ -149,20 +171,23 @@ export default function EpicerieDetailScreen() {
       console.error('[loadProducts] ERREUR:', error);
     } finally {
       setLoading(false);
+      // Une fois la 1ère page chargée (succès ou échec), on quitte le mode
+      // skeleton pour de bon. Les refetch suivants gardent la liste affichée.
+      if (!append) setInitialLoading(false);
     }
   }, [getEpicerieId]);
 
   const loadCategories = useCallback(async () => {
+    // Note: ne touche plus à `loading` — les catégories sont auxiliaires
+    // (filtres). Si elles tardent, on n'empêche pas l'affichage des produits.
     try {
-      setLoading(true);
       const data = await categoryService.getCategoriesByEpicerie(getEpicerieId());
       setCategories(data);
     } catch (error) {
-      Alert.alert(t("common.error"), String(error));
-    } finally {
-      setLoading(false);
+      console.error('[loadCategories] ERREUR:', error);
+      toast.error(t("common.error"), String(error));
     }
-  }, [getEpicerieId, t]);
+  }, [getEpicerieId, t, toast]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -190,6 +215,40 @@ export default function EpicerieDetailScreen() {
     });
   }, [searchQuery, selectedCategoryIds, loadProducts]);
 
+  // ── Brand filter (client-side) ────────────────────────────────────────────
+  // Filtering happens in-memory rather than re-fetching: simpler, and the page
+  // already loads paginated batches that the user can drill into anyway.
+  const displayedProducts = useMemo(() => {
+    if (selectedBrandId === null) return products;
+    return products.filter((p) => p.brandId === selectedBrandId);
+  }, [products, selectedBrandId]);
+
+  const handleBrandSelect = useCallback((b: { id: number; name: string; logoUrl?: string | null }) => {
+    Haptics.selectionAsync().catch(() => {});
+    setSelectedBrandId(b.id);
+    setSelectedBrandName(b.name);
+    setSelectedBrandLogoUrl(b.logoUrl ?? null);
+  }, []);
+
+  const clearBrandFilter = useCallback(() => {
+    setSelectedBrandId(null);
+    setSelectedBrandName(null);
+    setSelectedBrandLogoUrl(null);
+  }, []);
+
+  // When the page is opened via ?brandId=… we don't yet know the brand's name
+  // for the active-filter pill. Resolve it from the first matching product
+  // once the list arrives.
+  useEffect(() => {
+    if (selectedBrandId !== null && !selectedBrandName) {
+      const found = products.find((p) => p.brandId === selectedBrandId);
+      if (found?.brandName) {
+        setSelectedBrandName(found.brandName);
+        setSelectedBrandLogoUrl(found.brandLogoUrl ?? null);
+      }
+    }
+  }, [products, selectedBrandId, selectedBrandName]);
+
   // ── Chargement initial ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -214,6 +273,8 @@ export default function EpicerieDetailScreen() {
       loadTags();
       loadActivePromos();
       loadProducts(0, "", undefined, false);
+      // Hydrate l'historique de recherche pour cette épicerie
+      searchHistoryService.list(getEpicerieId()).then(setSearchHistory).catch(() => {});
     }
   }, [id]);
 
@@ -270,12 +331,28 @@ export default function EpicerieDetailScreen() {
 
   const handleSearchSubmit = useCallback(() => {
     loadProducts(0, searchQuery, selectedCategoryIds, false, selectedTagIds);
-  }, [searchQuery, selectedCategoryIds, selectedTagIds, loadProducts]);
+    // Mémorise la requête (≥ 2 chars, sinon ignoré par le service)
+    searchHistoryService.add(getEpicerieId(), searchQuery).then(setSearchHistory).catch(() => {});
+    setSearchFocused(false);
+  }, [searchQuery, selectedCategoryIds, selectedTagIds, loadProducts, getEpicerieId]);
 
   const handleSearchClear = useCallback(() => {
     setSearchQuery("");
     loadProducts(0, "", selectedCategoryIds, false, selectedTagIds);
   }, [selectedCategoryIds, selectedTagIds, loadProducts]);
+
+  /** Sélection d'une recherche depuis l'historique: remplit + lance la requête. */
+  const handleHistoryPick = useCallback((query: string) => {
+    setSearchQuery(query);
+    setSearchFocused(false);
+    loadProducts(0, query, selectedCategoryIds, false, selectedTagIds);
+    // Réordonne l'entrée en tête (MRU) sans changer le contenu
+    searchHistoryService.add(getEpicerieId(), query).then(setSearchHistory).catch(() => {});
+  }, [selectedCategoryIds, selectedTagIds, loadProducts, getEpicerieId]);
+
+  const handleHistoryRemove = useCallback((query: string) => {
+    searchHistoryService.remove(getEpicerieId(), query).then(setSearchHistory).catch(() => {});
+  }, [getEpicerieId]);
 
   // ── Chargement de la page suivante (infinite scroll) ─────────────────────
 
@@ -298,7 +375,16 @@ export default function EpicerieDetailScreen() {
   };
 
   const addToCartDirect = async (product: Product) => {
+    // Haptic léger AVANT l'await: feedback corporel instantané qui rend
+    // l'attente AsyncStorage imperceptible (~10-50ms).
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     try {
+      // Prix remisé si une promotion active touche ce produit. Pour les
+      // produits SANS variantes, PromotionApplicationService côté backend ne
+      // modifie pas Product.prix — la remise n'est que runtime côté front.
+      // Sans ce calcul, le panier garderait le prix d'origine.
+      const promo = bestPromoForProduct(activePromos, product);
+      const effectivePrice = effectivePriceForProduct(product, promo).display;
       const cartItem: CartItem = {
         itemType: "PRODUCT",
         productId: product.id,
@@ -307,46 +393,63 @@ export default function EpicerieDetailScreen() {
         quantity: 1,
         unitId: undefined,
         unitLabel: t("products.piece") || t("products.addQuantity"),
-        pricePerUnit: product.prix,
-        totalPrice: product.prix,
+        pricePerUnit: effectivePrice,
+        totalPrice: effectivePrice,
         photoUrl: product.photoUrl,
       };
       const updatedCart = await cartService.addToCart(cartItem);
       setCart(updatedCart);
-      Alert.alert("✅", t("products.addedToCart"));
+      toast.success(t("products.addedToCart"), product.nom);
     } catch {
-      Alert.alert(t("common.error"), t("products.errorAdding"));
+      toast.error(t("common.error"), t("products.errorAdding"));
     }
   };
 
   const handleAddToCartWithUnit = async (
-    unitId: number,
+    unitId: number | null,
     quantity: number,
     totalPrice: number,
     unit: ProductUnit,
   ) => {
     if (!selectedProductForCart) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    const productName = selectedProductForCart.nom;
     try {
+      // unitId === null → produit sans variante (tarif Product.prix).
+      // On stocke `undefined` dans le CartItem pour qu'il soit omis du payload
+      // de commande (le backend déclenche "Unit not found" sur unitId=0/null
+      // explicite si la ProductUnit n'existe pas).
+      //
+      // Prix unitaire remisé : aligne le pricePerUnit du panier sur le total
+      // déjà remisé (totalPrice vient de ProductUnitDisplay.getTotalPrice qui
+      // applique effectivePriceForUnit). Sans ça, modifier la quantité dans
+      // le panier recalculerait à `quantity * unit.prix` (prix d'origine) et
+      // perdrait la remise.
+      const promo = bestPromoForProduct(activePromos, selectedProductForCart);
+      const effectivePerUnit = unitId != null
+        ? effectivePriceForUnit(unit, promo).display
+        : effectivePriceForProduct(selectedProductForCart, promo).display;
       const cartItem: CartItem = {
         itemType: "PRODUCT",
         productId: selectedProductForCart.id,
-        productNom: selectedProductForCart.nom,
+        productNom: productName,
         epicerieId: selectedProductForCart.epicerieId,
-        unitId,
+        unitId: unitId ?? undefined,
         unitLabel: unit.label,
         quantity,
         requestedQuantity: quantity,
-        pricePerUnit: unit.prix,
+        pricePerUnit: effectivePerUnit,
         totalPrice,
         photoUrl: selectedProductForCart.photoUrl,
       };
       const updatedCart = await cartService.addToCart(cartItem);
       setCart(updatedCart);
-      Alert.alert("✅", `${selectedProductForCart.nom} (${unit.label}) ${t("products.addedToCart")}`);
+      // Ferme la modal AVANT le toast pour que l'utilisateur le voie clairement.
       setShowUnitSelector(false);
       setSelectedProductForCart(null);
+      toast.success(t("products.addedToCart"), `${productName} (${unit.label})`);
     } catch {
-      Alert.alert(t("common.error"), t("products.errorAdding"));
+      toast.error(t("common.error"), t("products.errorAdding"));
     }
   };
 
@@ -354,18 +457,21 @@ export default function EpicerieDetailScreen() {
     try {
       let addedCount = 0;
       for (const p of products) {
-        if (p.isMatched && p.matchedProductId && p.matchedProductUnitId) {
+        // matchedProductUnitId may be absent for legacy products without variants —
+        // mirrors the addToCartDirect path: unitId omitted, price/stock from Product fields.
+        if (p.isMatched && p.matchedProductId) {
+          const pricePerUnit = p.matchedPrice ?? 0;
           await cartService.addToCart({
             itemType: "PRODUCT",
             productId: p.matchedProductId,
             productNom: p.matchedProductName || p.productName,
             epicerieId: getEpicerieId(),
-            unitId: p.matchedProductUnitId,
+            unitId: p.matchedProductUnitId ?? undefined,
             unitLabel: p.matchedUnitLabel || p.unit,
             quantity: p.quantity,
             requestedQuantity: p.quantity,
-            pricePerUnit: p.matchedPrice || 0,
-            totalPrice: (p.matchedPrice || 0) * p.quantity,
+            pricePerUnit,
+            totalPrice: pricePerUnit * p.quantity,
           });
           addedCount++;
         }
@@ -373,12 +479,13 @@ export default function EpicerieDetailScreen() {
       const updatedCart = await cartService.getCart();
       setCart(updatedCart);
       if (addedCount > 0) {
-        Alert.alert("✅", `${addedCount} ${t("epicerieDetail.addedToCartSuccess")}`);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        toast.success(`${addedCount} ${t("epicerieDetail.addedToCartSuccess")}`);
       } else {
-        Alert.alert(t("common.error"), t("epicerieDetail.addToCartError"));
+        toast.error(t("common.error"), t("epicerieDetail.addToCartError"));
       }
     } catch {
-      Alert.alert(t("common.error"), t("epicerieDetail.addToCartError"));
+      toast.error(t("common.error"), t("epicerieDetail.addToCartError"));
     }
   };
 
@@ -417,7 +524,7 @@ export default function EpicerieDetailScreen() {
 
   const openGoogleMaps = async () => {
     if (!epicerie?.latitude || !epicerie?.longitude) {
-      Alert.alert(t("common.error"), t("epicerieDetail.noGpsCoords"));
+      toast.warning(t("common.error"), t("epicerieDetail.noGpsCoords"));
       return;
     }
     try {
@@ -425,7 +532,7 @@ export default function EpicerieDetailScreen() {
       const canOpen = await Linking.canOpenURL(url);
       await Linking.openURL(canOpen ? url : `https://maps.google.com/?q=${epicerie.latitude},${epicerie.longitude}`);
     } catch {
-      Alert.alert(t("common.error"), t("epicerieDetail.cantOpenMaps"));
+      toast.error(t("common.error"), t("epicerieDetail.cantOpenMaps"));
     }
   };
 
@@ -501,9 +608,15 @@ export default function EpicerieDetailScreen() {
         ) : null}
 
         {/* Marque */}
-        {item.brandName ? (
+        {item.brandName && item.brandId ? (
           <View style={styles.epicCardBrandRow}>
-            <Text style={styles.epicCardBrandText}>{item.brandName}</Text>
+            <BrandChip
+              name={item.brandName}
+              logoUrl={item.brandLogoUrl}
+              size="md"
+              variant="badge"
+              onPress={() => handleBrandSelect({ id: item.brandId!, name: item.brandName!, logoUrl: item.brandLogoUrl })}
+            />
           </View>
         ) : null}
 
@@ -603,9 +716,15 @@ export default function EpicerieDetailScreen() {
 
         <View style={styles.productInfo}>
           <Text style={styles.productName}>{item.nom}</Text>
-          {item.brandName && (
-            <View style={[styles.brandBadge, { marginBottom: 2 }]}>
-              <Text style={styles.brandBadgeText} numberOfLines={1}>{item.brandName}</Text>
+          {item.brandName && item.brandId && (
+            <View style={{ marginBottom: 2 }}>
+              <BrandChip
+                name={item.brandName}
+                logoUrl={item.brandLogoUrl}
+                size="sm"
+                variant="badge"
+                onPress={() => handleBrandSelect({ id: item.brandId!, name: item.brandName!, logoUrl: item.brandLogoUrl })}
+              />
             </View>
           )}
           <Text style={styles.productCategory}>
@@ -737,10 +856,14 @@ export default function EpicerieDetailScreen() {
             </View>
           )}
 
-          {item.brandName && (
-            <View style={styles.brandBadge}>
-              <Text style={styles.brandBadgeText} numberOfLines={1}>{item.brandName}</Text>
-            </View>
+          {item.brandName && item.brandId && (
+            <BrandChip
+              name={item.brandName}
+              logoUrl={item.brandLogoUrl}
+              size="sm"
+              variant="badge"
+              onPress={() => handleBrandSelect({ id: item.brandId!, name: item.brandName!, logoUrl: item.brandLogoUrl })}
+            />
           )}
 
           {promo?.titre ? (
@@ -874,15 +997,72 @@ export default function EpicerieDetailScreen() {
         </>
       )}
 
+      {/* Filtre actif par marque — client-side, retiré au tap sur ✕ */}
+      {selectedBrandId !== null && selectedBrandName && (
+        <View style={styles.activeBrandFilterRow}>
+          <View style={styles.activeBrandFilterPill}>
+            <BrandChip
+              name={selectedBrandName}
+              logoUrl={selectedBrandLogoUrl}
+              size="md"
+              variant="inline"
+            />
+            <TouchableOpacity
+              onPress={clearBrandFilter}
+              style={styles.activeBrandFilterClear}
+              accessibilityLabel="Retirer le filtre par marque"
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Text style={styles.activeBrandFilterClearText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </>
   );
 
   // ── Chargement ────────────────────────────────────────────────────────────
 
-  if (loading) {
+  // Skeleton uniquement au tout 1er rendu (avant le 1er retour serveur).
+  // Une fois `initialLoading=false`, les filtres/recherche ne re-déclenchent
+  // PLUS le skeleton — la liste actuelle reste visible pendant la requête.
+  if (initialLoading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+      <View style={styles.container}>
+        {/* Barre de recherche en placeholder pour préserver la position */}
+        <View style={styles.searchBar}>
+          <Skeleton variant="rect" height={40} style={{ flex: 1, borderRadius: 8 }} />
+          <View style={{ width: 8 }} />
+          <Skeleton variant="rect" width={44} height={40} style={{ borderRadius: 8 }} />
+          <View style={{ width: 8 }} />
+          <Skeleton variant="rect" width={120} height={40} style={{ borderRadius: 8 }} />
+        </View>
+        <View style={{ padding: 12 }}>
+          {[0, 1, 2, 3].map(i => (
+            <View
+              key={i}
+              style={{
+                backgroundColor: '#fff',
+                borderRadius: 14,
+                padding: 12,
+                marginBottom: 12,
+                shadowColor: '#000',
+                shadowOpacity: 0.06,
+                shadowRadius: 4,
+                shadowOffset: { width: 0, height: 1 },
+                elevation: 1,
+              }}
+            >
+              <Skeleton variant="rect" height={140} style={{ borderRadius: 10, marginBottom: 10 }} />
+              <Skeleton variant="text" width="70%" style={{ marginBottom: 8 }} />
+              <Skeleton variant="text" width="90%" style={{ marginBottom: 8 }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                <Skeleton variant="text" width={80} />
+                <Skeleton variant="circle" width={36} height={36} />
+              </View>
+            </View>
+          ))}
+        </View>
       </View>
     );
   }
@@ -930,6 +1110,8 @@ export default function EpicerieDetailScreen() {
               value={searchQuery}
               onChangeText={setSearchQuery}
               onSubmitEditing={handleSearchSubmit}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
               returnKeyType="search"
               placeholderTextColor="#aaa"
               autoCorrect={false}
@@ -971,6 +1153,30 @@ export default function EpicerieDetailScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Recherches récentes — visibles quand l'input est focus ET vide */}
+        {searchFocused && !searchQuery && searchHistory.length > 0 && (
+          <View style={styles.historyBar}>
+            <Text style={styles.historyLabel}>{t("epicerieDetail.recentSearches") || "Recherches récentes"}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyContent}>
+              {searchHistory.map((q) => (
+                <View key={q} style={styles.historyChip}>
+                  <TouchableOpacity onPress={() => handleHistoryPick(q)} activeOpacity={0.7} style={styles.historyChipMain}>
+                    <Ionicons name="time-outline" size={13} color="#52575C" />
+                    <Text style={styles.historyChipText} numberOfLines={1}>{q}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => handleHistoryRemove(q)}
+                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 4 }}
+                    style={styles.historyChipClose}
+                  >
+                    <Text style={styles.historyChipCloseText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Tag chips */}
         {availableTags.length > 0 && (
@@ -1048,7 +1254,7 @@ export default function EpicerieDetailScreen() {
 
         <FlatList
           key={viewMode === "grid" ? "grid" : "single"}
-          data={products}
+          data={displayedProducts}
           renderItem={viewMode === "grid" ? renderProductGrid : viewMode === "list" ? renderProduct : renderProductCard}
           numColumns={viewMode === "grid" ? 2 : 1}
           columnWrapperStyle={viewMode === "grid" ? styles.gridColumnWrapper : undefined}
@@ -1406,6 +1612,64 @@ const styles = StyleSheet.create({
   activeFilterLabel: { fontSize: 13, fontWeight: "600", color: "#2E7D32" },
   activeFilterClear: { fontSize: 12, color: "#4CAF50", fontWeight: "700" },
 
+  /* === HISTORY BAR === */
+  historyBar: {
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+    paddingTop: 8,
+    paddingBottom: 10,
+  },
+  historyLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#8A8F94",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingHorizontal: 14,
+    marginBottom: 6,
+  },
+  historyContent: {
+    paddingHorizontal: 12,
+    gap: 6,
+    flexDirection: "row",
+  },
+  historyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F6F8",
+    borderRadius: 999,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 6,
+    gap: 4,
+    maxWidth: 220,
+  },
+  historyChipMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 1,
+  },
+  historyChipText: {
+    fontSize: 13,
+    color: "#1A1D21",
+    fontWeight: "500",
+    flexShrink: 1,
+  },
+  historyChipClose: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  historyChipCloseText: {
+    fontSize: 10,
+    color: "#8A8F94",
+    fontWeight: "700",
+  },
+
   /* === TAGS BAR === */
   tagsBar: {
     borderBottomWidth: 1,
@@ -1708,18 +1972,39 @@ const styles = StyleSheet.create({
     color: "#888",
     fontWeight: "600",
   },
-  brandBadge: {
+  // Active brand filter pill (top of products list)
+  activeBrandFilterRow: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  activeBrandFilterPill: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "flex-start",
     backgroundColor: "#E3F2FD",
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    marginBottom: 4,
+    borderRadius: 999,
+    paddingLeft: 10,
+    paddingRight: 6,
+    paddingVertical: 4,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#BBDEFB",
   },
-  brandBadgeText: {
-    fontSize: 10,
-    color: "#1565C0",
-    fontWeight: "600",
+  activeBrandFilterClear: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#1565C0",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
+  },
+  activeBrandFilterClearText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 12,
   },
   gridBottomRow: {
     flexDirection: "row",

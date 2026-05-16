@@ -15,6 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { orderService, OrderAuditLog } from '../../src/services/orderService';
+import { orderPreparationService } from '../../src/services/orderPreparationService';
 import {
   epicierLivreurService,
   AssignedLivreur,
@@ -24,6 +25,7 @@ import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/hel
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { OrderLivreurAssignmentSection } from '../../src/components/epicier/OrderLivreurAssignmentSection';
 import { LivreurAssignmentModal } from '../../src/components/epicier/LivreurAssignmentModal';
+import { PermissionGate } from '../../src/components/shared/PermissionGate';
 
 function getAuditLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -117,7 +119,16 @@ export default function DetailsCommandeScreen() {
 
     try {
       setUpdating(true);
-      await orderService.updateOrderStatus(order.id, newStatus);
+      // Pour le passage à READY ("Prête"), on utilise l'endpoint dédié
+      // POST /orders/{id}/complete (même que le web via completePreparation).
+      // Avantages : autorise un passage direct ACCEPTED → READY sans étape
+      // PREPARING manuelle, et déclenche le même audit / notification
+      // côté backend que le bouton "Terminer la préparation" du web.
+      if (newStatus === 'READY') {
+        await orderPreparationService.completeOrderPreparation(order.id);
+      } else {
+        await orderService.updateOrderStatus(order.id, newStatus);
+      }
       Alert.alert('✅', 'Statut mis à jour avec succès');
       await loadInitialData();
     } catch (error) {
@@ -183,9 +194,15 @@ export default function DetailsCommandeScreen() {
       options.push({ text: 'Accepter', status: 'ACCEPTED' });
       options.push({ text: 'Refuser', status: 'CANCELLED' });
     } else if (order.status === 'ACCEPTED') {
+      // Symétrie avec le web : depuis ACCEPTED, l'épicier peut soit lancer
+      // la préparation détaillée (item-par-item via "Préparer la commande"
+      // → écran preparer-commande), soit marquer directement la commande
+      // comme prête sans passer par PREPARING (typique des préparations
+      // rapides où il n'y a rien à pointer).
+      options.push({ text: 'Marquer comme prête', status: 'READY' });
       options.push({ text: 'En préparation', status: 'PREPARING' });
     } else if (order.status === 'PREPARING') {
-      options.push({ text: 'Prête', status: 'READY' });
+      options.push({ text: 'Marquer comme prête', status: 'READY' });
     } else if (order.status === 'READY') {
       // Pour les commandes en retrait (PICKUP), l'épicier peut marquer comme livrée
       if (order.deliveryType === 'PICKUP') {
@@ -303,17 +320,20 @@ export default function DetailsCommandeScreen() {
           </View>
         </View>
 
-        {/* Assignation Livreur — uniquement pour les livraisons à domicile */}
+        {/* Assignation Livreur — uniquement pour les livraisons a domicile.
+            Reserve aux roles qui ont livreurs:manage (owner + manager). */}
         {order.status === 'READY' && order.deliveryType === 'HOME_DELIVERY' && (
-          <OrderLivreurAssignmentSection
-            currentLivreur={
-              assignedLivreurs.find(l => l.nom === order.livreurNom) || null
-            }
-            availableLivreurs={assignedLivreurs}
-            isLoading={assigningLivreur}
-            onAssignClick={() => setShowLivreurModal(true)}
-            status={order.status}
-          />
+          <PermissionGate feature="livreurs:manage">
+            <OrderLivreurAssignmentSection
+              currentLivreur={
+                assignedLivreurs.find(l => l.nom === order.livreurNom) || null
+              }
+              availableLivreurs={assignedLivreurs}
+              isLoading={assigningLivreur}
+              onAssignClick={() => setShowLivreurModal(true)}
+              status={order.status}
+            />
+          </PermissionGate>
         )}
 
         {/* Articles */}

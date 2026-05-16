@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { InvoiceCard } from '../../../src/components/epicier/InvoiceCard';
+import { LinkVirtualClientModal } from '../../../src/components/epicier/LinkVirtualClientModal';
 import { Colors, FontSizes } from '../../../src/constants/colors';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { clientManagementService } from '../../../src/services/clientManagementService';
@@ -34,6 +35,7 @@ export default function ClientDetailScreen() {
   const [clientDetails, setClientDetails] = useState<ClientEpicerieRelation | null>(null);
   const [accountInfo, setAccountInfo] = useState<ClientAccount | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [linkModalVisible, setLinkModalVisible] = useState(false);
 
   /**
    * Get epicerie ID from storage
@@ -168,7 +170,7 @@ export default function ClientDetailScreen() {
     <View style={styles.container}>
       {/* Header with client info */}
       <View style={styles.headerSection}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.clientName}>{clientDetails.clientNom}</Text>
           <Text style={styles.clientEmail}>{clientDetails.clientEmail}</Text>
         </View>
@@ -186,6 +188,40 @@ export default function ClientDetailScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Bouton "Lier au compte" : seul un client virtuel beneficie d'un
+          rattachement. L'epicerie peut tenter le link meme si le statut le
+          permet ; le backend refuse proprement si le client est deja reel. */}
+      <TouchableOpacity
+        style={linkStyles.linkBtn}
+        onPress={() => setLinkModalVisible(true)}
+        activeOpacity={0.85}
+      >
+        <Text style={linkStyles.linkIcon}>🔗</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={linkStyles.linkTitle}>Lier au compte mobile</Text>
+          <Text style={linkStyles.linkSubtitle}>
+            Si ce client a un compte sur l'app, rattachez-le pour qu'il voie
+            ses factures et avances.
+          </Text>
+        </View>
+        <Text style={linkStyles.linkChevron}>›</Text>
+      </TouchableOpacity>
+
+      {epicerieId && (
+        <LinkVirtualClientModal
+          visible={linkModalVisible}
+          epicerieId={epicerieId}
+          clientId={clientId}
+          clientName={clientDetails.clientNom}
+          onClose={() => setLinkModalVisible(false)}
+          onLinked={() => {
+            // Apres link, le clientId pointe vers un user reel : on revient en
+            // arriere car l'epicerie peut ne plus avoir cette relation telle quelle.
+            router.back();
+          }}
+        />
+      )}
 
       {/* Tabs */}
       <View style={styles.tabsSection}>
@@ -703,4 +739,24 @@ const styles = StyleSheet.create({
   listContent: {
     paddingVertical: 0,
   },
+});
+
+const linkStyles = StyleSheet.create({
+  linkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eef6ff',
+    marginHorizontal: 16,
+    marginTop: 4,
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    gap: 12,
+  },
+  linkIcon: { fontSize: 22 },
+  linkTitle: { fontSize: 14, fontWeight: '700', color: '#1d4ed8' },
+  linkSubtitle: { fontSize: 12, color: '#1e3a8a', marginTop: 2, lineHeight: 16 },
+  linkChevron: { fontSize: 22, color: '#1d4ed8', marginLeft: 6 },
 });

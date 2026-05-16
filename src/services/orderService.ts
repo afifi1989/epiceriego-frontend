@@ -1,6 +1,16 @@
 import api from './api';
-import { CreateOrderRequest, Order, DeliveryInfo, UpdateDeliveryInfoRequest, QrTokenResponse, QrValidateResponse } from '../type';
-import * as FileSystem from 'expo-file-system';
+import {
+  CreateOrderRequest,
+  Order,
+  OrderCounts,
+  OrderListItem,
+  SpringPage,
+  DeliveryInfo,
+  UpdateDeliveryInfoRequest,
+  QrTokenResponse,
+  QrValidateResponse,
+} from '../type';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS, API_CONFIG } from '../constants/config';
 
@@ -36,6 +46,72 @@ export const orderService = {
   },
 
   /**
+   * Cree N commandes en une seule transaction all-or-nothing.
+   *
+   * <p>Utilise quand le panier contient des produits de plusieurs epiceries :
+   * on envoie le tableau au backend qui valide tout dans une transaction
+   * unique. Si une commande echoue (stock, epicerie fermee, credit refuse...)
+   * <em>aucune</em> n'est creee et le panier reste intact cote UI.</p>
+   *
+   * <p>Backend : POST /api/orders/batch (max 10 par batch).</p>
+   *
+   * @returns Liste des Order creees.
+   * @throws {BatchOrderError} si une commande echoue (rollback total).
+   */
+  createOrderBatch: async (orders: CreateOrderRequest[]): Promise<Order[]> => {
+    try {
+      console.log('[OrderService] Batch de', orders.length, 'commandes envoye');
+      const response = await api.post<{ orders: Order[] }>('/orders/batch', orders);
+      return response.data.orders ?? [];
+    } catch (error: any) {
+      const data = error?.response?.data;
+      // Backend renvoie { failedIndex, epicerieId, message } en cas d'echec.
+      if (typeof data?.failedIndex === 'number') {
+        throw new BatchOrderError(data.failedIndex, data.epicerieId, data.message);
+      }
+      throw error?.response?.data?.message ?? error?.message ?? 'Erreur lors du batch';
+    }
+  },
+
+  /**
+   * Accepte N commandes PENDING en une seule requete (epicier).
+   *
+   * <p>Mode partial-success : chaque commande est traitee independamment.
+   * Si une echoue (deja annulee, race condition), les autres passent.
+   * Le caller affiche un rapport "N acceptees, X echec(s)".</p>
+   */
+  acceptBatch: async (orderIds: number[]): Promise<BatchOrderActionResult> => {
+    try {
+      const response = await api.post<BatchOrderActionResult>('/orders/accept-batch', { orderIds });
+      const data = response.data;
+      return {
+        accepted: data.accepted ?? [],
+        rejected: [],
+        failed: data.failed ?? [],
+      };
+    } catch (error: any) {
+      throw error?.response?.data?.message ?? error?.message ?? 'Erreur lors de l\'acceptation en lot';
+    }
+  },
+
+  /**
+   * Refuse N commandes PENDING en une seule requete (symetrique de acceptBatch).
+   */
+  rejectBatch: async (orderIds: number[]): Promise<BatchOrderActionResult> => {
+    try {
+      const response = await api.post<BatchOrderActionResult>('/orders/reject-batch', { orderIds });
+      const data = response.data;
+      return {
+        accepted: [],
+        rejected: data.rejected ?? [],
+        failed: data.failed ?? [],
+      };
+    } catch (error: any) {
+      throw error?.response?.data?.message ?? error?.message ?? 'Erreur lors du refus en lot';
+    }
+  },
+
+  /**
    * Récupère les commandes du client connecté
    */
   getMyOrders: async (): Promise<Order[]> => {
@@ -48,12 +124,65 @@ export const orderService = {
   },
 
   /**
-   * Récupère les commandes de l'épicerie de l'épicier connecté
+   * @deprecated Préférer getActiveEpicerieOrders + getArchiveEpicerieOrders
+   * pour éviter de charger toute l'historique à chaque refresh.
    */
   getEpicerieOrders: async (status?: string): Promise<Order[]> => {
     try {
       const params = status ? { status } : {};
       const response = await api.get<Order[]>('/orders/epicerie/my-orders', { params });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur';
+    }
+  },
+
+  /**
+   * V96 — Commandes actives (PENDING/ACCEPTED/PREPARING/READY/IN_DELIVERY).
+   * Liste plate, non paginée (ensemble borné par nature). Polling 15s
+   * côté écran.
+   */
+  getActiveEpicerieOrders: async (): Promise<OrderListItem[]> => {
+    try {
+      const response = await api.get<OrderListItem[]>('/orders/epicerie/my-orders/active');
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur';
+    }
+  },
+
+  /**
+   * V96 — Page d'archives (DELIVERED/CANCELLED). Backend trie par
+   * createdAt desc. Recherche optionnelle sur ID, nom client, téléphone.
+   */
+  getArchiveEpicerieOrders: async (opts: {
+    page: number;
+    size: number;
+    statuses?: string[];
+    q?: string;
+  }): Promise<SpringPage<OrderListItem>> => {
+    try {
+      const params: any = { page: opts.page, size: opts.size };
+      if (opts.statuses && opts.statuses.length > 0) {
+        params.statuses = opts.statuses.join(',');
+      }
+      if (opts.q && opts.q.trim()) {
+        params.q = opts.q.trim();
+      }
+      const response = await api.get<SpringPage<OrderListItem>>(
+        '/orders/epicerie/my-orders/archive',
+        { params }
+      );
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur';
+    }
+  },
+
+  /** V96 — Compteurs pour les badges des tabs. */
+  getEpicerieOrdersCounts: async (): Promise<OrderCounts> => {
+    try {
+      const response = await api.get<OrderCounts>('/orders/epicerie/my-orders/counts');
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur';
@@ -232,4 +361,29 @@ export interface OrderAuditLog {
   actorRole: string;
   details: string | null;
   createdAt: string;
+}
+
+/**
+ * Resultat d'un accept-batch ou reject-batch (partial-success).
+ * Soit `accepted` est rempli (accept), soit `rejected` (reject), jamais les deux.
+ */
+export interface BatchOrderActionResult {
+  accepted: Order[];
+  rejected: Order[];
+  failed: { orderId: number; reason: string }[];
+}
+
+/**
+ * Erreur leve par createOrderBatch quand une commande du lot a echoue.
+ * Le backend a rollback toutes les autres commandes — rien n'a ete cree.
+ */
+export class BatchOrderError extends Error {
+  failedIndex: number;
+  epicerieId: number | null;
+  constructor(failedIndex: number, epicerieId: number | null, message: string) {
+    super(message);
+    this.name = 'BatchOrderError';
+    this.failedIndex = failedIndex;
+    this.epicerieId = epicerieId;
+  }
 }

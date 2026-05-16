@@ -1,7 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { STORAGE_KEYS } from '../src/constants/config';
 import { notificationService } from '../src/services/notificationService';
 
 export function NotificationBadge() {
@@ -35,8 +37,16 @@ export function NotificationBadge() {
     }, [])
   );
 
-  const handlePress = () => {
-    router.push('/(client)/notifications');
+  const handlePress = async () => {
+    // Detection de role : l'epicier a son propre ecran notifications,
+    // pendant moderne de l'ecran client. Sans ce check, l'epicier tombait
+    // dans /(client)/notifications qui exige un role CLIENT et redirige.
+    const role = await AsyncStorage.getItem(STORAGE_KEYS.ROLE);
+    if (role === 'EPICIER' || role === 'COLLABORATEUR') {
+      router.push('/(epicier)/notifications' as any);
+    } else {
+      router.push('/(client)/notifications');
+    }
   };
 
   return (

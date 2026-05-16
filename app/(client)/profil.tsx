@@ -1,7 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { Skeleton, useToast } from '../../src/components/feedback';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { authService } from '../../src/services/authService';
 import { profileService } from '../../src/services/profileService';
@@ -17,6 +17,7 @@ import { User } from '../../src/type';
 export default function ProfilScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
 
@@ -30,7 +31,7 @@ export default function ProfilScreen() {
       setUser(userData);
     } catch (error) {
       console.error('Erreur chargement profil:', error);
-      Alert.alert(t('common.error'), t('profile.loadError'));
+      toast.error(t('common.error'), t('profile.loadError'));
     } finally {
       setLoading(false);
     }
@@ -38,6 +39,9 @@ export default function ProfilScreen() {
 
 
   const handleLogout = async () => {
+    // Confirmation native conservée: action destructive (déconnexion =
+    // perte du contexte session). Native Alert avec destructive style est
+    // le pattern attendu — utilisateur voit clairement le risque.
     Alert.alert(
       t('profile.logout'),
       t('profile.confirmLogout'),
@@ -52,7 +56,7 @@ export default function ProfilScreen() {
               router.replace('/(auth)/login');
             } catch (error) {
               console.error('Erreur déconnexion:', error);
-              Alert.alert(t('common.error'), t('profile.logoutError'));
+              toast.error(t('common.error'), t('profile.logoutError'));
             }
           },
         },
@@ -62,9 +66,37 @@ export default function ProfilScreen() {
 
   if (loading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-      </View>
+      <ScrollView style={styles.container}>
+        {/* Header avatar/nom/email en placeholder */}
+        <View style={styles.header}>
+          <Skeleton variant="text" width="55%" height={22} style={{ marginBottom: 8, alignSelf: 'center' }} />
+          <Skeleton variant="text" width="70%" style={{ alignSelf: 'center' }} />
+        </View>
+
+        {/* Carte info personnelle */}
+        <View style={styles.section}>
+          <Skeleton variant="text" width="40%" height={18} style={{ marginBottom: 12 }} />
+          <View style={styles.infoCard}>
+            {[0, 1, 2].map(i => (
+              <React.Fragment key={i}>
+                <View style={styles.infoRow}>
+                  <Skeleton variant="text" width="35%" />
+                  <Skeleton variant="text" width="45%" />
+                </View>
+                {i < 2 && <View style={styles.divider} />}
+              </React.Fragment>
+            ))}
+          </View>
+        </View>
+
+        {/* Boutons d'actions */}
+        <View style={styles.section}>
+          <Skeleton variant="text" width="35%" height={18} style={{ marginBottom: 12 }} />
+          {[0, 1, 2, 3].map(i => (
+            <Skeleton key={i} variant="rect" height={56} style={{ marginBottom: 10, borderRadius: 12 }} />
+          ))}
+        </View>
+      </ScrollView>
     );
   }
 
@@ -194,12 +226,6 @@ export default function ProfilScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: '#f5f5f5',
   },
   header: {

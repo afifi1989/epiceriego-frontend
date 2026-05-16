@@ -1,3 +1,4 @@
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -11,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Skeleton, useToast } from '../../../src/components/feedback';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { orderService } from '../../../src/services/orderService';
 import { Order } from '../../../src/type';
@@ -211,6 +213,7 @@ export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const { t } = useLanguage();
+  const toast = useToast();
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
@@ -234,7 +237,7 @@ export default function OrderDetailsScreen() {
       setAdresse(orderData.adresseLivraison);
       setTelephone(orderData.telephoneLivraison || '');
     } catch {
-      Alert.alert(t('common.error'), t('orders.loadError'));
+      toast.error(t('common.error'), t('orders.loadError'));
       router.back();
     } finally {
       setLoading(false);
@@ -243,7 +246,7 @@ export default function OrderDetailsScreen() {
 
   const handleUpdateDeliveryInfo = async () => {
     if (!adresse || !telephone) {
-      Alert.alert(t('common.error'), t('orders.fillAllFields'));
+      toast.warning(t('common.error'), t('orders.fillAllFields'));
       return;
     }
 
@@ -267,10 +270,11 @@ export default function OrderDetailsScreen() {
         });
       }
 
+      // Ferme la modal AVANT le toast pour qu'il soit visible immédiatement.
       setEditingDeliveryInfo(false);
-      Alert.alert(t('common.success'), t('orders.updateSuccess'));
+      toast.success(t('common.success'), t('orders.updateSuccess'));
     } catch {
-      Alert.alert(t('common.error'), t('orders.updateError'));
+      toast.error(t('common.error'), t('orders.updateError'));
     } finally {
       setUpdating(false);
     }
@@ -291,6 +295,9 @@ export default function OrderDetailsScreen() {
       ? t('orderDetail.confirmPickup')
       : t('orderDetail.confirmDelivery');
 
+    // Confirmation native conservée: action importante (marque la commande
+    // reçue/récupérée — peu réversible). Le dialog system + Cancel/Confirm
+    // est ce que l'utilisateur attend pour ce type d'action.
     Alert.alert(
       t('orderDetail.confirmation'),
       actionLabel,
@@ -303,14 +310,15 @@ export default function OrderDetailsScreen() {
               setStatusUpdating(true);
               const updatedOrder = await orderService.updateOrderStatus(orderId, targetStatus);
               setOrder(updatedOrder);
-              Alert.alert(
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              toast.success(
                 t('common.success'),
                 order.deliveryType === 'PICKUP'
                   ? t('orderDetail.markedAsPickedUp')
                   : t('orderDetail.markedAsDelivered')
               );
             } catch (error: any) {
-              Alert.alert(t('common.error'), error.message || t('orderDetail.updateError'));
+              toast.error(t('common.error'), error.message || t('orderDetail.updateError'));
             } finally {
               setStatusUpdating(false);
             }
@@ -322,9 +330,54 @@ export default function OrderDetailsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-      </View>
+      <ScrollView style={styles.container} contentContainerStyle={{ padding: 15 }}>
+        {/* Stepper en placeholder: 5 dots reliés par des traits */}
+        <View style={{
+          backgroundColor: '#fff',
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 12,
+          shadowColor: '#000',
+          shadowOpacity: 0.06,
+          shadowRadius: 4,
+          shadowOffset: { width: 0, height: 1 },
+          elevation: 1,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            {[0, 1, 2, 3, 4].map(i => (
+              <React.Fragment key={i}>
+                <Skeleton variant="circle" width={32} height={32} />
+                {i < 4 && <Skeleton variant="rect" height={2} style={{ flex: 1, marginHorizontal: 4 }} />}
+              </React.Fragment>
+            ))}
+          </View>
+        </View>
+
+        {/* Carte info commande */}
+        <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+          <Skeleton variant="text" width="50%" height={18} style={{ marginBottom: 12 }} />
+          {[0, 1, 2].map(i => (
+            <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Skeleton variant="text" width="35%" />
+              <Skeleton variant="text" width="45%" />
+            </View>
+          ))}
+        </View>
+
+        {/* Articles */}
+        <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }}>
+          <Skeleton variant="text" width="40%" height={18} style={{ marginBottom: 12 }} />
+          {[0, 1, 2].map(i => (
+            <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Skeleton variant="text" width="70%" style={{ marginBottom: 6 }} />
+                <Skeleton variant="text" width="40%" />
+              </View>
+              <Skeleton variant="text" width={70} />
+            </View>
+          ))}
+        </View>
+      </ScrollView>
     );
   }
 

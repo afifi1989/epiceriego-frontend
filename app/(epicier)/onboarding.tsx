@@ -23,8 +23,8 @@
  */
 
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { ActivityIndicator, Alert, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { OnboardingStepShell } from '../../src/features/onboarding/components/OnboardingStepShell';
 import { useOnboardingFlow } from '../../src/features/onboarding/useOnboardingFlow';
@@ -41,7 +41,9 @@ import { StepPhotos } from '../../src/features/onboarding/steps/StepPhotos';
 import { StepDescription } from '../../src/features/onboarding/steps/StepDescription';
 import { StepHours } from '../../src/features/onboarding/steps/StepHours';
 import { StepDelivery } from '../../src/features/onboarding/steps/StepDelivery';
-import { StepWhatsapp } from '../../src/features/onboarding/steps/StepWhatsapp';
+// StepWhatsapp n'est plus dans le wizard (lie a l'abonnement) — reste
+// importable depuis Parametres ou il est utilise pour la re-edition.
+import { StepPlan } from '../../src/features/onboarding/steps/StepPlan';
 import { StepCatalogue } from '../../src/features/onboarding/steps/StepCatalogue';
 import { StepClients } from '../../src/features/onboarding/steps/StepClients';
 import type { StepHandle } from '../../src/features/onboarding/steps/stepProps';
@@ -74,9 +76,14 @@ export default function OnboardingWizardScreen() {
   const status = flow.status;
 
   // ── Indices résolus pour le visuel du stepper ──────────────────
+  // PLAN est toujours considéré "résolu" : le trial PRO est créé
+  // automatiquement au signup, donc dès l'arrivée sur le wizard,
+  // l'épicier a déjà un abonnement valide. La step sert juste à le
+  // confirmer/le changer — pas à le bloquer.
   const resolvedIndices = new Set<number>();
   WIZARD_STEPS.forEach((s, idx) => {
     if (s.id === 'TYPE' && status.stepTypeCompleted) resolvedIndices.add(idx);
+    else if (s.id === 'PLAN') resolvedIndices.add(idx);
     else if (s.id === 'CATALOGUE' && status.stepCatalogueCompleted) resolvedIndices.add(idx);
     else if (s.id === 'CLIENTS'
         && (status.stepClientsCompleted || status.stepClientsSkipped)) resolvedIndices.add(idx);
@@ -120,6 +127,62 @@ export default function OnboardingWizardScreen() {
     }
   };
 
+  // ── Mode Express : skip toutes les étapes optionnelles à partir
+  // d'ici jusqu'à la prochaine étape obligatoire (ou la fin). Permet
+  // à l'épicier pressé d'atteindre directement le catalogue. Toutes
+  // les étapes skippées seront éditables plus tard via Paramètres.
+  const optionalsToSkipCount = useMemo(() => {
+    let n = 0;
+    for (let i = flow.currentIndex; i < WIZARD_STEPS.length; i++) {
+      const s = WIZARD_STEPS[i];
+      if (s.required) break;
+      if (s.kind === 'CONFIGURABLE' && s.apiKey
+          && !isOptionalStepResolved(flow.status!, s.apiKey)) {
+        n++;
+      }
+      if (s.id === 'CLIENTS' && !status.stepClientsCompleted && !status.stepClientsSkipped) {
+        n++;
+      }
+    }
+    return n;
+  }, [flow.currentIndex, flow.status, status.stepClientsCompleted, status.stepClientsSkipped]);
+
+  const handleExpressMode = () => {
+    if (optionalsToSkipCount < 2) return; // pas la peine si 0 ou 1
+    Alert.alert(
+      '⚡ Mode Express',
+      `Sauter ${optionalsToSkipCount} étape(s) optionnelle(s) ? Tu pourras les compléter plus tard dans Paramètres.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Sauter tout',
+          style: 'destructive',
+          onPress: async () => {
+            // Skip en série jusqu'à atteindre une étape obligatoire
+            // ou la fin du wizard.
+            let safety = WIZARD_STEPS.length + 1;
+            while (safety-- > 0) {
+              const currentMeta = WIZARD_STEPS[flow.currentIndex];
+              if (currentMeta.required) break;
+              try {
+                await flow.skipCurrent();
+              } catch {
+                break;
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Temps restant : somme des estimatedSeconds des étapes pas encore résolues.
+  const timeRemainingSec = useMemo(() => {
+    return WIZARD_STEPS.reduce((sum, s, idx) => {
+      return resolvedIndices.has(idx) ? sum : sum + s.estimatedSeconds;
+    }, 0);
+  }, [resolvedIndices]);
+
   // ── Mappage step → composant rendu ─────────────────────────────
   const renderStep = () => {
     const stepProps = {
@@ -134,7 +197,7 @@ export default function OnboardingWizardScreen() {
       case 'DESCRIPTION': return <StepDescription ref={stepRef} {...stepProps} />;
       case 'HOURS':       return <StepHours       ref={stepRef} {...stepProps} />;
       case 'DELIVERY':    return <StepDelivery    ref={stepRef} {...stepProps} />;
-      case 'WHATSAPP':    return <StepWhatsapp    ref={stepRef} {...stepProps} />;
+      case 'PLAN':        return <StepPlan        ref={stepRef} {...stepProps} />;
       case 'CATALOGUE':   return <StepCatalogue   ref={stepRef} {...stepProps} />;
       case 'CLIENTS':     return <StepClients     ref={stepRef} {...stepProps} />;
     }
@@ -144,6 +207,7 @@ export default function OnboardingWizardScreen() {
   const continueLabel = (() => {
     if (meta.id === 'CATALOGUE') return 'Importer le catalogue';
     if (meta.id === 'CLIENTS')   return 'Inviter mes clients';
+    if (meta.id === 'PLAN')      return 'Valider mon plan';
     if (flow.currentIndex === WIZARD_STEPS.length - 1) return 'Terminer';
     return 'Continuer';
   })();
@@ -159,6 +223,8 @@ export default function OnboardingWizardScreen() {
       onContinue={handleContinue}
       continueLabel={continueLabel}
       onJumpTo={flow.goTo}
+      timeRemainingSec={timeRemainingSec}
+      onExpressMode={optionalsToSkipCount >= 2 ? handleExpressMode : undefined}
     >
       {renderStep()}
     </OnboardingStepShell>

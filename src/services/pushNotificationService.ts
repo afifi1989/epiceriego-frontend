@@ -7,6 +7,25 @@ import api from './api';
 import { parseNotificationData, resolveRoute, setupAndroidChannels } from './notifications';
 
 /**
+ * AsyncStorage key for the last cold-start notification identifier we routed on.
+ * Used by {@link pushNotificationService.handleColdStartResponse} to ignore the
+ * same notification on subsequent layout mounts.
+ */
+const LAST_HANDLED_NOTIFICATION_ID_KEY = '@push_last_handled_notification_id';
+
+/**
+ * Maximum age (in seconds) for a notification to qualify as a "fresh tap" that
+ * should drive cold-start routing. Anything older is treated as stale: the
+ * user is opening the app for unrelated reasons and shouldn't be teleported
+ * to the page tied to last week's notification.
+ *
+ * <p>30s is wide enough to cover the realistic tap → app-mount → layout-ready
+ * window (cold-start can take 5–10s on low-end Android), and narrow enough to
+ * exclude any notification kept around by the OS for hours/days.</p>
+ */
+const COLD_START_FRESHNESS_WINDOW_SECONDS = 30;
+
+/**
  * Push notification service.
  *
  * Type/channel/route logic lives in `./notifications/*` modules so they can
@@ -171,6 +190,12 @@ export const pushNotificationService = {
     const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
       console.log('[PushNotificationService] Notification cliquée:', response.notification.request.content);
       const data = response.notification.request.content.data;
+      const requestId = response.notification.request.identifier;
+      // Persist the id BEFORE handling so the cold-start handler treats it as
+      // already-consumed on the next layout mount (e.g. after a logout/login cycle).
+      if (requestId) {
+        AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, requestId).catch(() => {});
+      }
       pushNotificationService.handleNotificationPress(data, router);
     });
 
@@ -188,15 +213,88 @@ export const pushNotificationService = {
    * Handle the case where the app is launched (cold start) by tapping a
    * notification. Expo doesn't fire `addNotificationResponseReceivedListener`
    * for the initial response — we have to query it explicitly.
+   *
+   * Dedup: {@code getLastNotificationResponseAsync} returns the most recent tap
+   * for the lifetime of the install, so it fires again on every layout mount
+   * (e.g. after login). We persist the last-handled request identifier and
+   * skip if the current one matches — otherwise the user gets routed to the
+   * notification's destination (typically /notifications) every time they
+   * sign in.
    */
+  /**
+   * Consomme silencieusement la notification "cold start" actuelle.
+   *
+   * <p>Appele par l'auth flow apres un login manuel reussi (saisie credentials,
+   * Google, OTP...). Le but : empecher la redirection automatique vers
+   * /notifications que {@link handleColdStartResponse} declencherait quand le
+   * layout client va remonter post-login.</p>
+   *
+   * <p>UX visee : "apres un login manuel, j'arrive et je reste sur home". On
+   * preserve toutefois le comportement classique "tap sur notif → ouvre l'app
+   * deja loggee → route vers la cible" (auto-login via token valide), car
+   * dans ce cas l'authService n'appelle PAS cette methode.</p>
+   */
+  markColdStartHandled: async (): Promise<void> => {
+    try {
+      const initial = await Notifications.getLastNotificationResponseAsync();
+      const id = initial?.notification?.request?.identifier;
+      if (!id) return;
+      await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, id);
+      console.log('[PushNotificationService] Cold start notification marquee comme handled (post-login)');
+    } catch (e) {
+      // Best-effort : si AsyncStorage echoue, le pire qui arrive est
+      // une redirection legacy vers /notifications — pas critique.
+      console.warn('[PushNotificationService] markColdStartHandled echec:', e);
+    }
+  },
+
   handleColdStartResponse: async (router: any): Promise<void> => {
     try {
       const initial = await Notifications.getLastNotificationResponseAsync();
       if (!initial) return;
 
+      const requestId = initial.notification.request.identifier;
+
+      // Belt-and-suspenders dedup. Two independent guards, either is enough
+      // to block a stale navigation:
+      //
+      //   (1) ID match: we already routed on this exact notification.
+      //   (2) Freshness window: the notification is older than the cap
+      //       (~30s), so even if the ID dedup hasn't been seeded yet
+      //       (first run after a code update), we skip it. This is the
+      //       guard that fixes the "land on /notifications after login"
+      //       bug on installs where the persisted id is empty.
+      //
+      // When we skip via the freshness window, we still seed the persisted
+      // id so subsequent logins use the cheaper path-(1) fast check.
+      const lastHandled = await AsyncStorage.getItem(LAST_HANDLED_NOTIFICATION_ID_KEY);
+      if (requestId && requestId === lastHandled) {
+        console.log('[PushNotificationService] Cold start notification already handled, skipping');
+        return;
+      }
+
+      // Expo returns notification.date as Unix seconds (number).
+      const notifDateSec = (initial.notification as any).date;
+      if (typeof notifDateSec === 'number' && notifDateSec > 0) {
+        const ageSeconds = Date.now() / 1000 - notifDateSec;
+        if (ageSeconds > COLD_START_FRESHNESS_WINDOW_SECONDS) {
+          console.log(
+            `[PushNotificationService] Cold start notification is stale (${Math.round(ageSeconds)}s old), skipping`,
+          );
+          if (requestId) {
+            await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, requestId).catch(() => {});
+          }
+          return;
+        }
+      }
+
       const data = initial.notification.request.content.data;
       console.log('[PushNotificationService] Cold start notification:', data);
       await pushNotificationService.handleNotificationPress(data, router);
+
+      if (requestId) {
+        await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, requestId);
+      }
     } catch (error) {
       console.error('[PushNotificationService] Erreur cold start:', error);
     }

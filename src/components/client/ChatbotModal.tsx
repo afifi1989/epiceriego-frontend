@@ -20,7 +20,12 @@ import {
   ChatbotResponse,
   ParsedProduct,
   ProductOption,
+  ProductSuggestion,
+  tFmt,
 } from '../../services/chatbotService';
+import { useLanguage } from '../../context/LanguageContext';
+
+type SuggestionOption = ProductSuggestion['options'][number];
 
 interface ChatbotModalProps {
   visible: boolean;
@@ -39,12 +44,14 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
   onClose,
   onAddToCart,
 }) => {
+  const { language, t } = useLanguage();
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [lastResponse, setLastResponse] = useState<ChatbotResponse | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
+  const currency = t('chatbot.currency');
 
   // Initialize with welcome message
   useEffect(() => {
@@ -52,11 +59,12 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
       addMessage({
         id: Date.now().toString(),
         role: 'assistant',
-        content: `Bonjour ! Je suis votre assistant pour ${epicerieName}. 🛒\n\nJe peux vous aider à commander des produits. Dites-moi simplement ce que vous voulez, par exemple :\n\n• "Je voudrais 1kg de pommes et 2 bouteilles de lait"\n• "J'ai besoin de 500g de tomates et un pain"\n• "2 kg de pommes de terre et 1L d'huile d'olive"\n\nQue puis-je faire pour vous ?`,
+        content: tFmt(t, 'chatbot.welcome', { epicerieName }),
         timestamp: new Date(),
       });
     }
-  }, [visible, epicerieName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, epicerieName, language]);
 
   // Add a message to the chat
   const addMessage = (message: ChatMessageType) => {
@@ -86,17 +94,19 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
     setIsLoading(true);
 
     try {
-      // Parse message with AI
+      // Parse message with AI — pass the user's chosen language so the backend
+      // applies the matching prompt strategy and localizes returned product names.
       const response = await chatbotService.parseMessage(
         userMessage,
         epicerieId,
-        clientId
+        clientId,
+        language,
       );
 
       setLastResponse(response);
 
-      // Generate and add assistant response
-      const assistantMessage = chatbotService.generateResponseMessage(response);
+      // Generate and add assistant response (uses translator injected from context)
+      const assistantMessage = chatbotService.generateResponseMessage(response, t);
       addMessage({
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -106,10 +116,14 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
 
     } catch (error: any) {
       console.error('Error in chatbot:', error);
+      // parseMessage throws an Error whose message is a stable errorCode (see
+      // chatbotService.parseMessage). Resolve it to a localized label.
+      const errorCode = error.errorCode || error.message || 'PARSING_ERROR';
+      const localizedDetail = t(`chatbot.error.${errorCode}`);
       addMessage({
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Désolé, une erreur s'est produite : ${error.message}. Veuillez réessayer.`,
+        content: tFmt(t, 'chatbot.genericError', { message: localizedDetail }),
         timestamp: new Date(),
         isError: true,
       });
@@ -121,23 +135,24 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
   // Add products to cart
   const handleAddToCart = () => {
     if (!lastResponse || lastResponse.produitsIdentifies.length === 0) {
-      Alert.alert('Aucun produit', 'Aucun produit n\'a été identifié pour être ajouté au panier.');
+      Alert.alert(t('chatbot.noProducts'), t('chatbot.noProductsToAdd'));
       return;
     }
 
+    const count = lastResponse.produitsIdentifies.length;
     Alert.alert(
-      'Ajouter au panier',
-      `Voulez-vous ajouter ${lastResponse.produitsIdentifies.length} produit(s) au panier ?`,
+      t('chatbot.addToCartTitle'),
+      tFmt(t, 'chatbot.addToCartConfirm', { count }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('chatbot.addToCartCancel'), style: 'cancel' },
         {
-          text: 'Ajouter',
+          text: t('chatbot.addToCartConfirmButton'),
           onPress: () => {
             onAddToCart(lastResponse.produitsIdentifies);
             addMessage({
               id: (Date.now() + 2).toString(),
               role: 'assistant',
-              content: `✅ ${lastResponse.produitsIdentifies.length} produit(s) ajouté(s) au panier !\n\nVoulez-vous commander autre chose ?`,
+              content: tFmt(t, 'chatbot.addedToCart', { count }),
               timestamp: new Date(),
             });
             setLastResponse(null);
@@ -180,7 +195,61 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
     addMessage({
       id: (Date.now() + 3).toString(),
       role: 'assistant',
-      content: `✅ *${option.productName}*${option.unitLabel ? ` (${option.unitLabel})` : ''} sélectionné.`,
+      content: tFmt(t, 'chatbot.itemSelected', {
+        name: option.productName,
+        unitSuffix: option.unitLabel ? ` (${option.unitLabel})` : '',
+      }),
+      timestamp: new Date(),
+    });
+  };
+
+  // Resolve a suggestion: client tapped one of the proposed alternatives for an unmatched product.
+  const handleResolveSuggestion = (
+    suggestion: ProductSuggestion,
+    option: SuggestionOption,
+  ) => {
+    if (!lastResponse) return;
+
+    const target = lastResponse.produitsNonIdentifies.find(
+      (p) =>
+        p.productName.trim().toLowerCase() ===
+        suggestion.searchedProductName.trim().toLowerCase(),
+    );
+    if (!target) return;
+
+    const resolved: ParsedProduct = {
+      ...target,
+      isMatched: true,
+      hasMultipleProducts: false,
+      productOptions: undefined,
+      matchedProductId: option.productId,
+      matchedProductUnitId: option.productUnitId,
+      matchedProductName: option.productName,
+      matchedUnitLabel: option.unitLabel,
+      matchedPrice: option.price,
+      matchedStock: option.stock,
+    };
+
+    const updatedIdentified = [...lastResponse.produitsIdentifies, resolved];
+    const updatedUnmatched = lastResponse.produitsNonIdentifies.filter((p) => p !== target);
+    const updatedSuggestions = lastResponse.suggestions.filter((s) => s !== suggestion);
+
+    setLastResponse({
+      ...lastResponse,
+      produitsIdentifies: updatedIdentified,
+      produitsNonIdentifies: updatedUnmatched,
+      suggestions: updatedSuggestions,
+      matchedCount: updatedIdentified.length,
+      unmatchedCount: updatedUnmatched.filter((p) => !p.hasMultipleProducts).length,
+    });
+
+    addMessage({
+      id: (Date.now() + 4).toString(),
+      role: 'assistant',
+      content: tFmt(t, 'chatbot.itemSelected', {
+        name: option.productName,
+        unitSuffix: option.unitLabel ? ` (${option.unitLabel})` : '',
+      }),
       timestamp: new Date(),
     });
   };
@@ -188,12 +257,12 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
   // Clear chat
   const handleClearChat = () => {
     Alert.alert(
-      'Effacer la conversation',
-      'Voulez-vous vraiment effacer toute la conversation ?',
+      t('chatbot.clearTitle'),
+      t('chatbot.clearMessage'),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('chatbot.clearCancel'), style: 'cancel' },
         {
-          text: 'Effacer',
+          text: t('chatbot.clearConfirm'),
           style: 'destructive',
           onPress: () => {
             setMessages([]);
@@ -202,7 +271,7 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
             addMessage({
               id: Date.now().toString(),
               role: 'assistant',
-              content: `Nouvelle conversation ! Que puis-je faire pour vous ?`,
+              content: t('chatbot.newConversation'),
               timestamp: new Date(),
             });
           },
@@ -226,8 +295,8 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Text style={styles.headerTitle}>🤖 Assistant {epicerieName}</Text>
-            <Text style={styles.headerSubtitle}>Commandez par chat</Text>
+            <Text style={styles.headerTitle}>{tFmt(t, 'chatbot.headerTitle', { epicerieName })}</Text>
+            <Text style={styles.headerSubtitle}>{t('chatbot.headerSubtitle')}</Text>
           </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
@@ -259,7 +328,7 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
         {isLoading && (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="small" color="#4CAF50" />
-            <Text style={styles.loadingText}>L'assistant réfléchit...</Text>
+            <Text style={styles.loadingText}>{t('chatbot.thinking')}</Text>
           </View>
         )}
 
@@ -270,7 +339,7 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
             .map((ambiguous, ambIdx) => (
               <View key={`amb-${ambIdx}`} style={styles.ambiguityContainer}>
                 <Text style={styles.ambiguityTitle}>
-                  🤔 Choisissez pour "{ambiguous.productName}" :
+                  {tFmt(t, 'chatbot.ambiguityTitle', { name: ambiguous.productName })}
                 </Text>
                 {ambiguous.productOptions!.map((opt, optIdx) => {
                   const showBrand =
@@ -293,7 +362,7 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
                         ) : null}
                       </View>
                       <Text style={styles.ambiguityOptionPrice}>
-                        {opt.price.toFixed(2)} DH
+                        {opt.price.toFixed(2)} {currency}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -301,6 +370,37 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
                 {ambiguous.ambiguityHint ? (
                   <Text style={styles.ambiguityHint}>{ambiguous.ambiguityHint}</Text>
                 ) : null}
+              </View>
+            ))}
+
+        {/* Suggestions resolver — clickable alternatives for unmatched products */}
+        {lastResponse &&
+          lastResponse.suggestions &&
+          lastResponse.suggestions
+            .filter((s) => s.options && s.options.length > 0)
+            .map((suggestion, sugIdx) => (
+              <View key={`sug-${sugIdx}`} style={styles.suggestionsBlock}>
+                <Text style={styles.suggestionsTitle}>
+                  {tFmt(t, 'chatbot.suggestionsTitle', { name: suggestion.searchedProductName })}
+                </Text>
+                {suggestion.options.map((opt, optIdx) => (
+                  <TouchableOpacity
+                    key={`sug-${sugIdx}-opt-${optIdx}`}
+                    style={styles.suggestionOption}
+                    onPress={() => handleResolveSuggestion(suggestion, opt)}
+                    disabled={isLoading}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionOptionName}>{opt.productName}</Text>
+                      {opt.unitLabel ? (
+                        <Text style={styles.suggestionOptionUnit}>{opt.unitLabel}</Text>
+                      ) : null}
+                    </View>
+                    <Text style={styles.suggestionOptionPrice}>
+                      {opt.price.toFixed(2)} {currency}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             ))}
 
@@ -312,7 +412,7 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
               onPress={handleAddToCart}
             >
               <Text style={styles.addToCartText}>
-                📦 Ajouter {lastResponse.produitsIdentifies.length} produit(s) au panier
+                {tFmt(t, 'chatbot.addToCartButton', { count: lastResponse.produitsIdentifies.length })}
               </Text>
             </TouchableOpacity>
           </View>
@@ -322,7 +422,7 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
-            placeholder="Tapez votre message..."
+            placeholder={t('chatbot.inputPlaceholder')}
             placeholderTextColor="#999"
             value={inputText}
             onChangeText={setInputText}
@@ -348,17 +448,17 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
         <View style={[styles.suggestionsContainer, { paddingBottom: insets.bottom + 8 }]}>
           <TouchableOpacity
             style={styles.suggestionChip}
-            onPress={() => setInputText('1kg de pommes et 2 bouteilles de lait')}
+            onPress={() => setInputText(t('chatbot.exampleText1'))}
             disabled={isLoading}
           >
-            <Text style={styles.suggestionText}>🍎 Exemple 1</Text>
+            <Text style={styles.suggestionText}>{t('chatbot.exampleChip1')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.suggestionChip}
-            onPress={() => setInputText('500g de tomates et un pain')}
+            onPress={() => setInputText(t('chatbot.exampleText2'))}
             disabled={isLoading}
           >
-            <Text style={styles.suggestionText}>🍞 Exemple 2</Text>
+            <Text style={styles.suggestionText}>{t('chatbot.exampleChip2')}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -526,6 +626,46 @@ const styles = StyleSheet.create({
   sendButtonText: {
     fontSize: 20,
     color: '#FFFFFF',
+  },
+  suggestionsBlock: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#E8F5E9',
+    borderTopWidth: 1,
+    borderTopColor: '#A5D6A7',
+  },
+  suggestionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1B5E20',
+    marginBottom: 8,
+  },
+  suggestionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#66BB6A',
+  },
+  suggestionOptionName: {
+    fontSize: 14,
+    color: '#212121',
+    fontWeight: '500',
+  },
+  suggestionOptionUnit: {
+    fontSize: 12,
+    color: '#757575',
+    marginTop: 2,
+  },
+  suggestionOptionPrice: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#2E7D32',
+    marginLeft: 8,
   },
   suggestionsContainer: {
     flexDirection: 'row',

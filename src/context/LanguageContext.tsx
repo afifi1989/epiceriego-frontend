@@ -49,7 +49,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       value = value?.[k];
     }
 
-    if (!value) {
+    // Une chaine vide est une traduction LEGITIME (ex: en.common.daysAgoPrefix=''
+    // car l'anglais n'a pas de prefixe : "3 days ago"). On ne considere comme
+    // "manquante" que les vraies valeurs absentes ou non-string.
+    if (typeof value !== 'string') {
       console.warn(`[LanguageContext] ⚠️ Clé de traduction non trouvée: ${key} (${language})`);
       return key;
     }

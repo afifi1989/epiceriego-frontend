@@ -11,7 +11,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
 import { ProductUnit } from '../type';
 import api from './api';
@@ -77,6 +77,8 @@ export interface StockBatchResponse {
   expiryDate?: string | null;
   receivedAt: string;
   unitCost?: number | null;
+  /** V96 — Reference vers l'entité Supplier. Null pour batches pré-V96. */
+  supplierId?: number | null;
   supplierName?: string | null;
   supplierInvoice?: string | null;
   notes?: string | null;
@@ -93,6 +95,12 @@ export interface ReceiveBatchRequest {
   expiryDate?: string | null;
   receivedAt?: string | null;
   unitCost?: number | null;
+  /**
+   * V96 — Si fourni, le serveur résout via SupplierLookupPort et écrase
+   * supplierName avec le nom resolu (snapshot autoritatif). Sinon mode
+   * texte libre legacy.
+   */
+  supplierId?: number | null;
   supplierName?: string | null;
   supplierInvoice?: string | null;
   notes?: string | null;

@@ -3,6 +3,8 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLanguage } from '../../../context/LanguageContext';
 import { promotionService } from '../../../services/promotionService';
+import { useCurrentUser } from '../../../hooks/useCurrentUser';
+import { usePermissions } from '../../../hooks/usePermissions';
 import type { Promotion } from '../types';
 import { computeStatus, humanizeDuration, interpolate } from '../utils';
 
@@ -21,7 +23,18 @@ export function DashboardPromoWidget() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Promotion[]>([]);
 
+  // Defense-in-depth : meme si le parent rend ce widget par erreur, on refuse
+  // de fetcher si l'utilisateur n'a pas promotions:manage (l'endpoint backend
+  // /promotions/my-store l'exige). Evite un 403 visible pour le caissier.
+  const user = useCurrentUser();
+  const { can } = usePermissions(user);
+  const allowed = can('promotions:manage');
+
   useEffect(() => {
+    if (!allowed) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -37,7 +50,11 @@ export function DashboardPromoWidget() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [allowed]);
+
+  // Si pas la permission, ne rien afficher du tout (le parent peut deja gater
+  // mais defense-in-depth : on s'assure que rien ne fuit visuellement).
+  if (!allowed) return null;
 
   const goManage = () => router.push('/(epicier)/promotions' as any);
   const goCreate = () => router.push('/(epicier)/promo-wizard' as any);
