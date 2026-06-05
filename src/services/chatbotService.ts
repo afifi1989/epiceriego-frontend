@@ -45,6 +45,8 @@ export interface VariantOption {
   label: string;
   price: number;
   stock: number;
+  /** URL absolue résolue côté backend (fallback sur la photo du produit parent). */
+  photoUrl?: string;
 }
 
 export interface ProductOption {
@@ -56,6 +58,8 @@ export interface ProductOption {
   price: number;
   stock: number;
   score?: number;
+  /** URL absolue résolue côté backend. */
+  photoUrl?: string;
 }
 
 export interface ParsedProduct {
@@ -73,6 +77,8 @@ export interface ParsedProduct {
   matchedPrice?: number;
   matchedStock?: number;
   matchingConfidence?: number;
+  /** URL absolue de la photo du produit/variante matché. Null = placeholder mobile. */
+  matchedPhotoUrl?: string;
   hasMultipleVariants?: boolean;
   alternativeUnits?: VariantOption[];
   // Inter-product ambiguity (e.g. "huile" → Afia / Lesieur / Carapelli)
@@ -96,6 +102,8 @@ export interface ProductSuggestion {
     stock: number;
     similarity: number;
     reason: string;
+    /** URL absolue résolue côté backend. */
+    photoUrl?: string;
   }>;
   message: string;
 }

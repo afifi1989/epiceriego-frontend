@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import QRCode from 'react-native-qrcode-svg';
 import { LoyaltyCardVisual } from '../../../src/components/client/LoyaltyCardVisual';
 import {
   loyaltyCardService,
@@ -40,6 +41,12 @@ export default function CardDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+
+  // Référence vers le QRCode off-screen dédié à la génération PDF.
+  // `react-native-qrcode-svg` expose `toDataURL(cb)` qui rend le QR en PNG
+  // base64 — embed direct dans l'<img> du HTML, sans dépendance externe
+  // (l'ancienne URL `chart.googleapis.com` est morte depuis 2019).
+  const printQrRef = useRef<{ toDataURL: (cb: (dataURL: string) => void) => void } | null>(null);
 
   const loadCard = useCallback(async () => {
     setLoading(true);
@@ -81,26 +88,53 @@ export default function CardDetailScreen() {
     }
   }, [epicerieId, refreshing, t, router]);
 
+  /**
+   * Convertit le QR off-screen en data URL PNG.
+   * Le ref n'est dispo que si le composant a fini son render initial (donc
+   * après que `card.qrToken` soit défini). Sur builds où la lib SVG manque
+   * d'expose `toDataURL`, on rejette et le caller affichera une alerte.
+   */
+  const getQrDataUrl = useCallback((): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const ref = printQrRef.current;
+      if (!ref || typeof ref.toDataURL !== 'function') {
+        reject(new Error('QR ref unavailable'));
+        return;
+      }
+      try {
+        ref.toDataURL((dataURL: string) => {
+          // toDataURL renvoie le base64 brut (sans préfixe data:image/png).
+          if (!dataURL) reject(new Error('Empty QR dataURL'));
+          else resolve(`data:image/png;base64,${dataURL}`);
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }, []);
+
   const onPrint = useCallback(async () => {
     if (!card?.qrToken) return;
     try {
       // Lazy import so the screen doesn't crash on builds where expo-print
       // isn't installed yet — the user sees a localized alert instead.
       const Print = await import('expo-print');
-      const html = buildPrintHtml(card, t);
+      const qrDataUrl = await getQrDataUrl();
+      const html = buildPrintHtml(card, t, qrDataUrl);
       await Print.printAsync({ html });
     } catch (e) {
       console.error('[cardDetail] print failed', e);
       Alert.alert(t('cards.printNotAvailable'));
     }
-  }, [card, t]);
+  }, [card, t, getQrDataUrl]);
 
   const onShare = useCallback(async () => {
     if (!card?.qrToken) return;
     try {
       const Print = await import('expo-print');
       const Sharing = await import('expo-sharing');
-      const html = buildPrintHtml(card, t);
+      const qrDataUrl = await getQrDataUrl();
+      const html = buildPrintHtml(card, t, qrDataUrl);
       const { uri } = await Print.printToFileAsync({ html });
 
       const available = await Sharing.isAvailableAsync();
@@ -116,7 +150,7 @@ export default function CardDetailScreen() {
       console.error('[cardDetail] share failed', e);
       Alert.alert(t('cards.shareNotAvailable'));
     }
-  }, [card, t]);
+  }, [card, t, getQrDataUrl]);
 
   // ─── Loading ─────────────────────────────────────────────────────────
   if (loading) {
@@ -152,6 +186,23 @@ export default function CardDetailScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <LoyaltyCardVisual card={card} qrSize={240} />
+
+      {/* QR off-screen dédié à l'impression : taille 400 pour une bonne
+          résolution print, positionné hors champ visuel. Doit être monté
+          pour que `toDataURL` fonctionne — c'est ici qu'on capture le PNG
+          base64 utilisé dans le PDF. */}
+      {card.active && card.qrToken ? (
+        <View style={styles.offscreenQr} pointerEvents="none">
+          <QRCode
+            value={card.qrToken}
+            size={400}
+            color="#212121"
+            backgroundColor="#fff"
+            quietZone={20}
+            getRef={(ref: any) => { printQrRef.current = ref; }}
+          />
+        </View>
+      ) : null}
 
       {expiryLabel && card.active ? (
         <Text style={styles.expiryLabel}>{expiryLabel}</Text>
@@ -210,13 +261,12 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, onPress, disab
 // QR, so what's printed is what gets scanned.
 // ─────────────────────────────────────────────────────────────────────────
 
-const buildPrintHtml = (card: LoyaltyCard, t: (key: string) => string): string => {
+const buildPrintHtml = (
+  card: LoyaltyCard,
+  t: (key: string) => string,
+  qrDataUrl: string,
+): string => {
   const title = String(card.epicerieName || '').replace(/</g, '&lt;');
-  const qr = encodeURIComponent(card.qrToken || '');
-  // Use Google Chart's QR (free, stable since 2007). Image fetched at print
-  // time — recipient must have internet, but that's already the case for the
-  // app to have loaded the card to begin with.
-  const qrImg = `https://chart.googleapis.com/chart?cht=qr&chs=400x400&chl=${qr}&chld=H|0`;
   const titleText = (t('cards.pdfTitle') || '')
     .replace('{{store}}', title)
     .replace(/</g, '&lt;');
@@ -231,7 +281,7 @@ const buildPrintHtml = (card: LoyaltyCard, t: (key: string) => string): string =
       <body style="font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 32px; text-align: center;">
         <h1 style="font-size: 22px; margin: 0 0 8px;">${title}</h1>
         <p style="font-size: 14px; color: #666; margin: 0 0 24px;">${titleText}</p>
-        <img src="${qrImg}" style="width: 320px; height: 320px;"/>
+        <img src="${qrDataUrl}" style="width: 320px; height: 320px;" alt="QR"/>
         <p style="font-size: 13px; color: #555; margin-top: 24px;">${footerText}</p>
       </body>
     </html>
@@ -263,6 +313,15 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 12,
     color: '#888',
+  },
+  // QR caché : monté dans l'arbre pour que `toDataURL` ait quelque chose
+  // à sérialiser. On garde la taille réelle (le SVG a besoin d'un layout
+  // valide pour générer ses pixels) mais on le pousse hors écran. Une taille
+  // 0 + opacity 0 empêcherait le rendu et toDataURL renverrait du vide.
+  offscreenQr: {
+    position: 'absolute',
+    top: -10000,
+    left: -10000,
   },
   actions: {
     flexDirection: 'row',

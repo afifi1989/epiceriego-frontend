@@ -7,9 +7,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authService } from '../../services/authService';
 import { cartService } from '../../services/cartService';
 import { notificationService } from '../../services/notificationService';
+import { profileService } from '../../services/profileService';
 import { useLanguage } from '../../context/LanguageContext';
 import { Theme, useTheme } from '../../theme';
-import { LoginResponse } from '../../type';
+import { LoginResponse, User } from '../../type';
 
 /**
  * Salutation contextuelle selon l'heure locale.
@@ -47,10 +48,15 @@ export function HomeHeader() {
   const styles = useMemo(() => makeStyles(theme, insets.top), [theme, insets.top]);
 
   const [user, setUser] = useState<LoginResponse | null>(null);
+  // Profil complet (GET /users/profile) : seule source qui porte `adresse`.
+  // Le LoginResponse mis en cache au login n'a pas ce champ — d'où l'affichage
+  // perpétuel de "Définir une adresse" si on s'y fie.
+  const [profile, setProfile] = useState<User | null>(null);
   const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
+    // Affichage instantané du prénom depuis le cache local.
     authService.getCurrentUser().then(setUser).catch(() => {});
   }, []);
 
@@ -70,6 +76,9 @@ export function HomeHeader() {
   useFocusEffect(
     useCallback(() => {
       refreshCounters();
+      // Rafraîchit l'adresse au focus : si l'utilisateur revient de l'écran
+      // profil après l'avoir modifiée, le header reflète le changement.
+      profileService.getMyProfile().then(setProfile).catch(() => {});
       const interval = setInterval(refreshCounters, 30000);
       return () => clearInterval(interval);
     }, [refreshCounters])
@@ -106,7 +115,7 @@ export function HomeHeader() {
             <View style={styles.locationRow}>
               <Ionicons name="location-outline" size={14} color={theme.colors.textSecondary} />
               <Text style={styles.location} numberOfLines={1}>
-                {(user as any)?.adresse || t('client.home.setLocation') || 'Définir une adresse'}
+                {profile?.adresse?.trim() || t('client.home.setLocation') || 'Définir une adresse'}
               </Text>
               <Ionicons name="chevron-down" size={14} color={theme.colors.textSecondary} />
             </View>

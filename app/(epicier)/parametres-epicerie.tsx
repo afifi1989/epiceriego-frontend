@@ -38,13 +38,15 @@ import { StepDelivery } from '../../src/features/onboarding/steps/StepDelivery';
 import { StepWhatsapp } from '../../src/features/onboarding/steps/StepWhatsapp';
 import type { StepHandle } from '../../src/features/onboarding/steps/stepProps';
 
-type SectionKey = 'LOCATION' | 'PHOTOS' | 'DESCRIPTION' | 'HOURS' | 'DELIVERY' | 'WHATSAPP';
+type SectionKey = 'LOCATION' | 'PHOTOS' | 'DESCRIPTION' | 'HOURS' | 'DELIVERY' | 'WHATSAPP' | 'BRANDING';
 
 interface SectionDef {
   key: SectionKey;
   icon: string;
   title: string;
   description: string;
+  /** Si défini, la section ne s'ouvre pas dans un modal — elle navigue vers cette route. */
+  navigateTo?: string;
 }
 
 const SECTIONS: SectionDef[] = [
@@ -54,9 +56,18 @@ const SECTIONS: SectionDef[] = [
   { key: 'HOURS',       icon: '🕐', title: 'Horaires',         description: 'Jours et heures d\'ouverture' },
   { key: 'DELIVERY',    icon: '🚚', title: 'Zones de livraison', description: 'Rayon GPS ou liste de quartiers' },
   { key: 'WHATSAPP',    icon: '💬', title: 'WhatsApp Business', description: 'Réception de commandes via WhatsApp' },
+  {
+    key: 'BRANDING',
+    icon: '🎨',
+    title: 'Personnalisation',
+    description: 'Couleurs et slogan affichés côté client',
+    // Ouvre un écran dédié plutôt qu'un modal — la grille de presets visuels
+    // mérite plus d'espace que les autres steps onboarding.
+    navigateTo: '/(epicier)/personnalisation-epicerie',
+  },
 ];
 
-const SECTION_KEYS: readonly SectionKey[] = ['LOCATION', 'PHOTOS', 'DESCRIPTION', 'HOURS', 'DELIVERY', 'WHATSAPP'];
+const SECTION_KEYS: readonly SectionKey[] = ['LOCATION', 'PHOTOS', 'DESCRIPTION', 'HOURS', 'DELIVERY', 'WHATSAPP', 'BRANDING'];
 
 function isSectionKey(value: unknown): value is SectionKey {
   return typeof value === 'string' && (SECTION_KEYS as readonly string[]).includes(value);
@@ -123,6 +134,12 @@ export default function ParametresEpicerieScreen() {
         }
         return !!epicerie.deliveryZones;
       case 'WHATSAPP':    return epicerie.whatsappEnabled === true;
+      case 'BRANDING':
+        // "Filled" si l'épicier a personnalisé (preset != DEFAULT/null ou slogan).
+        return (
+          (epicerie.themePreset != null && epicerie.themePreset !== 'DEFAULT')
+          || !!epicerie.brandStatement?.trim()
+        );
     }
   };
 
@@ -171,6 +188,18 @@ export default function ParametresEpicerieScreen() {
         } catch { return 'Configuré'; }
       case 'WHATSAPP':
         return epicerie.whatsappEnabled ? 'Activé' : 'Désactivé';
+      case 'BRANDING': {
+        const preset = epicerie.themePreset;
+        if (!preset || preset === 'DEFAULT') return 'Thème par défaut (vert AbridGO)';
+        const labelMap: Record<string, string> = {
+          WARM: 'Ambre chaleureux',
+          COOL: 'Bleu pur',
+          MINIMAL: 'Minimal noir',
+          VIBRANT: 'Vibrant corail',
+          CUSTOM: 'Thème personnalisé',
+        };
+        return labelMap[preset] ?? preset;
+      }
     }
   };
 
@@ -190,6 +219,8 @@ export default function ParametresEpicerieScreen() {
       case 'HOURS':       return <StepHours       ref={stepRef} {...stepProps} />;
       case 'DELIVERY':    return <StepDelivery    ref={stepRef} {...stepProps} />;
       case 'WHATSAPP':    return <StepWhatsapp    ref={stepRef} {...stepProps} />;
+      // BRANDING n'utilise pas de step component (écran dédié via navigateTo).
+      case 'BRANDING':    return null;
     }
   };
 
@@ -225,7 +256,14 @@ export default function ParametresEpicerieScreen() {
             <TouchableOpacity
               key={s.key}
               style={[styles.card, filled && styles.cardFilled]}
-              onPress={() => setOpenSection(s.key)}
+              onPress={() => {
+                // Sections avec écran dédié : navigation. Sinon : modal step.
+                if (s.navigateTo) {
+                  router.push(s.navigateTo as any);
+                } else {
+                  setOpenSection(s.key);
+                }
+              }}
               activeOpacity={0.85}
             >
               <View style={styles.cardIconWrapper}>

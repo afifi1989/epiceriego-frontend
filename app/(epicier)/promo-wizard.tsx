@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useLanguage } from '../../src/context/LanguageContext';
 import {
   DateRangeField,
@@ -81,8 +83,8 @@ export default function PromoWizardScreen() {
         const [cats, prods] = await Promise.all([
           (async () => {
             try {
-              const epicerie = await epicerieService.getMyEpicerie();
-              return await categoryService.getActiveCategoriesByEpicerie(epicerie.id);
+              // Taxonomie plateforme filtrée sur le type de la boutique.
+              return await categoryService.getCategoriesForMyEpicerie();
             } catch {
               return [];
             }
@@ -291,6 +293,33 @@ function StepInfos({
   state, setState,
 }: { state: WizardState; setState: React.Dispatch<React.SetStateAction<WizardState>> }) {
   const { t } = useLanguage();
+  const [uploading, setUploading] = useState(false);
+
+  const pickImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission requise', 'Autorisez l’accès à la galerie pour choisir une image.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+
+    setUploading(true);
+    try {
+      const url = await promotionService.uploadImage(result.assets[0]);
+      setState(s => ({ ...s, imageUrl: url }));
+    } catch (e: any) {
+      Alert.alert('Erreur', e?.message ?? "Impossible d'envoyer l'image.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <View style={styles.stepWrap}>
       <Text style={styles.fieldLabel}>{t('promotions.wizard.titreHelp')}</Text>
@@ -334,6 +363,30 @@ function StepInfos({
         />
         <Text style={styles.reductionSuffix}>{t('promotions.wizard.reductionSuffix')}</Text>
       </View>
+
+      <Text style={[styles.fieldLabel, { marginTop: 18 }]}>Image (optionnel)</Text>
+      {state.imageUrl ? (
+        <View style={styles.imagePreviewWrap}>
+          <Image source={{ uri: state.imageUrl }} style={styles.imagePreview} resizeMode="cover" />
+          <TouchableOpacity
+            style={styles.imageRemove}
+            onPress={() => setState(s => ({ ...s, imageUrl: undefined }))}
+          >
+            <Text style={styles.imageRemoveText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.imagePicker}
+          onPress={pickImage}
+          disabled={uploading}
+          activeOpacity={0.8}
+        >
+          {uploading
+            ? <ActivityIndicator color="#2196F3" />
+            : <Text style={styles.imagePickerText}>＋  Choisir une image</Text>}
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -611,6 +664,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     fontWeight: '600',
+  },
+  imagePicker: {
+    height: 120,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#C7D2DD',
+    borderStyle: 'dashed',
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePickerText: {
+    fontSize: 15,
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  imagePreviewWrap: {
+    position: 'relative',
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  imagePreview: {
+    width: 220,
+    height: 160,
+  },
+  imageRemove: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageRemoveText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   pickerHeader: {
     flexDirection: 'row',

@@ -4,10 +4,12 @@
  * welcome message, and auto-accept preferences.
  */
 
+import { WhatsAppShareCard } from '@/src/components/whatsapp/WhatsAppShareCard';
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/src/constants/colors';
 import whatsappSettingsService, { WhatsAppSettings } from '@/src/services/whatsappSettingsService';
+import { useSubscription } from '@/src/hooks/useSubscription';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -36,10 +38,22 @@ export default function WhatsAppSettingsScreen() {
   });
   const [hasChanges, setHasChanges] = useState(false);
 
+  const router = useRouter();
+  const { hasFeature, loading: subLoading } = useSubscription();
+  // WhatsApp Business est inclus à partir du plan Essentiel. Sans la feature,
+  // on n'affiche ni le QR ni l'activation (le backend renvoie 402 de toute
+  // façon) — on propose l'upgrade à la place.
+  const whatsappAllowed = hasFeature('hasWhatsapp');
+
   useFocusEffect(
     useCallback(() => {
+      if (subLoading) return;           // attendre de connaître le plan
+      if (!whatsappAllowed) {           // plan insuffisant → pas de fetch
+        setLoading(false);
+        return;
+      }
       loadSettings();
-    }, [])
+    }, [subLoading, whatsappAllowed])
   );
 
   const loadSettings = async () => {
@@ -99,7 +113,7 @@ export default function WhatsAppSettingsScreen() {
     }
   };
 
-  if (loading) {
+  if (subLoading || (whatsappAllowed && loading)) {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={WHATSAPP_GREEN} />
@@ -125,6 +139,35 @@ export default function WhatsAppSettingsScreen() {
               (texte ou message audio).
             </Text>
           </View>
+
+          {!whatsappAllowed ? (
+            /* Plan insuffisant : pas de QR ni d'activation, on propose l'upgrade. */
+            <View style={styles.lockCard}>
+              <View style={styles.lockIcon}>
+                <MaterialCommunityIcons name="lock-outline" size={28} color={WHATSAPP_GREEN} />
+              </View>
+              <Text style={styles.lockTitle}>Plan Essentiel requis</Text>
+              <Text style={styles.lockText}>
+                Les commandes WhatsApp (QR à partager, lien wa.me, message de
+                bienvenue) sont incluses à partir du plan Essentiel. Votre offre
+                actuelle ne permet pas d’activer cette fonctionnalité.
+              </Text>
+              <TouchableOpacity
+                style={styles.lockButton}
+                onPress={() => router.push('/(epicier)/mon-abonnement')}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons name="star-four-points" size={18} color="#fff" />
+                <Text style={styles.lockButtonText}>Voir les offres</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+          <>
+          {/* Carte de partage : QR + lien wa.me à donner aux clients.
+             Affichée au-dessus des autres sections car c'est l'action concrète
+             que l'épicier va répéter (imprimer, partager). Les paramètres en
+             dessous ne sont configurés qu'une fois à l'activation. */}
+          <WhatsAppShareCard />
 
           {/* Enable Toggle */}
           <View style={styles.section}>
@@ -199,10 +242,12 @@ export default function WhatsAppSettingsScreen() {
               et propose un panier au client.
             </Text>
           </View>
+          </>
+          )}
         </ScrollView>
 
         {/* Save Button */}
-        {hasChanges && (
+        {hasChanges && whatsappAllowed && (
           <View style={styles.footer}>
             <TouchableOpacity
               style={[styles.saveButton, saving && styles.saveButtonDisabled]}
@@ -371,6 +416,53 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   saveButtonText: {
+    fontSize: FontSizes.base,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  // ── État verrouillé (plan insuffisant) ──
+  lockCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  lockIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.full,
+    backgroundColor: WHATSAPP_GREEN + '1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.xs,
+  },
+  lockTitle: {
+    fontSize: FontSizes.base,
+    fontWeight: '700',
+    color: Colors.text,
+    textAlign: 'center',
+  },
+  lockText: {
+    fontSize: FontSizes.sm,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  lockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    backgroundColor: WHATSAPP_GREEN,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+  },
+  lockButtonText: {
     fontSize: FontSizes.base,
     fontWeight: '600',
     color: '#fff',

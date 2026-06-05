@@ -136,7 +136,6 @@ export default function FavorisScreen() {
             <Text style={styles.cardAddress}>{item.adresse}</Text>
             <View style={styles.cardMeta}>
               <Text style={styles.cardMetaText}>⭐ 4.5</Text>
-              <Text style={styles.cardMetaText}>📦 {item.nombreProducts} produits</Text>
             </View>
           </View>
         </View>

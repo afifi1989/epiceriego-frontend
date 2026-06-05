@@ -51,6 +51,19 @@ export type CacheNamespace =
 const CACHE_PREFIX = '@offline_cache/';
 const CURRENT_SCHEMA_VERSION = 1;
 
+/**
+ * Plafond du nombre d'entrées de cache dans AsyncStorage. Au-delà, on
+ * évince les plus anciennes (LRU par timestamp). Garde-fou contre la
+ * limite Hermes "Property storage exceeds 196607 properties" qui se
+ * déclenche quand le cache grossit sans limite (params variables côté
+ * API, etc.).
+ */
+const MAX_CACHE_ENTRIES = 500;
+
+/** Toutes les N écritures, déclenche un enforceMaxEntries() en arrière-plan. */
+const PRUNE_EVERY_N_WRITES = 50;
+let setCountSinceLastPrune = 0;
+
 /** TTL par défaut par namespace (en ms) */
 export const DEFAULT_TTL: Record<CacheNamespace, number> = {
   epicerie: 30 * 60 * 1000,      // 30 min (rarement modifié)
@@ -101,6 +114,14 @@ async function set<T>(
 
   try {
     await AsyncStorage.setItem(buildKey(namespace, key), JSON.stringify(entry));
+
+    // Garde-fou anti-saturation : toutes les N écritures, on force le cap.
+    setCountSinceLastPrune++;
+    if (setCountSinceLastPrune >= PRUNE_EVERY_N_WRITES) {
+      setCountSinceLastPrune = 0;
+      // Fire-and-forget : ne bloque pas le caller.
+      enforceMaxEntries().catch(() => { /* silencieux */ });
+    }
   } catch (err) {
     console.warn(`[CacheService] Erreur écriture ${namespace}/${key}:`, err);
   }
@@ -209,6 +230,88 @@ async function invalidateAll(): Promise<void> {
 }
 
 /**
+ * Supprime toutes les entrées expirées (ou de version obsolète, ou corrompues).
+ * À appeler au démarrage de l'app pour éviter l'accumulation infinie qui
+ * peut hit la limite Hermes "Property storage exceeds 196607 properties".
+ */
+async function pruneExpired(): Promise<{ removed: number; total: number }> {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const cacheKeys = allKeys.filter((k) => k.startsWith(CACHE_PREFIX));
+    if (cacheKeys.length === 0) return { removed: 0, total: 0 };
+
+    const now = Date.now();
+    const toRemove: string[] = [];
+    const entries = await AsyncStorage.multiGet(cacheKeys);
+    for (const [key, raw] of entries) {
+      if (!raw) {
+        toRemove.push(key);
+        continue;
+      }
+      try {
+        const entry: CacheEntry = JSON.parse(raw);
+        const age = now - (entry.timestamp ?? 0);
+        const ttl = entry.ttl ?? 0;
+        if (entry.version !== CURRENT_SCHEMA_VERSION || age > ttl) {
+          toRemove.push(key);
+        }
+      } catch {
+        // Entrée corrompue → on supprime.
+        toRemove.push(key);
+      }
+    }
+
+    if (toRemove.length > 0) {
+      await AsyncStorage.multiRemove(toRemove);
+    }
+    return { removed: toRemove.length, total: cacheKeys.length };
+  } catch (err) {
+    console.warn('[CacheService] Erreur pruneExpired:', err);
+    return { removed: 0, total: 0 };
+  }
+}
+
+/**
+ * Plafonne le nombre total d'entrées du cache à MAX_CACHE_ENTRIES.
+ * Eviction LRU basée sur le timestamp d'écriture (les plus anciennes
+ * dégagent en premier).
+ */
+async function enforceMaxEntries(): Promise<number> {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    const cacheKeys = allKeys.filter((k) => k.startsWith(CACHE_PREFIX));
+    if (cacheKeys.length <= MAX_CACHE_ENTRIES) return 0;
+
+    const entries = await AsyncStorage.multiGet(cacheKeys);
+    const dated: { key: string; ts: number }[] = [];
+    for (const [key, raw] of entries) {
+      if (!raw) {
+        dated.push({ key, ts: 0 });
+        continue;
+      }
+      try {
+        const entry: CacheEntry = JSON.parse(raw);
+        dated.push({ key, ts: entry.timestamp ?? 0 });
+      } catch {
+        // Entrée corrompue → on l'évince en premier.
+        dated.push({ key, ts: 0 });
+      }
+    }
+    dated.sort((a, b) => a.ts - b.ts);
+    const overflow = dated.length - MAX_CACHE_ENTRIES;
+    const toRemove = dated.slice(0, overflow).map((d) => d.key);
+    if (toRemove.length > 0) {
+      await AsyncStorage.multiRemove(toRemove);
+      console.log(`[CacheService] 🧹 Cap appliqué : ${toRemove.length} entrées les plus anciennes évincées (cap=${MAX_CACHE_ENTRIES})`);
+    }
+    return toRemove.length;
+  } catch (err) {
+    console.warn('[CacheService] Erreur enforceMaxEntries:', err);
+    return 0;
+  }
+}
+
+/**
  * Retourne des stats sur le cache (debug / monitoring).
  */
 async function getStats(): Promise<{
@@ -242,6 +345,8 @@ export const cacheService = {
   remove,
   invalidateNamespace,
   invalidateAll,
+  pruneExpired,
+  enforceMaxEntries,
   getStats,
   buildKey,
   DEFAULT_TTL,

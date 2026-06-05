@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -45,12 +45,29 @@ export default function ProductDetailScreen() {
   const heroPhotoUrl = selectedUnit?.photoUrl || product?.photoUrl || null;
 
   useEffect(() => {
-    loadProduct();
+    loadProduct({ silent: false });
   }, [productId]);
 
-  const loadProduct = async () => {
+  // Refetch silencieux sur chaque retour de focus pour voir en temps réel les
+  // modifs de l'épicier (prix, stock, photo, variantes). Le tout 1er focus est
+  // skip car le useEffect([productId]) vient déjà de charger.
+  const isFirstFocusRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocusRef.current) {
+        isFirstFocusRef.current = false;
+        return;
+      }
+      loadProduct({ silent: true });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [productId, epicerieId]),
+  );
+
+  const loadProduct = async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
-      setLoading(true);
+      // En mode silent on garde l'écran affiché avec les anciennes données
+      // jusqu'à la réponse — pas de skeleton qui ferait un flash gênant.
+      if (!silent) setLoading(true);
       const parsedProductId = typeof productId === 'string' ? parseInt(productId, 10) : parseInt(productId[0], 10);
       const parsedEpicerieId = typeof epicerieId === 'string' ? parseInt(epicerieId, 10) : parseInt(epicerieId[0], 10);
 
@@ -73,15 +90,22 @@ export default function ProductDetailScreen() {
           setActivePromos([]);
         }
       } else {
+        // Produit introuvable : OK de booter l'utilisateur — soit l'épicier
+        // l'a supprimé entre temps, soit l'ID était cassé dès le départ.
         toast.error(t('common.error'), t('products.productNotFound'));
         router.back();
       }
     } catch (error) {
       console.error('Erreur lors du chargement du produit:', error);
-      toast.error(t('common.error'), String(error));
-      router.back();
+      // En mode silent (refocus), on garde l'écran tel quel — une erreur réseau
+      // transitoire ne doit pas booter l'utilisateur. L'erreur initiale au load
+      // garde son comportement bloquant (router.back).
+      if (!silent) {
+        toast.error(t('common.error'), String(error));
+        router.back();
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -103,7 +127,13 @@ export default function ProductDetailScreen() {
         unitId: unitId ?? undefined,
         unitLabel: unit.label,
         quantity: quantity,
-        requestedQuantity: quantity,
+        // requestedQuantity = quantité dans l'unité de base (L, kg, pcs) attendue
+        // par le backend pour la vérification stock. unit.quantity porte le volume
+        // de la variante (0.25 pour 250ml, 0.5 pour 500g, 1 pour "à l'unité").
+        // Sans cette multiplication, commander 1 bouteille de 250ml envoyait
+        // requestedQuantity=1, que le backend interprétait comme 1 L = 4 bouteilles,
+        // d'où "insufficient stock" même avec du stock disponible.
+        requestedQuantity: quantity * (unit.quantity ?? 1),
         pricePerUnit: unit.prix,
         totalPrice: totalPrice,
         photoUrl: unit.photoUrl || product.photoUrl,
@@ -172,7 +202,13 @@ export default function ProductDetailScreen() {
     );
   }
 
-  const isAvailable = product.isAvailable && product.stock > 0;
+  // Source de vérité du stock : `inStock` est calculé côté backend en
+  // sommant les variantes (cf. Product.isInStock). Le champ `stock` legacy
+  // au niveau du produit ne vaut que si le produit n'a aucune variante —
+  // pour les produits modernes (≥ 1 ProductUnit), il reste à 0 et donne
+  // un faux "rupture" si on l'utilise seul.
+  const hasStock = product.inStock ?? (product.stock != null && product.stock > 0);
+  const isAvailable = product.isAvailable && hasStock;
 
   return (
     <>

@@ -318,7 +318,11 @@ export const clientManagementService = {
   },
 
   /**
-   * Get client account information (balance, debt, advances)
+   * Get client account information (balance, debt, advances).
+   *
+   * <p><strong>Variante épicier</strong> : nécessite la permission CLIENT_VIEW
+   * côté backend. Utilisé par l'app épicier (fiche client) — pas par le client.</p>
+   *
    * @param epicerieId ID of the epicerie
    * @param clientId ID of the client
    * @returns Client account details
@@ -335,6 +339,31 @@ export const clientManagementService = {
     } catch (error: any) {
       console.error('[ClientManagementService] Error getting client account:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération du compte client';
+    }
+  },
+
+  /**
+   * Get the connected client's OWN account at a given epicerie.
+   *
+   * <p>Endpoint dédié <strong>self-service</strong> client : ne nécessite
+   * pas la permission épicier CLIENT_VIEW. Utilisé par la page Mon Carnet
+   * et le panneau de transparence crédit dans le panier.</p>
+   *
+   * <p>Le clientId est dérivé du JWT côté backend — pas du path — donc
+   * impossible de consulter la fiche d'un autre client.</p>
+   *
+   * @param epicerieId ID of the epicerie
+   * @returns Account details for the currently authenticated client
+   */
+  getMyClientAccount: async (epicerieId: number): Promise<ClientAccount> => {
+    try {
+      const response = await api.get<ClientAccount>(
+        `/clients/me/epiceries/${epicerieId}/account`
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error getting my client account:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de la récupération de votre compte';
     }
   },
 
@@ -440,7 +469,11 @@ export const clientManagementService = {
       let totalAdvances = 0;
 
       try {
-        const account = await clientManagementService.getClientAccount(epicerieId, currentUser.userId);
+        // ⚠ Utilise l'endpoint self-service `/clients/me/epiceries/{id}/account`
+        // qui ne nécessite pas la permission épicier CLIENT_VIEW. L'ancien
+        // appel à getClientAccount(epicerieId, clientId) renvoyait 403
+        // ("Consultation des clients non autorisée") pour les rôles CLIENT.
+        const account = await clientManagementService.getMyClientAccount(epicerieId);
         console.log('[getCreditInfo] Client account loaded:', account);
 
         // Use account values if available, otherwise use defaults

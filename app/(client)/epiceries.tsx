@@ -1,215 +1,136 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
-import { EpicerieLogo } from '../../src/components/client/EpicerieLogo';
+import { EpicerieDiscoverCard } from '../../src/components/client/EpicerieDiscoverCard';
+import {
+  EpicerieDiscoverFiltersSheet,
+  EpicerieDiscoverFiltersValue,
+} from '../../src/components/client/EpicerieDiscoverFiltersSheet';
 import { Skeleton, useToast } from '../../src/components/feedback';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { epicerieService } from '../../src/services/epicerieService';
 import { favoritesService } from '../../src/services/favoritesService';
-import { Epicerie } from '../../src/type';
+import { useTheme } from '../../src/theme';
+import { EPICERIE_TYPES, Epicerie, EpicerieType } from '../../src/type';
 
-type SearchMode = 'proximity' | 'name' | 'address' | 'combined';
+const DEFAULT_RADIUS = 5;
 
+/**
+ * Écran de découverte des épiceries pour les clients.
+ *
+ * <p>UX moderne style Glovo/Deliveroo :
+ *  - Barre de recherche en pill repliable au scroll
+ *  - Pills de filtres rapides : "Ouvert maintenant" + types horizontaux
+ *  - Bouton ⚙ qui ouvre un bottom-sheet avec rayon + type + ouvert
+ *  - Liste de cartes pleine largeur avec photo en bandeau (180px)
+ *
+ * <p>Filtrage 100 % côté client à partir de la liste renvoyée par
+ * <code>searchByProximity</code>. On évite les re-fetch et les spinners
+ * quand l'utilisateur change un filtre : la réactivité est instantanée.</p>
+ */
 export default function EpiceriesScreen() {
   const router = useRouter();
   const { t } = useLanguage();
   const toast = useToast();
-  const [epiceries, setEpiceries] = useState<Epicerie[]>([]);
+  const theme = useTheme();
+  const params = useLocalSearchParams<{ search?: string }>();
+
+  const [allEpiceries, setAllEpiceries] = useState<Epicerie[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
 
-  // Search parameters
-  const [searchMode, setSearchMode] = useState<SearchMode>('proximity');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
-  const [radius, setRadius] = useState('5');
-  const [searchName, setSearchName] = useState('');
-  const [searchAddress, setSearchAddress] = useState('');
+  // Position GPS de l'utilisateur — utilisée pour la recherche et la distance affichée.
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [locationEnabled, setLocationEnabled] = useState(false);
-  const [hasAutoSearched, setHasAutoSearched] = useState(false);
+  const [hasFetched, setHasFetched] = useState(false);
 
+  // ── Filtres ─────────────────────────────────────────────────────────
+  const [searchText, setSearchText] = useState<string>(typeof params.search === 'string' ? params.search : '');
+  const [openOnly, setOpenOnly] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<EpicerieType | null>(null);
+  const [radius, setRadius] = useState<number>(DEFAULT_RADIUS);
+  const [showFiltersSheet, setShowFiltersSheet] = useState(false);
+
+  // ── État de visibilité de la barre de recherche ─────────────────────
+  // L'utilisateur peut masquer la barre via un bouton dédié pour gagner
+  // en espace vertical (la pill ⚙ filtres reste accessible via les chips).
+  const [searchBarVisible, setSearchBarVisible] = useState(true);
+
+  // ── Effects ─────────────────────────────────────────────────────────
   useEffect(() => {
-    checkLocationPermission();
-    loadFavoriteIds();
-    // Auto-trigger location detection on page load
     initializeAutoSearch();
+    loadFavoriteIds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-search effect - triggers ONLY when location coordinates are obtained
+  // Quand on obtient la position OU que le rayon change → on refait l'appel API
   useEffect(() => {
-    if (hasAutoSearched) return; // Prevent multiple searches
-
-    // Trigger search ONLY when we have valid latitude and longitude
-    if (latitude && longitude) {
-      setHasAutoSearched(true);
-      console.log('[EpiceriesScreen] 📍 Localisation détectée, lancement recherche automatique:', { latitude, longitude });
-      // Use async IIFE to allow await without making the effect async
-      (async () => {
-        // Small delay to ensure state updates are processed
-        await new Promise(resolve => setTimeout(resolve, 100));
-        await performAutoSearch();
-      })();
+    if (userLocation) {
+      fetchEpiceries(userLocation, radius);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latitude, longitude]);
-
-  const loadFavoriteIds = async () => {
-    try {
-      const ids = await favoritesService.getFavoriteIds();
-      setFavoriteIds(ids);
-      console.log('[EpiceriesScreen] Favoris chargés:', ids);
-    } catch (error) {
-      console.error('[EpiceriesScreen] Erreur chargement favoris:', error);
-    }
-  };
-
-  const checkLocationPermission = async () => {
-    try {
-      const { status } = await Location.getForegroundPermissionsAsync();
-      setLocationEnabled(status === 'granted');
-    } catch (error) {
-      console.error('Erreur lors de la vérification des permissions:', error);
-    }
-  };
+  }, [userLocation, radius]);
 
   const initializeAutoSearch = async () => {
     try {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status === 'granted') {
-        // If permission already granted, get current location
-        await getCurrentLocation();
+        await detectLocation();
       } else {
-        // Request permission automatically
-        await requestLocationPermission();
+        const result = await Location.requestForegroundPermissionsAsync();
+        if (result.status === 'granted') {
+          await detectLocation();
+        } else {
+          // Sans GPS → on charge sans tri par proximité (searchByName vide)
+          await fetchEpiceriesNoLocation();
+        }
       }
-    } catch {
-      console.error('[EpiceriesScreen] Erreur initialisation auto-recherche');
-      // Even if location fails, we can still search without location
-      setLocationEnabled(false);
+    } catch (e) {
+      console.error('[EpiceriesScreen] init failed', e);
+      await fetchEpiceriesNoLocation();
     }
   };
 
-  const requestLocationPermission = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        setLocationEnabled(true);
-        getCurrentLocation();
-      } else {
-        toast.warning(
-          t('epiceries.permissionDenied'),
-          t('epiceries.permissionMessage')
-        );
-      }
-    } catch {
-      toast.error(t('common.error'), t('epiceries.permissionRequestError'));
-    }
-  };
-
-  const getCurrentLocation = async () => {
+  const detectLocation = async () => {
     try {
       setLocationLoading(true);
-      const { status } = await Location.getForegroundPermissionsAsync();
-
-      if (status !== 'granted') {
-        // Confirmation native conservée: prompt avec deux choix (Oui/Non)
-        // qui déclenche éventuellement la requête de permission. Pattern
-        // utilisateur attendu (système-natif) pour ce type de demande.
-        Alert.alert(
-          t('epiceries.locationDisabled'),
-          t('epiceries.enableLocationMessage'),
-          [
-            { text: t('common.no'), style: 'cancel' },
-            { text: t('common.yes'), onPress: requestLocationPermission }
-          ]
-        );
-        return;
-      }
-
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-
-      setLatitude(location.coords.latitude.toFixed(6));
-      setLongitude(location.coords.longitude.toFixed(6));
+      setUserLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
     } catch {
       toast.error(t('common.error'), t('epiceries.gpsError'));
+      await fetchEpiceriesNoLocation();
     } finally {
       setLocationLoading(false);
     }
   };
 
-  const searchEpiceries = async () => {
+  const fetchEpiceries = async (loc: { latitude: number; longitude: number }, r: number) => {
     if (loading) return;
-
     try {
       setLoading(true);
-      let data: Epicerie[] = [];
-
-      switch (searchMode) {
-        case 'proximity':
-          if (!latitude || !longitude) {
-            toast.warning(t('common.error'), t('epiceries.enterCoordinates'));
-            return;
-          }
-          data = await epicerieService.searchByProximity(
-            parseFloat(latitude),
-            parseFloat(longitude),
-            parseFloat(radius) || 5
-          );
-          break;
-
-        case 'name':
-          if (!searchName.trim()) {
-            toast.warning(t('common.error'), t('epiceries.enterName'));
-            return;
-          }
-          data = await epicerieService.searchByName(searchName.trim());
-          break;
-
-        case 'address':
-          if (!searchAddress.trim()) {
-            toast.warning(t('common.error'), t('epiceries.enterAddress'));
-            return;
-          }
-          data = await epicerieService.searchByAddress(searchAddress.trim());
-          break;
-
-        case 'combined':
-          if (!latitude || !longitude || !searchName.trim()) {
-            toast.warning(t('common.error'), t('epiceries.fillAllFields'));
-            return;
-          }
-          data = await epicerieService.searchByProximityAndName(
-            parseFloat(latitude),
-            parseFloat(longitude),
-            searchName.trim(),
-            parseFloat(radius) || 3
-          );
-          break;
-      }
-
-      setEpiceries(data);
-      // Recharger les favoris après la recherche
-      await loadFavoriteIds();
-
-      // L'empty state inline du composant suffit — pas besoin d'un dialog
-      // qui interrompt la lecture des résultats. (avant: Alert "0 résultat")
+      const data = await epicerieService.searchByProximity(loc.latitude, loc.longitude, r);
+      setAllEpiceries(data || []);
+      setHasFetched(true);
     } catch (error) {
       toast.error(t('common.error'), String(error));
     } finally {
@@ -218,318 +139,326 @@ export default function EpiceriesScreen() {
     }
   };
 
-  const performAutoSearch = async () => {
+  const fetchEpiceriesNoLocation = async () => {
+    if (loading) return;
     try {
       setLoading(true);
-      let data: Epicerie[] = [];
-
-      console.log('[EpiceriesScreen] Auto-search lancée avec:', {
-        latitude,
-        longitude,
-        locationEnabled,
-        searchMode,
-      });
-
-      // If we have location coordinates, search by proximity
-      if (latitude && longitude) {
-        console.log('[EpiceriesScreen] Recherche par proximité avec coords:', latitude, longitude);
-        data = await epicerieService.searchByProximity(
-          parseFloat(latitude),
-          parseFloat(longitude),
-          parseFloat(radius) || 5
-        );
-        console.log('[EpiceriesScreen] Résultats proximité:', data.length);
-      }
-      // If location was denied, fall back to getting all epiceries by empty name search
-      else if (!locationEnabled) {
-        console.log('[EpiceriesScreen] Emplacement refusé, récupération de toutes les épiceries');
-        data = await epicerieService.searchByName(''); // Empty search returns all
-        console.log('[EpiceriesScreen] Résultats par défaut:', data.length);
-      }
-
-      setEpiceries(data);
-      // Recharger les favoris après la recherche
-      await loadFavoriteIds();
-
-      // Auto-search silencieuse: on laisse l'empty state inline gérer le
-      // "0 résultat". Pas de dialog ni de toast (auto-déclenché → l'utilisateur
-      // n'a pas demandé d'action explicite).
+      const data = await epicerieService.searchByName('');
+      setAllEpiceries(data || []);
+      setHasFetched(true);
     } catch (error) {
-      console.error('[EpiceriesScreen] Erreur auto-recherche:', error);
-      // Silently fail on auto-search to avoid annoying users
+      console.error('[EpiceriesScreen] fallback fetch failed:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const onRefresh = () => {
+  const loadFavoriteIds = async () => {
+    try {
+      const ids = await favoritesService.getFavoriteIds();
+      setFavoriteIds(ids);
+    } catch (error) {
+      console.error('[EpiceriesScreen] favoris load failed', error);
+    }
+  };
+
+  const onRefresh = async () => {
     setRefreshing(true);
-    searchEpiceries();
+    await Promise.all([
+      userLocation ? fetchEpiceries(userLocation, radius) : fetchEpiceriesNoLocation(),
+      loadFavoriteIds(),
+    ]);
   };
 
-  const renderSearchMode = () => {
-    return (
-      <View style={styles.searchModeContainer}>
-        <TouchableOpacity
-          style={[styles.modeButton, searchMode === 'proximity' && styles.modeButtonActive]}
-          onPress={() => setSearchMode('proximity')}
-        >
-          <Text style={[styles.modeButtonText, searchMode === 'proximity' && styles.modeButtonTextActive]}>
-            📍 {t('epiceries.proximity')}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeButton, searchMode === 'name' && styles.modeButtonActive]}
-          onPress={() => setSearchMode('name')}
-        >
-          <Text style={[styles.modeButtonText, searchMode === 'name' && styles.modeButtonTextActive]}>
-            🔍 {t('epiceries.name')}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeButton, searchMode === 'address' && styles.modeButtonActive]}
-          onPress={() => setSearchMode('address')}
-        >
-          <Text style={[styles.modeButtonText, searchMode === 'address' && styles.modeButtonTextActive]}>
-            🏘️ {t('epiceries.zone')}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.modeButton, searchMode === 'combined' && styles.modeButtonActive]}
-          onPress={() => setSearchMode('combined')}
-        >
-          <Text style={[styles.modeButtonText, searchMode === 'combined' && styles.modeButtonTextActive]}>
-            ⚡ {t('epiceries.combined')}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  // ── Filtrage côté client ─────────────────────────────────────────────
+  const filteredEpiceries = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    return allEpiceries
+      .filter((e) => (openOnly ? e.isOpen === true : true))
+      .filter((e) => (typeFilter ? e.epicerieType === typeFilter : true))
+      .filter((e) => {
+        if (!q) return true;
+        return (
+          e.nomEpicerie?.toLowerCase().includes(q) ||
+          e.adresse?.toLowerCase().includes(q) ||
+          e.epicerieTypeLabel?.toLowerCase().includes(q)
+        );
+      });
+  }, [allEpiceries, searchText, openOnly, typeFilter]);
 
-  const renderSearchForm = () => {
-    return (
-      <View style={styles.searchForm}>
-        {/* Proximity Search */}
-        {(searchMode === 'proximity' || searchMode === 'combined') && (
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>📍 {t('epiceries.geolocation')}</Text>
-            
-            {latitude && longitude ? (
-              <View style={styles.locationDisplay}>
-                <View style={styles.locationInfo}>
-                  <Text style={styles.locationLabel}>📍 {t('epiceries.positionDetected')}</Text>
-                  <Text style={styles.locationCoords}>
-                    {t('epiceries.lat')}: {parseFloat(latitude).toFixed(4)} | {t('epiceries.lon')}: {parseFloat(longitude).toFixed(4)}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.redetectButton}
-                  onPress={getCurrentLocation}
-                  disabled={locationLoading}
-                >
-                  {locationLoading ? (
-                    <ActivityIndicator size="small" color="#4CAF50" />
-                  ) : (
-                    <Text style={styles.redetectButtonText}>🔄</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={styles.locationButton}
-                onPress={getCurrentLocation}
-                disabled={locationLoading}
-              >
-                {locationLoading ? (
-                  <ActivityIndicator size="small" color="#4CAF50" />
-                ) : (
-                  <>
-                    <Text style={styles.locationButtonIcon}>📍</Text>
-                    <Text style={styles.locationButtonText}>
-                      {t('epiceries.detectPosition')}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
+  const activeFiltersCount = (openOnly ? 1 : 0) + (typeFilter ? 1 : 0) + (radius !== DEFAULT_RADIUS ? 1 : 0);
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>{t('epiceries.searchRadius')}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="5"
-                value={radius}
-                onChangeText={setRadius}
-                keyboardType="numeric"
-                placeholderTextColor="#999"
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Name Search */}
-        {(searchMode === 'name' || searchMode === 'combined') && (
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>🔍 {t('epiceries.epicerieName')}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('epiceries.namePlaceholder')}
-              value={searchName}
-              onChangeText={setSearchName}
-              placeholderTextColor="#999"
-            />
-          </View>
-        )}
-
-        {/* Address Search */}
-        {searchMode === 'address' && (
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>🏘️ {t('epiceries.addressOrZone')}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t('epiceries.addressPlaceholder')}
-              value={searchAddress}
-              onChangeText={setSearchAddress}
-              placeholderTextColor="#999"
-            />
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.searchButton, loading && styles.searchButtonDisabled]}
-          onPress={searchEpiceries}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.searchButtonText}>🔎 {t('epiceries.search')}</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  /**
-   * UI optimiste: toggle local immédiat (cœur réactif), persist API en
-   * arrière-plan, rollback si échec. Le tap d'un cœur a un retour visuel
-   * sans latence — différenciateur UX majeur sur ce type d'interaction.
-   */
+  // ── Toggle favori (optimiste) ────────────────────────────────────────
   const handleToggleFavorite = async (epicerieId: number, isCurrentlyFavorite: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-
-    // Snapshot pour rollback éventuel
     const snapshot = favoriteIds;
     const optimistic = isCurrentlyFavorite
-      ? favoriteIds.filter(id => id !== epicerieId)
+      ? favoriteIds.filter((id) => id !== epicerieId)
       : [...favoriteIds, epicerieId];
     setFavoriteIds(optimistic);
-
     try {
       const success = await favoritesService.toggleFavorite(epicerieId, isCurrentlyFavorite);
       if (!success) throw new Error('toggleFavorite returned false');
     } catch (error) {
-      console.error('[EpiceriesScreen] Erreur toggle favori:', error);
-      setFavoriteIds(snapshot); // rollback
+      console.error('[EpiceriesScreen] toggleFavorite failed', error);
+      setFavoriteIds(snapshot);
       toast.error(t('common.error'), t('epiceries.favoritesError'));
     }
   };
 
-  const renderEpicerie = ({ item }: { item: Epicerie }) => {
-    const isFavorite = favoriteIds.includes(item.id);
+  // ── Filtres ──────────────────────────────────────────────────────────
+  const applyFilters = (next: EpicerieDiscoverFiltersValue) => {
+    setOpenOnly(next.openOnly);
+    setTypeFilter(next.type);
+    setRadius(next.radius);
+  };
 
+  const handleRetryLocation = () => {
+    if (!userLocation && !locationLoading) {
+      Alert.alert(
+        t('epiceries.locationDisabled'),
+        t('epiceries.enableLocationMessage'),
+        [
+          { text: t('common.no'), style: 'cancel' },
+          { text: t('common.yes'), onPress: detectLocation },
+        ]
+      );
+    }
+  };
+
+  // ── Rendu ────────────────────────────────────────────────────────────
+
+  const renderQuickFilters = () => (
+    <View style={styles.quickFilters}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipsScrollContent}
+      >
+        {/* Pill "Ouvert maintenant" */}
+        <TouchableOpacity
+          style={[styles.chip, openOnly && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+          onPress={() => setOpenOnly((v) => !v)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.chipIcon, { color: openOnly ? '#fff' : '#16a34a' }]}>●</Text>
+          <Text style={[styles.chipText, openOnly && { color: '#fff' }]}>
+            {t('epiceries.openNow') || 'Ouvert maintenant'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Pill "Type" avec dropdown indicator → ouvre le sheet */}
+        <TouchableOpacity
+          style={[styles.chip, typeFilter && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+          onPress={() => setShowFiltersSheet(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.chipText, typeFilter && { color: '#fff' }]}>
+            {typeFilter
+              ? `${EPICERIE_TYPES.find((tp) => tp.value === typeFilter)?.icon || ''} ${EPICERIE_TYPES.find((tp) => tp.value === typeFilter)?.label || ''}`
+              : (t('epiceries.allTypes') || 'Tous les types')}
+          </Text>
+          <Ionicons name="chevron-down" size={14} color={typeFilter ? '#fff' : '#555'} />
+        </TouchableOpacity>
+
+        {/* Pills rapides types courants */}
+        {EPICERIE_TYPES.slice(0, 6).map((tp) => {
+          const isActive = typeFilter === tp.value;
+          return (
+            <TouchableOpacity
+              key={tp.value}
+              style={[styles.chip, isActive && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+              onPress={() => setTypeFilter((cur) => (cur === tp.value ? null : tp.value))}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.chipIcon}>{tp.icon}</Text>
+              <Text style={[styles.chipText, isActive && { color: '#fff' }]} numberOfLines={1}>
+                {tp.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+
+  const renderSkeletons = () => (
+    <View>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={{ marginHorizontal: 16, marginBottom: 16 }}>
+          <Skeleton variant="rect" height={180} style={{ borderRadius: 12, marginBottom: 8 }} />
+          <Skeleton variant="text" width="60%" height={16} style={{ marginBottom: 8 }} />
+          <Skeleton variant="text" width="40%" height={12} />
+        </View>
+      ))}
+    </View>
+  );
+
+  const renderHeader = () => (
+    <View>
+      {/* Compteur résultats */}
+      {hasFetched && !loading && (
+        <View style={styles.resultsHeader}>
+          <Text style={styles.resultsCount}>
+            {filteredEpiceries.length} {t('epiceries.epiceriesFound') || 'épiceries trouvées'}
+          </Text>
+          {!userLocation && (
+            <TouchableOpacity onPress={handleRetryLocation} style={styles.gpsRetry}>
+              <Ionicons name="location-outline" size={14} color={theme.colors.brand} />
+              <Text style={[styles.gpsRetryText, { color: theme.colors.brand }]}>
+                {t('epiceries.detectPosition') || 'Détecter ma position'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderEmpty = () => {
+    if (loading) return renderSkeletons();
     return (
-      <View style={styles.cardContainer}>
-        <TouchableOpacity
-          style={styles.card}
-          onPress={() => router.push(`/(client)/(epicerie)/${item.id}`)}
-        >
-          <View style={styles.cardHeader}>
-            {/* Logo épicerie à gauche — tap pour agrandir, fallback emoji si pas de photo. */}
-            <EpicerieLogo photoUrl={item.photoUrl} accessibilityLabel={item.nomEpicerie} />
-            <View style={styles.cardInfo}>
-              <Text style={styles.cardTitle}>{item.nomEpicerie}</Text>
-              <Text style={styles.cardAddress}>{item.adresse}</Text>
-              <View style={styles.cardMeta}>
-                <Text style={styles.cardMetaText}>⭐ 4.5</Text>
-                <Text style={styles.cardMetaText}>📦 {item.nombreProducts} produits</Text>
-              </View>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Favorite Heart Button */}
-        <TouchableOpacity
-          style={[styles.favoriteButton, isFavorite && styles.favoriteButtonActive]}
-          onPress={() => handleToggleFavorite(item.id, isFavorite)}
-        >
-          <Text style={styles.favoriteIcon}>{isFavorite ? '❤️' : '🤍'}</Text>
-        </TouchableOpacity>
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyEmoji}>🔍</Text>
+        <Text style={styles.emptyText}>{t('epiceries.noEpiceriesFound')}</Text>
+        <Text style={styles.emptySubtext}>
+          {activeFiltersCount > 0 || searchText
+            ? (t('epiceries.tryOtherFilters') || 'Essayez d\'autres filtres')
+            : (t('epiceries.startSearchMessage') || 'Configurez votre recherche')}
+        </Text>
+        {activeFiltersCount > 0 && (
+          <TouchableOpacity
+            onPress={() => {
+              setOpenOnly(false);
+              setTypeFilter(null);
+              setRadius(DEFAULT_RADIUS);
+              setSearchText('');
+            }}
+            style={[styles.clearFiltersBtn, { backgroundColor: theme.colors.brand }]}
+          >
+            <Text style={styles.clearFiltersBtnText}>
+              {t('epiceries.clearFilters') || 'Effacer les filtres'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{t('epiceries.searchEpiceries')}</Text>
-        <Text style={styles.headerSubtitle}>{t('epiceries.findIdealShop')}</Text>
-      </View>
-
-      <ScrollView 
-        style={styles.scrollView}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {renderSearchMode()}
-        {renderSearchForm()}
-
-        <View style={styles.resultsContainer}>
-          {epiceries.length > 0 && (
-            <Text style={styles.resultsTitle}>
-              📋 {epiceries.length} {t('epiceries.epiceriesFound')}
-            </Text>
-          )}
-          {epiceries.map((item) => (
-            <View key={item.id}>
-              {renderEpicerie({ item })}
-            </View>
-          ))}
-          {loading && epiceries.length === 0 && (
-            // Skeleton cards pendant la 1ère recherche/auto-search.
-            // Avant: rien ne s'affichait → utilisateur restait dans le doute
-            // pendant 1-3s pendant que la requête tournait.
-            <>
-              {[0, 1, 2].map(i => (
-                <View key={i} style={styles.cardContainer}>
-                  <View style={styles.card}>
-                    <View style={styles.cardHeader}>
-                      {/* Skeleton logo aligné sur la position réelle du logo (à gauche, 64×64) */}
-                      <Skeleton variant="rect" width={64} height={64} style={{ borderRadius: 12 }} />
-                      <View style={{ flex: 1 }}>
-                        <Skeleton variant="text" width="65%" style={{ marginBottom: 8 }} />
-                        <Skeleton variant="text" width="85%" style={{ marginBottom: 10 }} />
-                        <View style={{ flexDirection: 'row', gap: 12 }}>
-                          <Skeleton variant="text" width={50} />
-                          <Skeleton variant="text" width={80} />
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </>
-          )}
-          {!loading && epiceries.length === 0 && (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyEmoji}>🔍</Text>
-              <Text style={styles.emptyText}>{t('epiceries.noEpiceriesFound')}</Text>
-              <Text style={styles.emptySubtext}>{t('epiceries.startSearchMessage')}</Text>
-            </View>
-          )}
+      {/* Barre de recherche — peut être masquée par l'utilisateur */}
+      {searchBarVisible ? (
+        <View style={styles.searchHeader}>
+          <View style={styles.searchInputWrap}>
+            <Ionicons name="search" size={18} color="#999" />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={t('epiceries.searchPlaceholder')}
+              placeholderTextColor="#999"
+              value={searchText}
+              onChangeText={setSearchText}
+              returnKeyType="search"
+            />
+            {searchText.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchText('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color="#bbb" />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={[styles.filterBtn, activeFiltersCount > 0 && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+            onPress={() => setShowFiltersSheet(true)}
+            activeOpacity={0.8}
+            accessibilityLabel={t('epiceries.filters')}
+          >
+            <Ionicons name="options-outline" size={20} color={activeFiltersCount > 0 ? '#fff' : '#333'} />
+            {activeFiltersCount > 0 && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{activeFiltersCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.hideSearchBtn}
+            onPress={() => setSearchBarVisible(false)}
+            hitSlop={6}
+            accessibilityLabel="Masquer la recherche"
+          >
+            <Ionicons name="chevron-up" size={18} color="#666" />
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      ) : (
+        <TouchableOpacity
+          style={styles.searchCollapsedBar}
+          onPress={() => setSearchBarVisible(true)}
+          activeOpacity={0.8}
+          accessibilityLabel="Afficher la recherche"
+        >
+          <Ionicons name="search" size={16} color="#666" />
+          <Text style={styles.searchCollapsedText} numberOfLines={1}>
+            {searchText.trim() ? `"${searchText}"` : t('epiceries.searchPlaceholder')}
+          </Text>
+          <Ionicons name="chevron-down" size={16} color="#999" />
+        </TouchableOpacity>
+      )}
+
+      {/* Chips de filtres rapides (toujours visibles) */}
+      <View style={styles.quickFiltersAnchor}>{renderQuickFilters()}</View>
+
+      {/* Liste */}
+      <FlatList
+        data={filteredEpiceries}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={renderHeader()}
+        ListEmptyComponent={renderEmpty()}
+        renderItem={({ item }) => (
+          <EpicerieDiscoverCard
+            epicerie={item}
+            isFavorite={favoriteIds.includes(item.id)}
+            onPress={(e) => router.push(`/(client)/(epicerie)/${e.id}`)}
+            onToggleFavorite={handleToggleFavorite}
+            userLocation={userLocation}
+          />
+        )}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.brand}
+          />
+        }
+        ListFooterComponent={
+          loading && hasFetched ? (
+            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={theme.colors.brand} />
+            </View>
+          ) : null
+        }
+      />
+
+      {/* Bottom-sheet filtres */}
+      <EpicerieDiscoverFiltersSheet
+        visible={showFiltersSheet}
+        onClose={() => setShowFiltersSheet(false)}
+        value={{ radius, openOnly, type: typeFilter }}
+        onApply={applyFilters}
+        accentColor={theme.colors.brand}
+        labels={{
+          title: t('epiceries.filters') || 'Filtres',
+          radiusTitle: t('epiceries.radiusTitle') || 'Rayon de recherche',
+          radiusHint: t('epiceries.radiusHint') || 'Distance maximale depuis votre position',
+          openOnlyTitle: t('epiceries.openNow') || 'Ouvert maintenant',
+          openOnlyHint: t('epiceries.openOnlyHint') || 'Afficher uniquement les épiceries actuellement ouvertes',
+          typeTitle: t('epiceries.typeTitle') || 'Type de boutique',
+          allTypes: t('epiceries.allTypes') || 'Tous les types',
+          reset: t('epiceries.reset') || 'Réinitialiser',
+          apply: t('epiceries.apply') || 'Appliquer',
+        }}
+      />
     </View>
   );
 }
@@ -537,261 +466,190 @@ export default function EpiceriesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#F7F7F8',
   },
-  scrollView: {
-    flex: 1,
-  },
-  header: {
-    backgroundColor: '#4CAF50',
-    padding: 20,
-    paddingTop: 20,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 5,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: '#fff',
-    opacity: 0.9,
-  },
-  searchModeContainer: {
+  // ── Search header ───────────────────────────────────────────────────
+  searchHeader: {
     flexDirection: 'row',
-    padding: 15,
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  modeButton: {
-    flex: 1,
-    minWidth: '22%',
-    backgroundColor: '#fff',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
     alignItems: 'center',
-  },
-  modeButtonActive: {
-    backgroundColor: '#4CAF50',
-    borderColor: '#4CAF50',
-  },
-  modeButtonText: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  modeButtonTextActive: {
-    color: '#fff',
-  },
-  searchForm: {
-    backgroundColor: '#fff',
-    margin: 15,
-    marginTop: 0,
-    padding: 15,
-    borderRadius: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  formSection: {
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 10,
-  },
-  inputRow: {
-    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
     gap: 10,
+    backgroundColor: '#F7F7F8',
+    zIndex: 5,
   },
-  inputContainer: {
+  searchInputWrap: {
     flex: 1,
-  },
-  inputLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 5,
-    fontWeight: '600',
-  },
-  input: {
-    backgroundColor: '#f8f8f8',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 14,
-    color: '#333',
-  },
-  searchButton: {
-    backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  searchButtonDisabled: {
-    opacity: 0.6,
-  },
-  searchButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  locationButton: {
-    backgroundColor: '#E8F5E9',
-    padding: 12,
-    borderRadius: 10,
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1F1F1F',
+    padding: 0,
+  },
+  filterBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#4CAF50',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  hideSearchBtn: {
+    width: 32,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchCollapsedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 12,
     marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
   },
-  locationButtonIcon: {
-    fontSize: 18,
-    marginRight: 8,
+  searchCollapsedText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
   },
-  locationButtonText: {
-    color: '#4CAF50',
-    fontSize: 14,
+  filterBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#E53935',
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+
+  // ── Chips quick filters ─────────────────────────────────────────────
+  quickFiltersAnchor: {
+    backgroundColor: '#F7F7F8',
+    paddingBottom: 4,
+  },
+  quickFilters: {
+    paddingVertical: 4,
+  },
+  chipsScrollContent: {
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
+  },
+  chipIcon: {
+    fontSize: 13,
+  },
+  chipText: {
+    fontSize: 13,
     fontWeight: '600',
+    color: '#333',
+    maxWidth: 130,
   },
-  locationDisplay: {
-    backgroundColor: '#E8F5E9',
-    padding: 15,
-    borderRadius: 10,
+
+  // ── Results ─────────────────────────────────────────────────────────
+  listContent: {
+    paddingTop: 6,
+    paddingBottom: 24,
+  },
+  resultsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-    marginBottom: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
-  locationInfo: {
-    flex: 1,
+  resultsCount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#555',
   },
-  locationLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#2E7D32',
-    marginBottom: 4,
-  },
-  locationCoords: {
-    fontSize: 12,
-    color: '#4CAF50',
-    fontWeight: '500',
-  },
-  redetectButton: {
-    backgroundColor: '#fff',
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4CAF50',
-  },
-  redetectButtonText: {
-    fontSize: 20,
-  },
-  resultsContainer: {
-    padding: 15,
-    paddingTop: 0,
-  },
-  resultsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
-  },
-  cardContainer: {
-    position: 'relative',
-    marginBottom: 15,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  favoriteButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  favoriteButtonActive: {
-    backgroundColor: '#ffebee',
-  },
-  favoriteIcon: {
-    fontSize: 28,
-  },
-  cardHeader: {
+  gpsRetry: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 4,
   },
-  cardInfo: {
-    flex: 1,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
-  },
-  cardAddress: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 10,
-  },
-  cardMeta: {
-    flexDirection: 'row',
-    gap: 15,
-  },
-  cardMetaText: {
+  gpsRetryText: {
     fontSize: 12,
-    color: '#4CAF50',
-    fontWeight: '600',
+    fontWeight: '700',
   },
+
+  // ── Empty ───────────────────────────────────────────────────────────
   emptyContainer: {
     alignItems: 'center',
-    marginTop: 50,
-    paddingHorizontal: 20,
+    marginTop: 40,
+    paddingHorizontal: 32,
   },
   emptyEmoji: {
-    fontSize: 60,
-    marginBottom: 15,
+    fontSize: 56,
+    marginBottom: 14,
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1F1F1F',
+    marginBottom: 6,
   },
   emptySubtext: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 13,
+    color: '#777',
     textAlign: 'center',
+    marginBottom: 16,
+  },
+  clearFiltersBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 22,
+  },
+  clearFiltersBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
   },
 });

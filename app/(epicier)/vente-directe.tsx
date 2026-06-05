@@ -39,8 +39,8 @@ import { productService } from '../../src/services/productService';
 import { offlineService } from '../../src/services/offline';
 import { BarcodeProductScanner } from '../../src/components/shared/BarcodeProductScanner';
 import PromoCodeInput from '../../src/components/client/PromoCodeInput';
-import { CategoryPicker } from '../../src/components/epicier/CategoryPicker';
-import { CATEGORIES } from '../../src/constants/categories';
+import { CategoryFilterModal } from '../../src/components/epicier/CategoryFilterModal';
+import { categoryService, Category as ApiCategory } from '../../src/services/categoryService';
 import { ClientEpicerieRelation, Epicerie, Product, ProductUnit } from '../../src/type';
 import { ClientQrScanButton } from '../../src/components/epicier/ClientQrScanButton';
 import { LoyaltyCardScanResult } from '../../src/services/loyaltyCardService';
@@ -147,7 +147,6 @@ const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; icon: string; colo
   { value: 'CASH',           label: 'Espèces',       icon: 'cash',           color: '#388E3C' },
   { value: 'CARD',           label: 'Carte',         icon: 'credit-card',    color: '#1976D2' },
   { value: 'CLIENT_ACCOUNT', label: 'Compte client', icon: 'account-credit', color: '#7B1FA2' },
-  { value: 'MOBILE',         label: 'Mobile',        icon: 'cellphone-text', color: '#FB8C00' },
 ];
 
 const PAYMENT_COLOR: Record<PaymentMethod, string> = {
@@ -340,10 +339,12 @@ export default function VenteDirecteScreen() {
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const [barcodeLoading, setBarcodeLoading]         = useState(false);
 
-  // Filtre catégorie
-  const [selectedCategoryId, setSelectedCategoryId]       = useState<number | undefined>(undefined);
-  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | undefined>(undefined);
-  const [showCategoryPicker, setShowCategoryPicker]       = useState(false);
+  // Filtre catégorie — la liste vient de l'API (catégories backend),
+  // alignée sur le comportement web `vente-directe.component.ts`.
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
 
   // ── Panier (totaux calculés) ──────────────────────────────────────────────
   const cartSubtotal = useMemo(
@@ -362,6 +363,24 @@ export default function VenteDirecteScreen() {
     () => cart.reduce((sum, item) => sum + item.quantite, 0),
     [cart]
   );
+
+  // Paiement sur compte possible ? client inscrit + crédit autorisé + plafond
+  // ≥ total. Côté mobile, la relation ne porte que le plafond (pas le solde dû
+  // ni les avances) → on l'utilise comme borne ; le backend revérifie
+  // précisément à la validation.
+  const canPayOnAccount = useMemo(() => {
+    if (clientMode !== 'registered' || !selectedClient) return false;
+    if (!selectedClient.allowCredit) return false;
+    return (selectedClient.creditLimit ?? 0) >= cartTotal;
+  }, [clientMode, selectedClient, cartTotal]);
+
+  // Si « Compte » devient invalide (client changé, panier au-dessus du plafond),
+  // retomber sur Espèces pour éviter un envoi voué au refus backend.
+  useEffect(() => {
+    if (paymentMethod === 'CLIENT_ACCOUNT' && !canPayOnAccount) {
+      setPaymentMethod('CASH');
+    }
+  }, [paymentMethod, canPayOnAccount, setPaymentMethod]);
 
   const amountGivenNum = parseFloat(amountGiven.replace(',', '.')) || 0;
   const change         = amountGivenNum >= cartTotal ? +(amountGivenNum - cartTotal).toFixed(2) : 0;
@@ -399,6 +418,22 @@ export default function VenteDirecteScreen() {
         ]);
         if (prods) setProducts(prods.filter(p => p.isAvailable !== false));
         if (cls) setClients(cls.filter(c => c.status === 'ACCEPTED'));
+
+        // Catégories chargées depuis l'API (équivalent web `loadCategories`).
+        // Non bloquant : la grille produits s'affiche même si le fetch
+        // échoue ou tarde. Taxonomie plateforme filtrée sur le TYPE de la
+        // boutique (`getCategoriesByType`) — imposée par la plateforme, pas
+        // dérivée des produits présents. Fallback sur l'arbre actif complet.
+        setCategoriesLoading(true);
+        const catType = epicerie.epicerieType ?? 'EPICERIE_GENERALE';
+        categoryService.getCategoriesByType(catType)
+          .then(setCategories)
+          .catch(() => {
+            categoryService.getActiveCategories()
+              .then(setCategories)
+              .catch(() => setCategories([]));
+          })
+          .finally(() => setCategoriesLoading(false));
       } catch (err: any) {
         if (offlineService.isOnline()) {
           Alert.alert('Erreur', err.message || 'Chargement impossible');
@@ -433,27 +468,57 @@ export default function VenteDirecteScreen() {
         (p) => [p.nom, p.description],
       );
     }
-    if (selectedCategoryId !== undefined)
+    if (selectedCategoryId !== null)
       result = result.filter(p => p.categoryId === selectedCategoryId);
     return result;
   }, [products, productSearch, selectedCategoryId, synonymMap]);
 
-  const getSelectedCategoryLabel = () => {
-    if (selectedCategoryId === undefined) return null;
-    const cat = CATEGORIES.find(c => c.id === selectedCategoryId);
-    if (!cat) return null;
-    if (selectedSubCategoryId) {
-      const sub = cat.subcategories?.find(s => s.id === selectedSubCategoryId);
-      if (sub) return `${cat.label} › ${sub.label}`;
-    }
-    return cat.label;
+  const getSelectedCategoryLabel = (): string | null => {
+    if (selectedCategoryId === null) return null;
+    // Recherche dans l'arbre API (catégorie ou enfant).
+    const found = categoryService.findCategoryInTree(categories, selectedCategoryId);
+    return found?.name ?? null;
   };
 
   // ── Panier ───────────────────────────────────────────────────────────────
 
+  // Ref produits pour lire le stock disponible sans capturer une liste
+  // perimee dans les closures useCallback (addToCart/updateQty gardent
+  // ainsi des deps stables tout en voyant le stock a jour).
+  const productsRef = useRef<Product[]>([]);
+  useEffect(() => { productsRef.current = products; }, [products]);
+
+  /**
+   * Stock disponible pour une ligne de panier (borne haute anti-survente).
+   * - Avec unitId : stock de la variante.
+   * - Sans unitId : stock global du produit.
+   * Retourne Infinity si le produit est inconnu localement (ex : session
+   * hydratee hors-ligne) pour ne jamais bloquer a tort.
+   */
+  const getMaxStock = useCallback((productId: number, unitId?: number): number => {
+    const p = productsRef.current.find(pr => pr.id === productId);
+    if (!p) return Infinity;
+    if (unitId != null) {
+      const u = p.units?.find(uu => uu.id === unitId);
+      return u?.stock ?? 0;
+    }
+    return p.totalStock ?? p.stock ?? 0;
+  }, []);
+
   const addToCart = useCallback((item: CartItem) => {
+    // Si la ligne existe deja, on verifie que la quantite cumulee ne depasse
+    // pas le stock avant de fusionner (clics/scans repetes).
+    const existingIdx = cart.findIndex(c =>
+      (c.unitId != null ? c.unitId === item.unitId : c.productId === item.productId && !c.unitId)
+    );
+    if (existingIdx >= 0) {
+      const max = getMaxStock(item.productId, item.unitId);
+      if (cart[existingIdx].quantite + item.quantite > max) {
+        Alert.alert('Stock insuffisant', `${max} en stock pour ${item.productNom}.`);
+        return;
+      }
+    }
     setCart(prev => {
-      const key = item.unitId ?? `p-${item.productId}`;
       const idx = prev.findIndex(c =>
         (c.unitId != null ? c.unitId === item.unitId : c.productId === item.productId && !c.unitId)
       );
@@ -464,20 +529,22 @@ export default function VenteDirecteScreen() {
       }
       return [...prev, item];
     });
-  }, []);
+  }, [cart, getMaxStock, setCart]);
 
   const updateQty = useCallback((index: number, delta: number) => {
-    setCart(prev => {
-      const updated = [...prev];
-      const newQty = updated[index].quantite + delta;
-      if (newQty <= 0) {
-        updated.splice(index, 1);
-      } else {
-        updated[index] = { ...updated[index], quantite: newQty };
-      }
-      return updated;
-    });
-  }, []);
+    const item = cart[index];
+    if (!item) return;
+    const newQty = item.quantite + delta;
+    if (newQty <= 0) {
+      setCart(prev => prev.filter((_, i) => i !== index));
+      return;
+    }
+    if (delta > 0 && newQty > getMaxStock(item.productId, item.unitId)) {
+      Alert.alert('Stock insuffisant', `${getMaxStock(item.productId, item.unitId)} en stock pour ${item.productNom}.`);
+      return;
+    }
+    setCart(prev => prev.map((c, i) => i === index ? { ...c, quantite: newQty } : c));
+  }, [cart, getMaxStock, setCart]);
 
   const removeFromCart = useCallback((index: number) => {
     setCart(prev => prev.filter((_, i) => i !== index));
@@ -1011,14 +1078,14 @@ export default function VenteDirecteScreen() {
                 )}
               </View>
               <TouchableOpacity
-                style={[styles.filterBtn, selectedCategoryId !== undefined && styles.filterBtnActive]}
+                style={[styles.filterBtn, selectedCategoryId !== null && styles.filterBtnActive]}
                 onPress={() => setShowCategoryPicker(true)}
                 activeOpacity={0.8}
               >
                 <MaterialCommunityIcons
                   name="tag-outline"
                   size={22}
-                  color={selectedCategoryId !== undefined ? '#fff' : BLUE}
+                  color={selectedCategoryId !== null ? '#fff' : BLUE}
                 />
               </TouchableOpacity>
               <TouchableOpacity
@@ -1031,14 +1098,14 @@ export default function VenteDirecteScreen() {
             </View>
 
             {/* Chip catégorie active */}
-            {selectedCategoryId !== undefined && (
+            {selectedCategoryId !== null && (
               <View style={styles.activeCategoryRow}>
                 <View style={styles.activeCategoryChip}>
                   <Text style={styles.activeCategoryText} numberOfLines={1}>
                     🏷️ {getSelectedCategoryLabel()}
                   </Text>
                   <TouchableOpacity
-                    onPress={() => { setSelectedCategoryId(undefined); setSelectedSubCategoryId(undefined); }}
+                    onPress={() => setSelectedCategoryId(null)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     <Ionicons name="close" size={14} color="#1565C0" />
@@ -1222,16 +1289,13 @@ export default function VenteDirecteScreen() {
       {/* ══════════════════════════════════════════════════════════════════════
           Sélecteur de catégorie
       ══════════════════════════════════════════════════════════════════════ */}
-      <CategoryPicker
+      <CategoryFilterModal
         visible={showCategoryPicker}
         onClose={() => setShowCategoryPicker(false)}
-        onSelect={(categoryId, subcategoryId) => {
-          setSelectedCategoryId(categoryId);
-          setSelectedSubCategoryId(subcategoryId);
-          setShowCategoryPicker(false);
-        }}
+        onSelect={(categoryId) => setSelectedCategoryId(categoryId)}
+        categories={categories}
         selectedCategoryId={selectedCategoryId}
-        selectedSubcategoryId={selectedSubCategoryId}
+        loading={categoriesLoading}
       />
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -1550,32 +1614,50 @@ export default function VenteDirecteScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Mode single (rétro-compat) */}
+            {/* Mode single (rétro-compat) — « Compte client » grisé si crédit
+                non autorisé ou plafond dépassé (le backend revérifie). */}
             {!paymentLines && (
-              <View style={styles.paymentOptions}>
-                {PAYMENT_OPTIONS.map(opt => (
-                  <TouchableOpacity
-                    key={opt.value}
-                    style={[
-                      styles.paymentOption,
-                      paymentMethod === opt.value && { borderColor: opt.color, backgroundColor: opt.color + '18' }
-                    ]}
-                    onPress={() => setPaymentMethod(opt.value)}
-                  >
-                    <MaterialCommunityIcons
-                      name={opt.icon as any}
-                      size={22}
-                      color={paymentMethod === opt.value ? opt.color : '#888'}
-                    />
-                    <Text style={[
-                      styles.paymentOptionLabel,
-                      paymentMethod === opt.value && { color: opt.color, fontWeight: '700' }
-                    ]}>
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <>
+                <View style={styles.paymentOptions}>
+                  {PAYMENT_OPTIONS.map(opt => {
+                    const isAccount = opt.value === 'CLIENT_ACCOUNT';
+                    const disabled = isAccount && !canPayOnAccount;
+                    const active = paymentMethod === opt.value;
+                    return (
+                      <TouchableOpacity
+                        key={opt.value}
+                        disabled={disabled}
+                        style={[
+                          styles.paymentOption,
+                          active && { borderColor: opt.color, backgroundColor: opt.color + '18' },
+                          disabled && styles.paymentOptionDisabled,
+                        ]}
+                        onPress={() => { if (!disabled) setPaymentMethod(opt.value); }}
+                      >
+                        <MaterialCommunityIcons
+                          name={opt.icon as any}
+                          size={22}
+                          color={disabled ? '#bbb' : active ? opt.color : '#888'}
+                        />
+                        <Text style={[
+                          styles.paymentOptionLabel,
+                          active && { color: opt.color, fontWeight: '700' },
+                          disabled && { color: '#bbb' },
+                        ]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {clientMode === 'registered' && selectedClient && !canPayOnAccount && (
+                  <Text style={styles.paymentAccountHint}>
+                    {!selectedClient.allowCredit
+                      ? '🔒 Compte indisponible : crédit non autorisé pour ce client'
+                      : `🔒 Compte indisponible : plafond dépassé (${(selectedClient.creditLimit ?? 0).toFixed(2)} DH)`}
+                  </Text>
+                )}
+              </>
             )}
 
             {/* Mode split (S3) */}
@@ -2290,6 +2372,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#e0e0e0', gap: 6,
   },
   paymentOptionLabel: { fontSize: 12, fontWeight: '600', color: '#888', textAlign: 'center' },
+  paymentOptionDisabled: { backgroundColor: '#f5f5f5', borderColor: '#eee', opacity: 0.6 },
+  paymentAccountHint: { fontSize: 11.5, color: '#c62828', marginTop: 6, fontWeight: '600' },
 
   // Notes
   notesInput: {

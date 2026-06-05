@@ -323,6 +323,23 @@ export interface Epicerie {
   whatsappPhone?: string;
   whatsappWelcomeMessage?: string;
   whatsappAutoAccept?: boolean;
+
+  // ── Branding (V101) ────────────────────────────────────────────────
+  // Personnalisation visuelle par épicerie. Null/undefined = thème
+  // AbridGO standard (vert). Le mobile applique l'override uniquement
+  // si themePreset != null && != 'DEFAULT'.
+  /** #RRGGBB ou null */
+  primaryColor?: string;
+  /** Version atténuée du primary (backgrounds doux) */
+  primarySubtle?: string;
+  /** Couleur d'accent (badges, promos) */
+  accentColor?: string;
+  /** Couleur texte sur primary (#FFFFFF ou #000000) */
+  onPrimaryColor?: string;
+  /** Code preset : 'DEFAULT' | 'WARM' | 'COOL' | 'MINIMAL' | 'VIBRANT' | 'CUSTOM' */
+  themePreset?: string;
+  /** Slogan/tagline court (≤ 255 chars) */
+  brandStatement?: string;
 }
 
 // Product Units Types

@@ -12,7 +12,7 @@
  * avec l'orchestrateur (app/(epicier)/onboarding.tsx).
  */
 
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -43,10 +43,17 @@ interface OnboardingStepShellProps {
   resolvedIndices: Set<number>;
   busy: boolean;
   children: ReactNode;
-  onContinue?: () => void;
+  /**
+   * Handler du bouton primaire. Peut être sync ou async — le shell await
+   * la promesse retournée et désactive le bouton + affiche le spinner
+   * pendant tout l'appel pour bloquer les double-taps (cf. bug import
+   * catalogue en doublon avant V102).
+   */
+  onContinue?: () => void | Promise<void>;
   continueLabel?: string;
   continueDisabled?: boolean;
-  onSkip?: () => void;
+  /** Même contrat async que onContinue — voir doc ci-dessus. */
+  onSkip?: () => void | Promise<void>;
   onBack?: () => void;
   onJumpTo?: (index: number) => void;
   /**
@@ -84,13 +91,35 @@ export function OnboardingStepShell({
   const timeRemainingLabel = formatRemainingTime(timeRemainingSec);
   const insets = useSafeAreaInsets();
 
+  // ── Anti double-tap ─────────────────────────────────────────────
+  // `busy` reflète l'état du flow (reload, skipCurrent du hook), mais ne
+  // couvre PAS l'attente de stepRef.current.submit() côté handleContinue
+  // dans le wizard parent. Sans verrou local, un épicier impatient peut
+  // taper 2 fois sur "Importer le catalogue" pendant le POST et créer ses
+  // produits en doublon (bug constaté en prod). Ce state local sert de
+  // garde-fou indépendamment de ce que le parent fait du busy.
+  const [submitting, setSubmitting] = useState(false);
+  const isBusy = busy || submitting;
+
+  const runGuarded = async (
+    handler: (() => void | Promise<void>) | undefined,
+  ): Promise<void> => {
+    if (!handler || submitting) return;
+    setSubmitting(true);
+    try {
+      await Promise.resolve(handler());
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* ── Top bar ────────────────────────────────────────────── */}
       <View style={styles.topBar}>
         <Pressable
           onPress={onBack}
-          disabled={!onBack || busy}
+          disabled={!onBack || isBusy}
           hitSlop={8}
           style={({ pressed }) => [
             styles.iconBtn,
@@ -112,8 +141,8 @@ export function OnboardingStepShell({
 
         {onSkip && !meta.required ? (
           <Pressable
-            onPress={onSkip}
-            disabled={busy}
+            onPress={() => runGuarded(onSkip)}
+            disabled={isBusy}
             hitSlop={8}
             style={({ pressed }) => [
               styles.skipPill,
@@ -131,7 +160,7 @@ export function OnboardingStepShell({
           étape optionnelle et qu'il reste plusieurs optionnelles à venir.
           Permet de tout skipper d'un coup pour atteindre l'étape obligatoire
           ou la fin plus vite. */}
-      {onExpressMode && !meta.required && !busy && (
+      {onExpressMode && !meta.required && !isBusy && (
         <Pressable
           onPress={onExpressMode}
           style={({ pressed }) => [
@@ -225,15 +254,15 @@ export function OnboardingStepShell({
       {onContinue && (
         <View style={[styles.footer, { paddingBottom: Math.max(space.lg, insets.bottom + space.sm) }]}>
           <Pressable
-            onPress={onContinue}
-            disabled={busy || continueDisabled}
+            onPress={() => runGuarded(onContinue)}
+            disabled={isBusy || continueDisabled}
             style={({ pressed }) => [
               styles.continueBtn,
-              continueDisabled && styles.continueBtnDisabled,
-              pressed && !continueDisabled && styles.continueBtnPressed,
+              (isBusy || continueDisabled) && styles.continueBtnDisabled,
+              pressed && !isBusy && !continueDisabled && styles.continueBtnPressed,
             ]}
           >
-            {busy ? (
+            {isBusy ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.continueBtnText}>{continueLabel}</Text>

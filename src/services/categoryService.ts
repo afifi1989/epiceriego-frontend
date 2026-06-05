@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
+import { epicerieService } from './epicerieService';
 import { STORAGE_KEYS } from '../constants/config';
 
 /** Résout la langue à utiliser pour les appels API (même logique que api.ts) :
@@ -246,6 +247,32 @@ export const categoryService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur lors du chargement des catégories';
+    }
+  },
+
+  /**
+   * Catégories de la TAXONOMIE plateforme pertinentes pour l'épicerie courante.
+   *
+   * ⭐ Source unique pour tous les flux de CLASSEMENT épicier (onboarding, fiche
+   * produit, filtres de gestion, ciblage promo). L'arbre est imposé par la
+   * plateforme (table `categories`), simplement filtré sur le TYPE de la
+   * boutique via `/categories/by-type/{type}`.
+   *
+   * On NE passe volontairement PAS par `/categories/epicerie/{id}`
+   * (`getCategoriesByEpicerie`) : cet endpoint ne renvoie que les catégories où
+   * la boutique a DÉJÀ des produits — donnée dérivée, inadaptée au classement
+   * (et vide pour une nouvelle épicerie en onboarding). Réservé à la navigation
+   * client (afficher uniquement les rayons peuplés d'une boutique).
+   *
+   * Fallback sur l'arbre actif complet si le type est indisponible.
+   */
+  getCategoriesForMyEpicerie: async (): Promise<Category[]> => {
+    try {
+      const epicerie = await epicerieService.getMyEpicerie();
+      const type = epicerie.epicerieType ?? 'EPICERIE_GENERALE';
+      return await categoryService.getCategoriesByType(type);
+    } catch {
+      return await categoryService.getActiveCategories();
     }
   },
 

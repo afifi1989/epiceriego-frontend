@@ -54,8 +54,10 @@ async function persistSession(data: LoginResponse): Promise<void> {
   // Empeche la redirection automatique vers /notifications apres login.
   // Le layout client va remonter et appeler handleColdStartResponse qui,
   // sans ce marqueur, redirigerait l'utilisateur vers la cible de la
-  // derniere notif recente (< 30s) — moche apres un login manuel.
-  pushNotificationService.markColdStartHandled().catch(() => {});
+  // derniere notif — moche apres un login manuel.
+  // Awaité (pas fire-and-forget) pour garantir que le flag de suppression est
+  // bien écrit AVANT que le layout client n'appelle handleColdStartResponse.
+  await pushNotificationService.markColdStartHandled().catch(() => {});
 }
 
 async function wipeLocalSession(): Promise<void> {

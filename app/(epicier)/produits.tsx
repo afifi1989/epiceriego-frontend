@@ -14,8 +14,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { CategoryPicker } from '../../src/components/epicier/CategoryPicker';
-import { CATEGORIES } from '../../src/constants/categories';
+import { CategoryFilterModal } from '../../src/components/epicier/CategoryFilterModal';
+import { categoryService, Category as ApiCategory } from '../../src/services/categoryService';
 import { usePermissions } from '../../src/hooks/usePermissions';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { epicerieService } from '../../src/services/epicerieService';
@@ -39,9 +39,12 @@ export default function ProduitsScreen() {
   // Filtres
   const [searchText, setSearchText] = useState('');
   const [onlyPromo, setOnlyPromo] = useState(false);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | undefined>(undefined);
-  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string | undefined>(undefined);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  // Catégories — chargées depuis l'API (équivalent web `loadCategories`),
+  // pas plus depuis une liste hardcodée locale.
+  const [categories, setCategories] = useState<ApiCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   // Tags
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -52,7 +55,33 @@ export default function ProduitsScreen() {
     });
     loadProducts();
     loadTags();
+    loadCategories();
   }, []);
+
+  const loadCategories = async () => {
+    setCategoriesLoading(true);
+    try {
+      const myEpicerie = await offlineService.fetchWithCache<Epicerie>({
+        namespace: 'epicerie',
+        key: 'my-epicerie',
+        fetcher: () => epicerieService.getMyEpicerie(),
+      });
+      if (!myEpicerie) return;
+      // Taxonomie plateforme filtrée sur le type de la boutique (imposée par la
+      // plateforme, pas dérivée des produits déjà présents). Fallback arbre actif.
+      const type = myEpicerie.epicerieType ?? 'EPICERIE_GENERALE';
+      const cats = await categoryService.getCategoriesByType(type).catch(() =>
+        categoryService.getActiveCategories(),
+      );
+      setCategories(cats);
+    } catch (e) {
+      // Silencieux : sans catégories le filtre est juste désactivé, la
+      // grille produits reste fonctionnelle.
+      setCategories([]);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -123,7 +152,7 @@ export default function ProduitsScreen() {
       );
     }
 
-    if (selectedCategoryId !== undefined) {
+    if (selectedCategoryId !== null) {
       filtered = filtered.filter(product => product.categoryId === selectedCategoryId);
     }
 
@@ -144,23 +173,17 @@ export default function ProduitsScreen() {
 
   const resetFilters = () => {
     setSearchText('');
-    setSelectedCategoryId(undefined);
-    setSelectedSubCategoryId(undefined);
+    setSelectedCategoryId(null);
     setSelectedTagIds([]);
   };
 
-  const getSelectedCategoryLabel = () => {
-    if (selectedCategoryId === undefined) return null;
-    const cat = CATEGORIES.find(c => c.id === selectedCategoryId);
-    if (!cat) return null;
-    if (selectedSubCategoryId) {
-      const sub = cat.subcategories?.find(s => s.id === selectedSubCategoryId);
-      if (sub) return `${cat.label} › ${sub.label}`;
-    }
-    return cat.label;
+  const getSelectedCategoryLabel = (): string | null => {
+    if (selectedCategoryId === null) return null;
+    const found = categoryService.findCategoryInTree(categories, selectedCategoryId);
+    return found?.name ?? null;
   };
 
-  const hasActiveFilters = searchText || selectedCategoryId !== undefined || selectedTagIds.length > 0;
+  const hasActiveFilters = searchText || selectedCategoryId !== null || selectedTagIds.length > 0;
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -293,6 +316,51 @@ export default function ProduitsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Lien rapide vers les Offres / Paniers groupes (feature gated par
+          subscription cote backend, mais l'entree reste visible pour faire
+          decouvrir la fonctionnalite — le 402 sera affiche au create). */}
+      <TouchableOpacity
+        style={offresLinkStyles.bar}
+        onPress={() => router.push('/(epicier)/offres-paniers')}
+        activeOpacity={0.85}
+      >
+        <Text style={offresLinkStyles.icon}>🎁</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={offresLinkStyles.title}>Offres & paniers groupés</Text>
+          <Text style={offresLinkStyles.subtitle}>
+            Créez un panier à prix fixe (ex: Panier Ramadan)
+          </Text>
+        </View>
+        <Text style={offresLinkStyles.arrow}>›</Text>
+      </TouchableOpacity>
+
+      {/* Bannière « à approvisionner » : produits importés/brouillon sans stock.
+          Mène à l'écran de saisie de stock en masse. Auto-masquée si count=0. */}
+      {(() => {
+        const stockOf = (p: Product) =>
+          (p.units && p.units.length) ? p.units.reduce((s, u) => s + (u.stock ?? 0), 0) : (p.stock ?? 0);
+        const n = products.filter(p => !p.isAvailable && stockOf(p) === 0).length;
+        if (n === 0) return null;
+        return (
+          <TouchableOpacity
+            style={stockBannerStyles.bar}
+            onPress={() => router.push('/(epicier)/finaliser-catalogue')}
+            activeOpacity={0.85}
+          >
+            <Text style={stockBannerStyles.icon}>📥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={stockBannerStyles.title}>
+                {n} produit{n > 1 ? 's' : ''} à approvisionner
+              </Text>
+              <Text style={stockBannerStyles.subtitle}>
+                Réglez le stock pour pouvoir les mettre en vente
+              </Text>
+            </View>
+            <Text style={stockBannerStyles.arrow}>›</Text>
+          </TouchableOpacity>
+        );
+      })()}
+
       <View style={styles.headerStats}>
         <View style={styles.statBox}>
           <Text style={styles.statValue}>{filteredProducts.length}</Text>
@@ -322,10 +390,10 @@ export default function ProduitsScreen() {
           onChangeText={setSearchText}
         />
         <TouchableOpacity
-          style={[styles.categoryFilterButton, selectedCategoryId !== undefined && styles.categoryFilterButtonActive]}
+          style={[styles.categoryFilterButton, selectedCategoryId !== null && styles.categoryFilterButtonActive]}
           onPress={() => setShowCategoryPicker(true)}
         >
-          <Text style={[styles.categoryFilterIcon, selectedCategoryId !== undefined && styles.categoryFilterIconActive]}>
+          <Text style={[styles.categoryFilterIcon, selectedCategoryId !== null && styles.categoryFilterIconActive]}>
             🏷️
           </Text>
         </TouchableOpacity>
@@ -343,13 +411,13 @@ export default function ProduitsScreen() {
       </View>
 
       {/* Chip catégorie sélectionnée */}
-      {selectedCategoryId !== undefined && (
+      {selectedCategoryId !== null && (
         <View style={styles.activeCategoryBar}>
           <View style={styles.activeCategoryChip}>
             <Text style={styles.activeCategoryText} numberOfLines={1}>
               {getSelectedCategoryLabel()}
             </Text>
-            <TouchableOpacity onPress={() => { setSelectedCategoryId(undefined); setSelectedSubCategoryId(undefined); }}>
+            <TouchableOpacity onPress={() => setSelectedCategoryId(null)}>
               <Text style={styles.activeCategoryClose}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -388,16 +456,14 @@ export default function ProduitsScreen() {
         </ScrollView>
       )}
 
-      {/* Modal CategoryPicker */}
-      <CategoryPicker
+      {/* Modal Category — alimenté par l'API */}
+      <CategoryFilterModal
         visible={showCategoryPicker}
         onClose={() => setShowCategoryPicker(false)}
-        onSelect={(categoryId, subcategoryId) => {
-          setSelectedCategoryId(categoryId);
-          setSelectedSubCategoryId(subcategoryId);
-        }}
+        onSelect={(categoryId) => setSelectedCategoryId(categoryId)}
+        categories={categories}
         selectedCategoryId={selectedCategoryId}
-        selectedSubcategoryId={selectedSubCategoryId}
+        loading={categoriesLoading}
       />
 
       <FlatList
@@ -772,4 +838,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+});
+
+// Style local pour la bar d'acces aux Offres (decoupe pour ne pas polluer
+// le 'styles' principal — peut etre extrait en composant plus tard).
+const offresLinkStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  icon: { fontSize: 22 },
+  title: { fontSize: 14, fontWeight: '700', color: '#212121' },
+  subtitle: { fontSize: 12, color: '#757575', marginTop: 2 },
+  arrow: { fontSize: 20, color: '#BDBDBD', fontWeight: '600' },
+});
+
+const stockBannerStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF3C7',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+  },
+  icon: { fontSize: 22 },
+  title: { fontSize: 14, fontWeight: '800', color: '#78350F' },
+  subtitle: { fontSize: 12, color: '#92400E', marginTop: 2 },
+  arrow: { fontSize: 20, color: '#B45309', fontWeight: '700' },
 });

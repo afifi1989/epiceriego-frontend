@@ -1,6 +1,11 @@
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ToastProvider } from '../src/components/feedback';
+import { ReauthModal } from '../src/components/auth/ReauthModal';
+import {
+  AuthFeedbackBridge,
+  NetworkBanner,
+  ToastProvider,
+} from '../src/components/feedback';
 import { CurrencyProvider } from '../src/context/CurrencyContext';
 import { LanguageProvider } from '../src/context/LanguageContext';
 import { ThemeProvider } from '../src/theme';
@@ -12,6 +17,8 @@ export default function RootLayout() {
         <LanguageProvider>
           <CurrencyProvider>
             <ToastProvider>
+              <AuthFeedbackBridge />
+              <ReauthModal />
               <Stack
                 screenOptions={{
                   headerStyle: { backgroundColor: '#4CAF50' },
@@ -27,6 +34,7 @@ export default function RootLayout() {
                 <Stack.Screen name="onboarding" options={{ headerShown: false }} />
                 <Stack.Screen name="push-diagnostic" options={{ title: 'Diagnostic Push' }} />
               </Stack>
+              <NetworkBanner />
             </ToastProvider>
           </CurrencyProvider>
         </LanguageProvider>

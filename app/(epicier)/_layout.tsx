@@ -220,6 +220,13 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="personnalisation-epicerie"
+        options={{
+          href: null,  // accessible depuis parametres-epicerie
+          title: 'Personnalisation',
+        }}
+      />
+      <Tabs.Screen
         name="aide-support"
         options={{
           href: null,  // accessible depuis "Mon compte" du profil
@@ -227,13 +234,23 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
-        name="modifier-infos"
+        name="offres-paniers"
         options={{
-          href: null,
+          href: null,  // accessible depuis produits.tsx (bouton "Offres")
+          title: 'Offres & paniers',
+          headerShown: false,
         }}
       />
       <Tabs.Screen
-        name="ajouter-produit"
+        name="offre-detail"
+        options={{
+          href: null,  // pousse depuis offres-paniers (creation + edition)
+          title: 'Offre',
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="modifier-infos"
         options={{
           href: null,
         }}
@@ -251,12 +268,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
-        name="modifier-produit"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="horaires"
         options={{
           href: null,
@@ -269,19 +280,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
-        name="ajouter-modifier-produit"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="ajouter-promo"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="ajuster-stock"
         options={{
           href: null,
         }}
@@ -329,6 +328,13 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="finaliser-catalogue"
+        options={{
+          href: null,        // accessible depuis la bannière Produits/Dashboard
+          headerShown: false, // header géré par l'écran (back + titre)
+        }}
+      />
+      <Tabs.Screen
         name="commande-prep"
         options={{
           href: null,
@@ -366,12 +372,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
       />
       <Tabs.Screen
         name="modifier-promo"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="produit-detail"
         options={{
           href: null,
         }}

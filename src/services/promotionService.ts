@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
 import api from './api';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -161,6 +163,30 @@ export const promotionService = {
   updatePromotion: async (id: number, data: UpdatePromotionRequest): Promise<Promotion> => {
     const r = await api.put<Promotion>(`/promotions/${id}`, data);
     return r.data;
+  },
+
+  /**
+   * Upload d'une image de promotion → renvoie l'URL complète à placer dans
+   * `imageUrl`. Utilise `fetch` (et non axios) pour le multipart : contourne
+   * les soucis SSL/FormData de React Native, comme l'upload produit.
+   */
+  uploadImage: async (asset: { uri: string }): Promise<string> => {
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+    const formData = new FormData();
+    formData.append('image', {
+      uri: asset.uri,
+      type: 'image/jpeg',
+      name: `promo-${Date.now()}.jpg`,
+    } as any);
+
+    const resp = await fetch(`${API_CONFIG.BASE_URL}/promotions/image`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!resp.ok) throw new Error(`Erreur lors de l'envoi de l'image (HTTP ${resp.status})`);
+    const data = await resp.json();
+    return data.imageUrl as string;
   },
 
   deletePromotion: async (id: number): Promise<void> => {

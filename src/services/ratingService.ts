@@ -3,7 +3,12 @@ import api from './api';
 export interface Rating {
   id?: number;
   clientId: number;
+  /** Nom du client (renvoyé par le backend via RatingDTO). */
+  clientName?: string;
+  /** Photo de profil du client, si disponible. */
+  clientPhotoUrl?: string;
   epicerieId: number;
+  epicerieName?: string;
   rating: number; // 1-5
   comment?: string;
   createdAt?: string;

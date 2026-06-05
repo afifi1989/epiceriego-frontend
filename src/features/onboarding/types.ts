@@ -64,8 +64,14 @@ export interface CatalogueItem {
   prixSuggere: number;
   stockSuggere: number;
   preSelected: boolean;
-  /** Marque optionnelle (Lesieur, Centrale Danone, Sidi Ali...). */
+  /** Marque optionnelle (Lesieur, Centrale Danone, Sidi Ali...).
+   *  Libellé résolu côté backend depuis le référentiel plateforme. */
   brand?: string;
+  /** Id de la marque dans le référentiel plateforme (null = sans marque). */
+  brandId?: number | null;
+  /** Libellés des variantes de vente (ex: ["500ml","1L","5L"]).
+   *  Vide/absent = produit mono-format. Une ProductUnit par variante à l'import. */
+  variants?: string[];
 }
 
 export interface EpicerieTypeOption {

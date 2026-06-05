@@ -12,7 +12,12 @@
           "package_name": "com.aitayach.abridgo"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1036969336956-1587l5qn5ibegq0ve64ho0fb8jlg9q1t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCnPefdkD4YbERvBPy0HfumVkfasOtV3Y8"
@@ -20,7 +25,49 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1036969336956-1587l5qn5ibegq0ve64ho0fb8jlg9q1t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1036969336956:android:363622656387f9b63e69f9",
+        "android_client_info": {
+          "package_name": "com.aitayach.epiceriegoapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1036969336956-iiv9b353hnjrt7fn7nrou7ljv9gliq7q.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aitayach.epiceriegoapp",
+            "certificate_hash": "d2a1fc7ff0b796acac143f2ca79a161bb2c05d0c"
+          }
+        },
+        {
+          "client_id": "1036969336956-1587l5qn5ibegq0ve64ho0fb8jlg9q1t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCnPefdkD4YbERvBPy0HfumVkfasOtV3Y8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1036969336956-1587l5qn5ibegq0ve64ho0fb8jlg9q1t.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

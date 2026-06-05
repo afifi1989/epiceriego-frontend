@@ -23,8 +23,9 @@ import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
 import { offlineService } from '../../src/services/offline';
 import { useNetwork } from '../../src/context/NetworkContext';
-import { Epicerie, LoginResponse, Order } from '../../src/type';
+import { Epicerie, LoginResponse, Order, Product } from '../../src/type';
 import { onboardingService } from '../../src/services/onboardingService';
+import { productService } from '../../src/services/productService';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../src/utils/helpers';
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { DashboardPromoWidget } from '../../src/features/promotions/components';
@@ -48,6 +49,8 @@ export default function EpicierDashboardScreen() {
     todayRevenue: 0,
     productsCount: 0,
   });
+  // Produits importés/brouillon sans stock → rappel « à approvisionner ».
+  const [draftToStockCount, setDraftToStockCount] = useState(0);
   const { can } = usePermissions(loginData);
   const { isOnline } = useNetwork();
   // Modale "Plus d'actions" : regroupe les raccourcis secondaires pour ne
@@ -101,6 +104,23 @@ export default function EpicierDashboardScreen() {
         fetcher: () => epicerieService.getMyEpicerie(),
       });
       if (epicerieData) setEpicerie(epicerieData);
+
+      // Comptage des produits brouillon sans stock (rappel d'approvisionnement).
+      // Non bloquant : best-effort, réutilise le cache produits de l'écran Produits.
+      if (epicerieData) {
+        try {
+          const prods = await offlineService.fetchWithCache<Product[]>({
+            namespace: 'products',
+            key: `epicerie_${epicerieData.id}`,
+            fetcher: () => productService.getProductsByEpicerie(epicerieData.id, false, true),
+          });
+          if (prods) {
+            const stockOf = (p: Product) =>
+              (p.units && p.units.length) ? p.units.reduce((s, u) => s + (u.stock ?? 0), 0) : (p.stock ?? 0);
+            setDraftToStockCount(prods.filter(p => !p.isAvailable && stockOf(p) === 0).length);
+          }
+        } catch { /* non bloquant */ }
+      }
 
       // Charger les commandes (cache 5 min, dispo offline)
       const ordersData = await offlineService.fetchWithCache<Order[]>({
@@ -217,6 +237,24 @@ export default function EpicierDashboardScreen() {
         </View>
       )}
 
+      {/* Rappel : produits importés à approvisionner (auto-masqué si 0). */}
+      {draftToStockCount > 0 && (
+        <TouchableOpacity
+          style={dashStockBanner.bar}
+          onPress={() => router.push('/(epicier)/finaliser-catalogue')}
+          activeOpacity={0.85}
+        >
+          <Text style={dashStockBanner.icon}>📥</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={dashStockBanner.title}>
+              {draftToStockCount} produit{draftToStockCount > 1 ? 's' : ''} à approvisionner
+            </Text>
+            <Text style={dashStockBanner.subtitle}>Réglez leur stock pour finaliser votre catalogue</Text>
+          </View>
+          <Text style={dashStockBanner.arrow}>›</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Statistiques */}
       <View style={styles.statsContainer}>
         <View style={[styles.statCard, styles.statBlue]}>
@@ -320,7 +358,19 @@ export default function EpicierDashboardScreen() {
             </TouchableOpacity>
           )}
 
-          {/* 7. Bouton "Plus" — ouvre la modale avec le reste des actions */}
+          {/* 7. Offres & paniers — bundles groupés (ex: Panier Ramadan).
+              Pas de garde de permission : l'entrée reste visible pour faire
+              découvrir la fonctionnalité (cohérent avec produits.tsx) ; le 402
+              d'abonnement s'affiche le cas échéant à la création côté backend. */}
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => router.push('/(epicier)/offres-paniers')}
+          >
+            <Text style={styles.actionEmoji}>🎁</Text>
+            <Text style={styles.actionText}>Offres & paniers</Text>
+          </TouchableOpacity>
+
+          {/* 8. Bouton "Plus" — ouvre la modale avec le reste des actions */}
           <TouchableOpacity
             style={[styles.actionButton, styles.actionButtonMore]}
             onPress={() => setShowMoreActions(true)}
@@ -869,4 +919,24 @@ const styles = StyleSheet.create({
     color: '#999',
     textAlign: 'center',
   },
+});
+
+const dashStockBanner = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF3C7',
+    marginHorizontal: 15,
+    marginBottom: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+  },
+  icon: { fontSize: 22 },
+  title: { fontSize: 14, fontWeight: '800', color: '#78350F' },
+  subtitle: { fontSize: 12, color: '#92400E', marginTop: 2 },
+  arrow: { fontSize: 20, color: '#B45309', fontWeight: '700' },
 });

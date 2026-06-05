@@ -4,7 +4,7 @@
  * le produit ET l'unité de vente correspondante, puis mettre à jour le stock.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,20 +16,18 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { BarcodeProductScanner } from '../../src/components/shared/BarcodeProductScanner';
 import { productService } from '../../src/services/productService';
-import api from '../../src/services/api';
-import { BarcodeProductResult, ProductUnit } from '../../src/type';
+import { stockService } from '../../src/services/stockService';
+import { STORAGE_KEYS } from '../../src/constants/config';
+import { normalize } from '../../src/utils/synonymExpansion';
+import { BarcodeProductResult, Product, ProductUnit } from '../../src/type';
 
 const EPICIER_BLUE = '#2196F3';
-
-interface StockUpdatePayload {
-  unitId?: number;
-  quantity: number;
-}
 
 export default function ApprovisionnementScreen() {
   const router = useRouter();
@@ -43,6 +41,19 @@ export default function ApprovisionnementScreen() {
 
   const [quantityStr, setQuantityStr] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // ── Recherche par nom ──────────────────────────────────────────────────
+  const [epicerieId, setEpicerieId] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Product[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(STORAGE_KEYS.USER).then(raw => {
+      if (raw) {
+        try { setEpicerieId(JSON.parse(raw)?.epicerieId ?? null); } catch { /* noop */ }
+      }
+    });
+  }, []);
 
   // ── Scan d'un code-barre ─────────────────────────────────────────────────
   const handleScanned = async (barcode: string) => {
@@ -79,6 +90,51 @@ export default function ApprovisionnementScreen() {
     }
   };
 
+  // ── Recherche d'un produit par son nom ───────────────────────────────────
+  const handleSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    if (!epicerieId) {
+      Alert.alert('Épicerie introuvable', 'Impossible de déterminer votre boutique.');
+      return;
+    }
+
+    setSearching(true);
+    setResult(null);
+    setMatchedUnit(null);
+    setQuantityStr('');
+    setLastBarcode('');
+    setSearchResults([]);
+
+    try {
+      // Inclut les produits indisponibles/rupture — ce sont eux qu'on réappro.
+      const products = await productService.getManagedProducts(epicerieId);
+      const nq = normalize(q);
+      const matches = products.filter(p => normalize(p.nom).includes(nq));
+
+      if (matches.length === 0) {
+        Alert.alert('Aucun résultat', `Aucun produit trouvé pour « ${q} ».`);
+      } else if (matches.length === 1) {
+        selectProduct(matches[0]);
+      } else {
+        setSearchResults(matches);
+      }
+    } catch (err: any) {
+      Alert.alert('Erreur', typeof err === 'string' ? err : 'Impossible de rechercher les produits.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // ── Sélection d'un produit issu de la recherche ──────────────────────────
+  const selectProduct = (product: Product) => {
+    setResult(product);
+    setSearchResults([]);
+    setQuantityStr('');
+    // Auto-sélection si une seule unité de vente.
+    setMatchedUnit(product.units && product.units.length === 1 ? product.units[0] : null);
+  };
+
   // ── Sélection manuelle d'une unité ───────────────────────────────────────
   const selectUnit = (unit: ProductUnit) => {
     setMatchedUnit(unit);
@@ -93,29 +149,30 @@ export default function ApprovisionnementScreen() {
       Alert.alert('Quantité invalide', 'Veuillez saisir une quantité positive.');
       return;
     }
+    if (!matchedUnit) {
+      Alert.alert('Unité requise', 'Sélectionnez l’unité de vente correspondant au produit reçu.');
+      return;
+    }
 
     setSaving(true);
     try {
-      if (matchedUnit) {
-        // Mise à jour du stock de l'unité
-        await api.put(`/products/${result.id}/units/${matchedUnit.id}`, {
-          stock: matchedUnit.stock + qty,
-        });
-      } else {
-        // Produit legacy (sans unités)
-        await api.put(`/produits/${result.id}/stock`, { quantity: qty });
-      }
+      // Mouvement de stock atomique côté serveur (entrée « réception »).
+      // Le backend calcule stock + qty et trace le mouvement — pas de race.
+      const newStock = await stockService.adjustStock(result.id, matchedUnit, qty, 'RECEPTION');
 
       Alert.alert(
         'Stock mis à jour',
-        `+${qty} unité(s) ajoutée(s)${matchedUnit ? ` pour "${matchedUnit.label}"` : ''} — ${result.nom}`,
+        `+${qty} unité(s) ajoutée(s) pour « ${matchedUnit.label} » — ${result.nom}\nNouveau stock : ${newStock}`,
         [
           { text: 'Scanner un autre', onPress: resetScan },
           { text: 'Terminer', onPress: () => router.back(), style: 'cancel' },
         ]
       );
     } catch (err: any) {
-      Alert.alert('Erreur', typeof err === 'string' ? err : 'Impossible de mettre à jour le stock.');
+      Alert.alert(
+        'Erreur',
+        typeof err === 'string' ? err : (err?.message ?? 'Impossible de mettre à jour le stock.')
+      );
     } finally {
       setSaving(false);
     }
@@ -126,7 +183,18 @@ export default function ApprovisionnementScreen() {
     setMatchedUnit(null);
     setQuantityStr('');
     setLastBarcode('');
+    setSearchQuery('');
+    setSearchResults([]);
     setScannerVisible(true);
+  };
+
+  /** Retour à l'écran d'accueil sans rouvrir la caméra. */
+  const clearAll = () => {
+    setResult(null);
+    setMatchedUnit(null);
+    setQuantityStr('');
+    setLastBarcode('');
+    setSearchResults([]);
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -143,15 +211,15 @@ export default function ApprovisionnementScreen() {
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
 
         {/* — Aucun résultat : écran d'accueil — */}
-        {!result && !searching && (
+        {!result && !searching && searchResults.length === 0 && (
           <>
             <View style={styles.illustrationBox}>
               <MaterialCommunityIcons name="barcode-scan" size={96} color={EPICIER_BLUE} />
             </View>
-            <Text style={styles.title}>Scanner un produit</Text>
+            <Text style={styles.title}>Trouver un produit</Text>
             <Text style={styles.description}>
-              Scannez le code-barre d'un produit (EAN-13, UPC, Code128…) pour identifier
-              le produit et son unité de vente, puis ajoutez la quantité reçue au stock.
+              Scannez le code-barre d'un produit (EAN-13, UPC, Code128…) ou recherchez-le
+              par son nom, puis ajoutez la quantité reçue au stock.
             </Text>
 
             {/* Bouton scanner */}
@@ -164,6 +232,34 @@ export default function ApprovisionnementScreen() {
               <Text style={styles.scanButtonText}>Scanner un code-barre</Text>
             </TouchableOpacity>
 
+            {/* Séparateur */}
+            <View style={styles.orRow}>
+              <View style={styles.orLine} />
+              <Text style={styles.orText}>ou</Text>
+              <View style={styles.orLine} />
+            </View>
+
+            {/* Recherche par nom */}
+            <View style={styles.searchRow}>
+              <MaterialCommunityIcons name="magnify" size={22} color="#999" style={{ marginLeft: 12 }} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Rechercher un produit par nom…"
+                placeholderTextColor="#999"
+                returnKeyType="search"
+                onSubmitEditing={handleSearch}
+              />
+              <TouchableOpacity
+                style={[styles.searchGo, !searchQuery.trim() && styles.searchGoDisabled]}
+                onPress={handleSearch}
+                disabled={!searchQuery.trim()}
+              >
+                <MaterialCommunityIcons name="arrow-right" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.helpBox}>
               <MaterialCommunityIcons name="information-outline" size={18} color="#666" />
               <Text style={styles.helpText}>
@@ -172,6 +268,39 @@ export default function ApprovisionnementScreen() {
               </Text>
             </View>
           </>
+        )}
+
+        {/* — Résultats de recherche par nom — */}
+        {!result && !searching && searchResults.length > 0 && (
+          <View style={styles.resultsWrap}>
+            <View style={styles.resultsHeader}>
+              <Text style={styles.resultsTitle}>
+                {searchResults.length} produit{searchResults.length > 1 ? 's' : ''} trouvé{searchResults.length > 1 ? 's' : ''}
+              </Text>
+              <TouchableOpacity onPress={clearAll}>
+                <Text style={styles.resultsClear}>Effacer</Text>
+              </TouchableOpacity>
+            </View>
+
+            {searchResults.map((p) => (
+              <TouchableOpacity key={p.id} style={styles.resultRow} onPress={() => selectProduct(p)}>
+                {p.photoUrl ? (
+                  <Image source={{ uri: p.photoUrl }} style={styles.resultImage} contentFit="cover" />
+                ) : (
+                  <View style={styles.resultImagePlaceholder}>
+                    <MaterialCommunityIcons name="package-variant" size={26} color="#ccc" />
+                  </View>
+                )}
+                <View style={styles.resultInfo}>
+                  <Text style={styles.resultName} numberOfLines={1}>{p.nom}</Text>
+                  <Text style={styles.resultMeta}>
+                    {(p.units?.length ?? 0)} variante{(p.units?.length ?? 0) > 1 ? 's' : ''} · {(p.totalStock ?? p.stock)} en stock
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={24} color="#bbb" />
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
 
         {/* — Chargement — */}
@@ -288,14 +417,25 @@ export default function ApprovisionnementScreen() {
               </View>
             </View>
 
+            {/* Avertissement : produit sans unité de vente configurée */}
+            {(!result.units || result.units.length === 0) && (
+              <View style={styles.warningBox}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#B26A00" />
+                <Text style={styles.warningText}>
+                  Ce produit n’a aucune unité de vente. Ajoutez-en une depuis la fiche
+                  produit (onglet Variantes) avant de l’approvisionner.
+                </Text>
+              </View>
+            )}
+
             {/* Boutons d'action */}
             <TouchableOpacity
               style={[
                 styles.confirmButton,
-                (!quantityStr || parseInt(quantityStr, 10) <= 0 || saving) && styles.confirmButtonDisabled,
+                (!matchedUnit || !quantityStr || parseInt(quantityStr, 10) <= 0 || saving) && styles.confirmButtonDisabled,
               ]}
               onPress={handleUpdateStock}
-              disabled={!quantityStr || parseInt(quantityStr, 10) <= 0 || saving}
+              disabled={!matchedUnit || !quantityStr || parseInt(quantityStr, 10) <= 0 || saving}
             >
               {saving ? (
                 <ActivityIndicator color="#fff" />
@@ -365,6 +505,26 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   scanButtonText: { color: '#fff', fontWeight: '700', fontSize: 17 },
+
+  // Séparateur "ou"
+  orRow: { flexDirection: 'row', alignItems: 'center', width: '100%', marginBottom: 16 },
+  orLine: { flex: 1, height: 1, backgroundColor: '#E0E0E0' },
+  orText: { marginHorizontal: 12, color: '#999', fontSize: 13, fontWeight: '600' },
+
+  // Recherche par nom
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#fff', borderRadius: 12,
+    borderWidth: 1, borderColor: '#ddd',
+    height: 52, width: '100%', marginBottom: 20, overflow: 'hidden',
+  },
+  searchInput: { flex: 1, fontSize: 15, color: '#333', paddingHorizontal: 10 },
+  searchGo: {
+    width: 52, height: 52, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: EPICIER_BLUE,
+  },
+  searchGoDisabled: { backgroundColor: '#ccc' },
+
   helpBox: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 10,
     backgroundColor: '#fff', borderRadius: 10,
@@ -372,6 +532,29 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#E0E0E0',
   },
   helpText: { flex: 1, fontSize: 13, color: '#555', lineHeight: 19 },
+
+  // Résultats de recherche
+  resultsWrap: { width: '100%' },
+  resultsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  resultsTitle: { fontSize: 15, fontWeight: '700', color: '#333' },
+  resultsClear: { fontSize: 14, color: EPICIER_BLUE, fontWeight: '600' },
+  resultRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#fff', borderRadius: 12,
+    padding: 10, marginBottom: 10,
+    borderWidth: 1, borderColor: '#e0e0e0',
+  },
+  resultImage: { width: 48, height: 48, borderRadius: 8, marginRight: 12 },
+  resultImagePlaceholder: {
+    width: 48, height: 48, borderRadius: 8, marginRight: 12,
+    backgroundColor: '#f5f5f5', justifyContent: 'center', alignItems: 'center',
+  },
+  resultInfo: { flex: 1 },
+  resultName: { fontSize: 15, fontWeight: '600', color: '#212121' },
+  resultMeta: { fontSize: 12, color: '#888', marginTop: 2 },
 
   // Chargement
   searchingBox: { alignItems: 'center', marginTop: 60, gap: 14 },
@@ -406,6 +589,13 @@ const styles = StyleSheet.create({
   },
   matchedText: { fontSize: 12, color: '#2E7D32', fontWeight: '600' },
   selectHint: { fontSize: 12, color: '#999', marginTop: 8, textAlign: 'center' },
+  warningBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#FFF8E1', borderRadius: 10,
+    padding: 12, width: '100%', marginBottom: 8,
+    borderWidth: 1, borderColor: '#FFE082',
+  },
+  warningText: { flex: 1, fontSize: 13, color: '#8D6E00', lineHeight: 19 },
 
   // Unités
   unitsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

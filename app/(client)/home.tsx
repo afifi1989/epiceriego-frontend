@@ -20,6 +20,7 @@ import { EpicerieStories } from '../../src/components/client/EpicerieStories';
 import { FlashDealsSection } from '../../src/components/client/FlashDealsSection';
 import { HomeCategories } from '../../src/components/client/HomeCategories';
 import { HomeHeader } from '../../src/components/client/HomeHeader';
+import { BundleOfferCarousel } from '../../src/components/client/BundleOfferCarousel';
 import { OngoingOrderCard } from '../../src/components/client/OngoingOrderCard';
 import { Skeleton, useToast } from '../../src/components/feedback';
 import { CategorySuggestion } from '../../src/services/categoryService';
@@ -531,6 +532,9 @@ export default function HomeScreen() {
           params: { id: p.epicerieId.toString() },
         })}
       />
+      {/* Bundles featured cross-epicerie. Auto-masque si aucun epicier n'a
+          encore flag un bundle comme featured. */}
+      <BundleOfferCarousel mode="featured" limit={8} accent={theme.colors.brand} />
       {renderPromoBanner()}
       {renderQuickReorder()}
       <HomeCategories

@@ -32,6 +32,25 @@ export const productService = {
   },
 
   /**
+   * Tous les produits gérés par l'épicerie, y compris ceux indisponibles ou en
+   * rupture — destiné aux écrans de gestion (ex. approvisionnement, où l'on
+   * réapprovisionne justement les produits en rupture).
+   *
+   * Volontairement SANS cache : ne pollue pas le cache « produits disponibles »
+   * partagé par les écrans clients.
+   */
+  getManagedProducts: async (epicerieId: number): Promise<Product[]> => {
+    try {
+      const response = await api.get<Product[]>(`/products/epicerie/${epicerieId}`, {
+        params: { includeUnavailable: 'true' },
+      });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur lors du chargement des produits';
+    }
+  },
+
+  /**
    * Récupère les produits d'une épicerie spécifique (avec cache 5 min)
    */
   getProductsByEpicerie: async (epicerieId: number, forceRefresh = false, includeUnavailable = false): Promise<Product[]> => {

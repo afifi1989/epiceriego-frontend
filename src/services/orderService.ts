@@ -65,9 +65,18 @@ export const orderService = {
       return response.data.orders ?? [];
     } catch (error: any) {
       const data = error?.response?.data;
-      // Backend renvoie { failedIndex, epicerieId, message } en cas d'echec.
+      // Backend renvoie { failedIndex, epicerieId, message, [errorCode, availableCredit, orderTotal] }
+      // en cas d'echec. Les 3 derniers champs ne sont presents que pour les
+      // refus CLIENT_ACCOUNT (cf. CreditErrorResponse cote backend).
       if (typeof data?.failedIndex === 'number') {
-        throw new BatchOrderError(data.failedIndex, data.epicerieId, data.message);
+        throw new BatchOrderError(
+          data.failedIndex,
+          data.epicerieId,
+          data.message,
+          data.errorCode,
+          data.availableCredit,
+          data.orderTotal
+        );
       }
       throw error?.response?.data?.message ?? error?.message ?? 'Erreur lors du batch';
     }
@@ -380,10 +389,24 @@ export interface BatchOrderActionResult {
 export class BatchOrderError extends Error {
   failedIndex: number;
   epicerieId: number | null;
-  constructor(failedIndex: number, epicerieId: number | null, message: string) {
+  /** Code typé pour les refus CLIENT_ACCOUNT (cf. CreditErrorResponse backend) */
+  errorCode?: string;
+  availableCredit?: number;
+  orderTotal?: number;
+  constructor(
+    failedIndex: number,
+    epicerieId: number | null,
+    message: string,
+    errorCode?: string,
+    availableCredit?: number,
+    orderTotal?: number
+  ) {
     super(message);
     this.name = 'BatchOrderError';
     this.failedIndex = failedIndex;
     this.epicerieId = epicerieId;
+    this.errorCode = errorCode;
+    this.availableCredit = availableCredit;
+    this.orderTotal = orderTotal;
   }
 }

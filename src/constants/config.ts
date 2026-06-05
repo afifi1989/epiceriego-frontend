@@ -29,7 +29,11 @@ export const STORAGE_KEYS = {
  * l'écran de login restera bloqué côté mobile (et le backend retournera 503).
  */
 export const GOOGLE_OAUTH = {
-  WEB_CLIENT_ID: '981021860949-s8940eh9dkdr5n3q7b49baff42seacie.apps.googleusercontent.com',
+  // Web Client ID du projet Firebase abridgo-35da7 (numero 1036969336956).
+  // DOIT etre identique a la valeur de l'env var GOOGLE_OAUTH_WEB_CLIENT_ID
+  // cote backend — le mobile signe avec ce client, le backend verifie
+  // l'audience du JWT avec ce meme client.
+  WEB_CLIENT_ID: '1036969336956-1587l5qn5ibegq0ve64ho0fb8jlg9q1t.apps.googleusercontent.com',
   // Optionnel : iOS Client ID (utile uniquement si on veut que GoogleSignIn
   // utilise une autre identité côté iOS). Sinon, le webClientId suffit.
   IOS_CLIENT_ID: '',

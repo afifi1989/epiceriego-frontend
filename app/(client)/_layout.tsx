@@ -161,6 +161,13 @@ function ClientTabsContent() {
         }}
       />
       <Tabs.Screen
+        name="bundle/[id]"
+        options={{
+          href: null,  // accessible via le carousel offres
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
         name="LogoutButton"
         options={{
           href: null,
@@ -190,6 +197,15 @@ function ClientTabsContent() {
         options={{
           href: null,
           headerTitle: t('client.headers.invoices') || 'Factures & Paiements',
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+
+      <Tabs.Screen
+        name="mon-carnet"
+        options={{
+          href: null,
+          headerTitle: t('client.headers.myCarnet') || 'Mon carnet',
           headerRight: () => <NotificationBadge />,
         }}
       />

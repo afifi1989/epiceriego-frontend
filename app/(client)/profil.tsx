@@ -12,6 +12,8 @@ import { Skeleton, useToast } from '../../src/components/feedback';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { authService } from '../../src/services/authService';
 import { profileService } from '../../src/services/profileService';
+import { EditPhoneModal } from '../../src/components/client/EditPhoneModal';
+import { EditAddressModal } from '../../src/components/client/EditAddressModal';
 import { User } from '../../src/type';
 
 export default function ProfilScreen() {
@@ -20,6 +22,10 @@ export default function ProfilScreen() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<User | null>(null);
+  // Controle la modal d'edition du telephone (flow OTP en 2 etapes).
+  const [showEditPhone, setShowEditPhone] = useState(false);
+  // Modal d'edition de l'adresse postale (texte + reverse geocoding optionnel).
+  const [showEditAddress, setShowEditAddress] = useState(false);
 
   useEffect(() => {
     loadUserData();
@@ -118,21 +124,39 @@ export default function ProfilScreen() {
 
           <View style={styles.divider} />
 
-          <View style={styles.infoRow}>
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={() => setShowEditPhone(true)}
+            activeOpacity={0.6}
+          >
             <Text style={styles.infoLabel}>📱 {t('profile.phone')}</Text>
-            <Text style={styles.infoValue}>
-              {user?.telephone && user.telephone.trim() !== '' ? user.telephone : t('profile.notProvided')}
-            </Text>
-          </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+              <Text style={styles.infoValue}>
+                {user?.telephone && user.telephone.trim() !== '' ? user.telephone : t('profile.notProvided')}
+              </Text>
+              <Text style={{ marginLeft: 6, color: '#4CAF50', fontWeight: '600' }}>
+                {user?.telephone && user.telephone.trim() !== '' ? '✎' : '+'}
+              </Text>
+            </View>
+          </TouchableOpacity>
 
           <View style={styles.divider} />
 
-          <View style={styles.infoRow}>
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={() => setShowEditAddress(true)}
+            activeOpacity={0.6}
+          >
             <Text style={styles.infoLabel}>📍 {t('profile.address')}</Text>
-            <Text style={styles.infoValue}>
-              {user?.adresse && user.adresse.trim() !== '' ? user.adresse : t('profile.notProvided')}
-            </Text>
-          </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
+              <Text style={styles.infoValue} numberOfLines={2}>
+                {user?.adresse && user.adresse.trim() !== '' ? user.adresse : t('profile.notProvided')}
+              </Text>
+              <Text style={{ marginLeft: 6, color: '#4CAF50', fontWeight: '600' }}>
+                {user?.adresse && user.adresse.trim() !== '' ? '✎' : '+'}
+              </Text>
+            </View>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -154,6 +178,15 @@ export default function ProfilScreen() {
         >
           <Text style={styles.actionIcon}>❤️</Text>
           <Text style={styles.actionText}>{t('profile.myFavorites')}</Text>
+          <Text style={styles.actionArrow}>›</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => router.push('/(client)/mon-carnet')}
+        >
+          <Text style={styles.actionIcon}>📒</Text>
+          <Text style={styles.actionText}>{t('profile.myCarnet')}</Text>
           <Text style={styles.actionArrow}>›</Text>
         </TouchableOpacity>
 
@@ -219,6 +252,22 @@ export default function ProfilScreen() {
       <View style={styles.footer}>
         <Text style={styles.footerText}>{t('app.version')}</Text>
       </View>
+
+      <EditPhoneModal
+        visible={showEditPhone}
+        onClose={() => setShowEditPhone(false)}
+        currentPhone={user?.telephone}
+        onSuccess={(updated) => setUser(updated)}
+      />
+
+      <EditAddressModal
+        visible={showEditAddress}
+        onClose={() => setShowEditAddress(false)}
+        currentAddress={user?.adresse}
+        currentLatitude={user?.latitude}
+        currentLongitude={user?.longitude}
+        onSuccess={(updated) => setUser(updated)}
+      />
     </ScrollView>
   );
 }

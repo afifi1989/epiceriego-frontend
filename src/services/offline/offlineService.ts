@@ -101,10 +101,34 @@ async function initialize(): Promise<void> {
   // 1. Charger la queue persistée
   await syncQueue.load();
 
-  // 2. Démarrer la détection réseau
+  // 2. Nettoyer le cache : entrées expirées + cap sur le nombre total.
+  //    Garde-fou contre la limite Hermes "Property storage exceeds 196607
+  //    properties" qui se déclenche quand AsyncStorage accumule trop
+  //    d'entrées (params API variables, sessions longues, etc.).
+  try {
+    const pruneStats = await cacheService.pruneExpired();
+    if (pruneStats.removed > 0) {
+      console.log(`[OfflineService] 🧹 Cache: ${pruneStats.removed}/${pruneStats.total} entrées expirées supprimées`);
+    }
+    await cacheService.enforceMaxEntries();
+  } catch (err) {
+    // Si même le nettoyage doux échoue (cas extrême : limite Hermes déjà
+    // atteinte au démarrage), on tente un wipe total du namespace cache
+    // pour permettre à l'app de redémarrer sur une base saine. Les tokens
+    // d'auth (hors namespace @offline_cache/) ne sont PAS touchés.
+    console.warn('[OfflineService] Nettoyage cache doux échoué, fallback invalidateAll:', err);
+    try {
+      await cacheService.invalidateAll();
+      console.log('[OfflineService] 🧹 Cache entièrement purgé (panic clear)');
+    } catch (err2) {
+      console.warn('[OfflineService] invalidateAll a aussi échoué:', err2);
+    }
+  }
+
+  // 3. Démarrer la détection réseau
   networkService.start();
 
-  // 3. Écouter les changements de connectivité
+  // 4. Écouter les changements de connectivité
   removeNetworkListener = networkService.addListener(handleNetworkChange);
 
   initialized = true;

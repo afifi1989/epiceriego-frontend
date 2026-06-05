@@ -14,6 +14,20 @@ import { parseNotificationData, resolveRoute, setupAndroidChannels } from './not
 const LAST_HANDLED_NOTIFICATION_ID_KEY = '@push_last_handled_notification_id';
 
 /**
+ * AsyncStorage flag set right after a manual login (cf.
+ * {@link pushNotificationService.markColdStartHandled}). When present,
+ * {@link pushNotificationService.handleColdStartResponse} consumes it once and
+ * skips routing — guaranteeing "after a manual login, I stay on home".
+ *
+ * <p>Why a dedicated flag instead of relying on the notification-id dedup:
+ * {@code getLastNotificationResponseAsync()} may return nothing at login time
+ * (so the id never gets seeded) and {@code notification.date} is not always
+ * populated on Android (so the freshness guard silently passes). A standalone
+ * boolean is deterministic — it doesn't depend on either being present.</p>
+ */
+const SUPPRESS_NEXT_COLD_START_KEY = '@push_suppress_next_cold_start';
+
+/**
  * Maximum age (in seconds) for a notification to qualify as a "fresh tap" that
  * should drive cold-start routing. Anything older is treated as stale: the
  * user is opening the app for unrelated reasons and shouldn't be teleported
@@ -236,11 +250,19 @@ export const pushNotificationService = {
    */
   markColdStartHandled: async (): Promise<void> => {
     try {
+      // Garde-fou principal : flag déterministe consommé une fois par
+      // handleColdStartResponse. Indépendant de la présence d'une "last
+      // notification response" ou du champ `date`.
+      await AsyncStorage.setItem(SUPPRESS_NEXT_COLD_START_KEY, '1');
+
+      // Garde-fou secondaire (best-effort) : si une notif "last response"
+      // existe déjà, on seede aussi son id pour le dedup classique.
       const initial = await Notifications.getLastNotificationResponseAsync();
       const id = initial?.notification?.request?.identifier;
-      if (!id) return;
-      await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, id);
-      console.log('[PushNotificationService] Cold start notification marquee comme handled (post-login)');
+      if (id) {
+        await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, id);
+      }
+      console.log('[PushNotificationService] Cold start marqué comme handled (post-login)');
     } catch (e) {
       // Best-effort : si AsyncStorage echoue, le pire qui arrive est
       // une redirection legacy vers /notifications — pas critique.
@@ -254,6 +276,20 @@ export const pushNotificationService = {
       if (!initial) return;
 
       const requestId = initial.notification.request.identifier;
+
+      // Garde-fou #0 (le plus fort) : un login manuel vient d'avoir lieu →
+      // on supprime ce cold-start UNE fois et on reste sur home. On consomme
+      // le flag puis on seede l'id courant pour qu'un remontage ultérieur du
+      // layout ne re-route pas cette même notif périmée.
+      const suppress = await AsyncStorage.getItem(SUPPRESS_NEXT_COLD_START_KEY);
+      if (suppress === '1') {
+        await AsyncStorage.removeItem(SUPPRESS_NEXT_COLD_START_KEY);
+        if (requestId) {
+          await AsyncStorage.setItem(LAST_HANDLED_NOTIFICATION_ID_KEY, requestId).catch(() => {});
+        }
+        console.log('[PushNotificationService] Cold start supprimé (login manuel récent), reste sur home');
+        return;
+      }
 
       // Belt-and-suspenders dedup. Two independent guards, either is enough
       // to block a stale navigation:

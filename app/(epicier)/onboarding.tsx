@@ -45,6 +45,7 @@ import { StepDelivery } from '../../src/features/onboarding/steps/StepDelivery';
 // importable depuis Parametres ou il est utilise pour la re-edition.
 import { StepPlan } from '../../src/features/onboarding/steps/StepPlan';
 import { StepCatalogue } from '../../src/features/onboarding/steps/StepCatalogue';
+import { StepFinaliserStock } from '../../src/features/onboarding/steps/StepFinaliserStock';
 import { StepClients } from '../../src/features/onboarding/steps/StepClients';
 import type { StepHandle } from '../../src/features/onboarding/steps/stepProps';
 
@@ -84,6 +85,9 @@ export default function OnboardingWizardScreen() {
   WIZARD_STEPS.forEach((s, idx) => {
     if (s.id === 'TYPE' && status.stepTypeCompleted) resolvedIndices.add(idx);
     else if (s.id === 'PLAN') resolvedIndices.add(idx);
+    // FINALISER_STOCK n'a pas de flag backend (optionnel, sans incidence sur
+    // la complétion de l'onboarding) → toujours considéré résolu, comme PLAN.
+    else if (s.id === 'FINALISER_STOCK') resolvedIndices.add(idx);
     else if (s.id === 'CATALOGUE' && status.stepCatalogueCompleted) resolvedIndices.add(idx);
     else if (s.id === 'CLIENTS'
         && (status.stepClientsCompleted || status.stepClientsSkipped)) resolvedIndices.add(idx);
@@ -199,6 +203,7 @@ export default function OnboardingWizardScreen() {
       case 'DELIVERY':    return <StepDelivery    ref={stepRef} {...stepProps} />;
       case 'PLAN':        return <StepPlan        ref={stepRef} {...stepProps} />;
       case 'CATALOGUE':   return <StepCatalogue   ref={stepRef} {...stepProps} />;
+      case 'FINALISER_STOCK': return <StepFinaliserStock ref={stepRef} {...stepProps} />;
       case 'CLIENTS':     return <StepClients     ref={stepRef} {...stepProps} />;
     }
   };
@@ -206,6 +211,7 @@ export default function OnboardingWizardScreen() {
   // Libellé du bouton continuer adapté à l'étape
   const continueLabel = (() => {
     if (meta.id === 'CATALOGUE') return 'Importer le catalogue';
+    if (meta.id === 'FINALISER_STOCK') return 'Enregistrer le stock';
     if (meta.id === 'CLIENTS')   return 'Inviter mes clients';
     if (meta.id === 'PLAN')      return 'Valider mon plan';
     if (flow.currentIndex === WIZARD_STEPS.length - 1) return 'Terminer';

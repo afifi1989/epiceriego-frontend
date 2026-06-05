@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
 import { cacheService, CacheNamespace } from './offline/cacheService';
+import { authFeedbackBus } from './auth/authFeedbackBus';
 
 // ---------------------------------------------------------------------------
 // Helpers pour le cache automatique des réponses GET
@@ -153,6 +154,31 @@ async function clearAuthStorage(): Promise<void> {
   }
 }
 
+/**
+ * Variante "soft" : ne purge que les tokens, conserve le USER + ROLE.
+ * Utilisee quand on declenche le modal de reauth — l'email du user doit
+ * rester accessible pour pre-remplir le formulaire. Le clear complet
+ * est differe jusqu'a ce que l'utilisateur annule explicitement.
+ */
+async function clearTokensOnly(): Promise<void> {
+  await AsyncStorage.multiRemove([
+    STORAGE_KEYS.TOKEN,
+    STORAGE_KEYS.REFRESH_TOKEN,
+  ]);
+}
+
+/** Lit l'email du user persiste (peut etre null si storage corrompu). */
+async function getStoredUserEmail(): Promise<string | undefined> {
+  try {
+    const userStr = await AsyncStorage.getItem(STORAGE_KEYS.USER);
+    if (!userStr) return undefined;
+    const user = JSON.parse(userStr);
+    return typeof user?.email === 'string' ? user.email : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function performRefresh(): Promise<string | null> {
   const refreshToken = await AsyncStorage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
   if (!refreshToken) return null;
@@ -299,6 +325,8 @@ api.interceptors.response.use(
     // ── 401 : tentative de refresh ──────────────────────────────────────
     // - Jamais sur les endpoints /auth/* (login/refresh eux-mêmes)
     // - Jamais en retry infini (_retry flag)
+    // - TOKEN_INVALID : refresh impossible (token forge/altere) → logout direct
+    //   sans solliciter le serveur de refresh inutilement.
     if (
       error.response?.status === 401 &&
       originalConfig &&
@@ -306,6 +334,19 @@ api.interceptors.response.use(
       !isAuthUrl(originalConfig.url)
     ) {
       originalConfig._retry = true;
+
+      // Le backend renvoie maintenant un body { code, message } cf AuthErrorResponse.
+      // TOKEN_INVALID = signature/format casse → pas la peine de tenter le refresh.
+      // On declenche directement le modal de reauth (l'utilisateur va resaisir
+      // son mot de passe ; le re-login donnera un token frais valide).
+      const errorCode: string | undefined = (error.response.data as any)?.code;
+      if (errorCode === 'TOKEN_INVALID' || errorCode === 'TOKEN_MISSING') {
+        const email = await getStoredUserEmail();
+        await clearTokensOnly();
+        authFeedbackBus.emit('refresh:failed', { code: errorCode });
+        authFeedbackBus.emit('reauth:required', { email, reason: errorCode });
+        return Promise.reject(error);
+      }
 
       // Plusieurs requêtes concurrentes qui tombent en 401 : on ne refresh qu'une fois
       if (isRefreshing) {
@@ -317,20 +358,31 @@ api.interceptors.response.use(
         return api(originalConfig);
       }
 
+      // Premier 401 du cycle : on emit refresh:start (UI montre le toast).
+      // Les requetes concurrentes qui suivront passeront par le queueWaiter
+      // au-dessus et n'emettront pas a nouveau.
       isRefreshing = true;
+      authFeedbackBus.emit('refresh:start');
       const newToken = await performRefresh();
       isRefreshing = false;
       flushWaiters(newToken);
 
       if (newToken) {
+        authFeedbackBus.emit('refresh:success');
         if (originalConfig.headers) {
           originalConfig.headers.Authorization = `Bearer ${newToken}`;
         }
         return api(originalConfig);
       }
 
-      // Refresh impossible → déconnexion propre
-      await clearAuthStorage();
+      // Refresh impossible → ne pas purger le user encore : on declenche le modal
+      // de reauth qui va permettre a l'utilisateur de resaisir son mot de passe
+      // sans perdre son contexte (ecran courant, etat formulaire, etc.).
+      // Le hard-clear ne se fera que si l'utilisateur annule explicitement.
+      const email = await getStoredUserEmail();
+      await clearTokensOnly();
+      authFeedbackBus.emit('refresh:failed', { code: errorCode });
+      authFeedbackBus.emit('reauth:required', { email, reason: errorCode ?? 'REFRESH_FAILED' });
       return Promise.reject(error);
     }
 

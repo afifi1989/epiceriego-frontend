@@ -25,7 +25,7 @@ import type { OnboardingStepKey } from './types';
  * de flag dans OnboardingStatus — submit() retourne juste true (ou
  * appelle /subscriptions/switch si l'épicier a changé sa sélection).</p>
  */
-export type StructuralStepKind = 'TYPE' | 'CATALOGUE' | 'CLIENTS' | 'PLAN';
+export type StructuralStepKind = 'TYPE' | 'CATALOGUE' | 'CLIENTS' | 'PLAN' | 'FINALISER_STOCK';
 
 /** Identifiant unique d'une étape dans le wizard. */
 export type WizardStepId = StructuralStepKind | OnboardingStepKey;
@@ -134,6 +134,15 @@ export const WIZARD_STEPS: WizardStepMeta[] = [
     icon: '📦',
     subtitle: 'Importez un catalogue pré-rempli adapté à votre type',
     estimatedSeconds: 30,
+  },
+  {
+    id: 'FINALISER_STOCK',
+    kind: 'STRUCTURAL',
+    required: false,
+    title: 'Stock de départ',
+    icon: '📥',
+    subtitle: 'Réglez le stock des produits importés — vous activerez la vente plus tard',
+    estimatedSeconds: 120,
   },
   {
     id: 'CLIENTS',
