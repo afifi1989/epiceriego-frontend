@@ -620,44 +620,75 @@ export default function OrderPreparationScreen() {
         animationType="slide"
         onRequestClose={() => setUnavailableItem(null)}
       >
-        <View style={styles.notesModal}>
-          <View style={styles.notesContent}>
-            <View style={styles.notesHeader}>
-              <Text style={styles.notesTitle}>Article indisponible</Text>
-              <TouchableOpacity onPress={() => setUnavailableItem(null)} disabled={markingUnavailable}>
-                <MaterialCommunityIcons name="close" size={24} color={Colors.text} />
+        <View style={styles.uaOverlay}>
+          <View style={styles.uaSheet}>
+            {/* En-tête */}
+            <View style={styles.uaHeader}>
+              <View style={styles.uaIcon}>
+                <MaterialCommunityIcons name="cancel" size={22} color="#C62828" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.uaTitle}>Marquer l'article indisponible</Text>
+                <Text style={styles.uaSubtitle}>Il sera retiré de la commande</Text>
+              </View>
+              <TouchableOpacity onPress={() => setUnavailableItem(null)} disabled={markingUnavailable} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="close" size={22} color={Colors.textTertiary} />
               </TouchableOpacity>
             </View>
 
-            <Text style={{ color: Colors.textSecondary, marginBottom: Spacing.sm }}>
-              « {unavailableItem?.name} » sera retiré de la commande. Le client sera
-              notifié (et remboursé si la commande est déjà payée).
-            </Text>
+            {/* Produit concerné */}
+            <View style={styles.uaProduct}>
+              <MaterialCommunityIcons name="package-variant" size={18} color="#64748b" />
+              <Text style={styles.uaProductName} numberOfLines={2}>{unavailableItem?.name}</Text>
+            </View>
 
+            {/* Conséquences */}
+            <View style={styles.uaNote}>
+              <MaterialCommunityIcons name="information-outline" size={16} color="#F59E0B" />
+              <Text style={styles.uaNoteText}>
+                Le client sera notifié et remboursé si la commande est déjà payée.
+              </Text>
+            </View>
+
+            {/* Message */}
+            <Text style={styles.uaLabel}>Message pour le client <Text style={styles.uaOpt}>(optionnel)</Text></Text>
+            <View style={styles.uaChips}>
+              {['Rupture de stock', 'Produit abîmé', 'Indisponible ce jour'].map(s => (
+                <TouchableOpacity key={s} style={styles.uaChip} onPress={() => setUnavailableMessage(s)} disabled={markingUnavailable}>
+                  <Text style={styles.uaChipText}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <TextInput
-              style={styles.messageInput}
-              placeholder="Message pour le client (optionnel) — ex. rupture de stock"
+              style={styles.uaTextarea}
+              placeholder="Expliquez au client pourquoi cet article est indisponible…"
               placeholderTextColor={Colors.textTertiary}
               value={unavailableMessage}
               onChangeText={setUnavailableMessage}
               multiline
-              numberOfLines={3}
               textAlignVertical="top"
               editable={!markingUnavailable}
               maxLength={500}
             />
+            <Text style={styles.uaCount}>{unavailableMessage.length}/500</Text>
 
-            <TouchableOpacity
-              style={[styles.unavailableConfirmButton, markingUnavailable && { opacity: 0.6 }]}
-              onPress={confirmMarkUnavailable}
-              disabled={markingUnavailable}
-            >
-              {markingUnavailable ? (
-                <ActivityIndicator size="small" color={Colors.textInverse} />
-              ) : (
-                <Text style={styles.notesConfirmText}>Marquer indisponible</Text>
-              )}
-            </TouchableOpacity>
+            {/* Actions */}
+            <View style={styles.uaActions}>
+              <TouchableOpacity style={styles.uaCancelBtn} onPress={() => setUnavailableItem(null)} disabled={markingUnavailable}>
+                <Text style={styles.uaCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.uaConfirmBtn, markingUnavailable && { opacity: 0.6 }]}
+                onPress={confirmMarkUnavailable}
+                disabled={markingUnavailable}
+              >
+                {markingUnavailable ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.uaConfirmText}>Marquer indisponible</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -955,21 +986,63 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textInverse,
   },
-  messageInput: {
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    minHeight: 80,
-    color: Colors.text,
-    fontSize: FontSizes.base,
+  // Modale « Article indisponible » (refonte UI)
+  uaOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  uaSheet: {
     backgroundColor: Colors.surface,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    padding: 20,
   },
-  unavailableConfirmButton: {
-    backgroundColor: Colors.danger,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    marginTop: Spacing.lg,
+  uaHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+  uaIcon: {
+    width: 42, height: 42, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FDECEA',
   },
+  uaTitle: { fontSize: 16, fontWeight: '700', color: Colors.text },
+  uaSubtitle: { fontSize: 12.5, color: Colors.textSecondary, marginTop: 2 },
+  uaProduct: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1, borderColor: Colors.border,
+    borderRadius: 10, padding: 12, marginBottom: 12,
+  },
+  uaProductName: { flex: 1, fontWeight: '600', color: Colors.text, fontSize: 14.5 },
+  uaNote: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#FFF8E1',
+    borderLeftWidth: 3, borderLeftColor: '#F59E0B',
+    borderRadius: 8, padding: 10, marginBottom: 16,
+  },
+  uaNoteText: { flex: 1, fontSize: 12.5, color: '#7c5e10', lineHeight: 17 },
+  uaLabel: { fontSize: 13.5, fontWeight: '600', color: Colors.text, marginBottom: 8 },
+  uaOpt: { fontWeight: '400', color: Colors.textTertiary },
+  uaChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  uaChip: {
+    borderWidth: 1, borderColor: Colors.border, borderRadius: 16,
+    paddingVertical: 6, paddingHorizontal: 12, backgroundColor: Colors.surface,
+  },
+  uaChipText: { fontSize: 12.5, color: Colors.textSecondary, fontWeight: '500' },
+  uaTextarea: {
+    borderWidth: 1, borderColor: Colors.border, borderRadius: 10,
+    padding: 12, minHeight: 100, color: Colors.text,
+    fontSize: 15, lineHeight: 20, backgroundColor: Colors.surface,
+  },
+  uaCount: { textAlign: 'right', fontSize: 11, color: Colors.textTertiary, marginTop: 4 },
+  uaActions: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  uaCancelBtn: {
+    flex: 1, paddingVertical: 13, borderRadius: 10,
+    alignItems: 'center', backgroundColor: '#EEEEEE',
+  },
+  uaCancelText: { color: Colors.text, fontWeight: '600', fontSize: 15 },
+  uaConfirmBtn: {
+    flex: 1.4, paddingVertical: 13, borderRadius: 10,
+    alignItems: 'center', backgroundColor: Colors.danger,
+  },
+  uaConfirmText: { color: '#fff', fontWeight: '700', fontSize: 15 },
 });
