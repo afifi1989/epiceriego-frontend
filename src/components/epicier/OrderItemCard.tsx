@@ -130,18 +130,9 @@ export const OrderItemCard: React.FC<OrderItemCardProps> = ({
             style={styles.actionButton}
             onPress={(e) => {
               e.stopPropagation();
-              Alert.alert(
-                'Non disponible?',
-                'Marquer cet article comme non disponible?',
-                [
-                  { text: 'Annuler', style: 'cancel' },
-                  {
-                    text: 'Confirmer',
-                    onPress: onMarkUnavailable,
-                    style: 'destructive',
-                  },
-                ]
-              );
+              // La confirmation + la saisie du message épicier se font dans la
+              // modale dédiée de l'écran (cf. commande-prep), pas ici.
+              onMarkUnavailable();
             }}
             hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
           >

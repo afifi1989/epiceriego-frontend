@@ -487,7 +487,9 @@ export interface OrderItem {
 }
 
 export type DeliveryType = 'HOME_DELIVERY' | 'PICKUP';
-export type PaymentMethod = 'CASH' | 'CARD' | 'CLIENT_ACCOUNT';
+export type PaymentMethod = 'CASH' | 'CARD' | 'MOBILE' | 'CLIENT_ACCOUNT';
+/** V114 — État de paiement d'une commande, indépendant du statut logistique. */
+export type PaymentStatus = 'UNPAID' | 'PAID';
 
 /** Source from which an order was created */
 export type OrderSource = 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
@@ -550,6 +552,10 @@ export interface Order {
   adresseLivraison: string;
   telephoneLivraison?: string;
   paymentMethod: PaymentMethod;
+  /** V114 — UNPAID | PAID. Pilote l'affichage du badge de paiement. */
+  paymentStatus?: PaymentStatus;
+  /** V114 — Horodatage ISO de l'encaissement / règlement. Absent tant que UNPAID. */
+  paidAt?: string;
   source?: OrderSource;
   createdAt: string;
   updatedAt: string;
@@ -562,7 +568,22 @@ export interface Order {
   livreurNom?: string;
   items: OrderItemDetail[];
   nombreItems: number;
+  /** V115 — Résumé du remboursement (DRAFT/PENDING/PROCESSED…) ou absent si aucun. */
+  refundStatus?: RefundStatus;
+  /** V115 — Montant à rembourser. */
+  refundAmount?: number;
+  /** V115 — Mode de règlement du remboursement (une fois PROCESSED). */
+  refundSettlementMethod?: string;
+  /** V115 — Raison d'annulation. */
+  cancellationReason?: string;
+  /** V116 — Dernier motif d'échec de livraison (si DELIVERY_FAILED). */
+  deliveryFailureReason?: string;
+  /** V116 — Nombre de tentatives de livraison échouées. */
+  deliveryAttempts?: number;
 }
+
+/** V115 — Cycle de vie d'un remboursement de commande. */
+export type RefundStatus = 'DRAFT' | 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED' | 'CANCELLED';
 
 /**
  * V96 — Payload allege pour les listes de commandes (active list + archive
@@ -578,6 +599,12 @@ export interface OrderListItem {
   currency?: Currency;
   status: string;
   paymentMethod: PaymentMethod;
+  /** V114 — UNPAID | PAID : badge "à encaisser" côté inbox épicier. */
+  paymentStatus?: PaymentStatus;
+  /** V115 — État du remboursement (badge « à rembourser » dans l'historique). */
+  refundStatus?: RefundStatus;
+  /** V115 — Montant à rembourser. */
+  refundAmount?: number;
   deliveryType: DeliveryType;
   createdAt: string;
   clientId?: number;
@@ -647,6 +674,10 @@ export interface Delivery {
   clientTelephone?: string;
   epicerieNom: string;
   nombreItems: number;
+  /** V114 — Moyen de paiement (CASH = à encaisser à la remise). */
+  paymentMethod?: PaymentMethod;
+  /** V114 — État de paiement (UNPAID | PAID) : pilote l'étape d'encaissement. */
+  paymentStatus?: PaymentStatus;
   createdAt: string;
 }
 
@@ -655,6 +686,52 @@ export interface DeliveryInfo {
   telephoneLivraison: string;
   latitudeLivraison?: number;
   longitudeLivraison?: number;
+}
+
+/** Suivi temps réel d'une livraison (GET /orders/{id}/tracking) */
+export interface DeliveryTracking {
+  orderId: number;
+  status: string;
+  livreurNom: string;
+  livreurLatitude?: number;
+  livreurLongitude?: number;
+  locationUpdatedAt?: string;
+  /** Fraîcheur de la position en secondes (null si jamais transmise) */
+  secondsSinceUpdate?: number;
+  epicerieLatitude?: number;
+  epicerieLongitude?: number;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+}
+
+/** Profil du livreur connecté (GET /livreurs/profile) */
+export interface LivreurProfile {
+  id: number;
+  nom: string;
+  email: string;
+  telephone?: string;
+  adresse?: string;
+  dateCreation?: string;
+}
+
+/** Statistiques du livreur connecté (GET /livreurs/stats) */
+export interface LivreurStats {
+  /** null tant que le système de notation n'existe pas */
+  averageRating: number | null;
+  totalDeliveries: number;
+  successRate: number;
+  thisMonthDeliveries: number;
+  /** Gains = frais de livraison des commandes HOME_DELIVERY livrées */
+  thisMonthEarnings: number;
+  totalEarnings: number;
+}
+
+/** Préférences de notification du livreur (GET/PUT /livreurs/notification-settings) */
+export interface LivreurNotificationSettings {
+  pushNotifications: boolean;
+  emailNotifications: boolean;
+  orderNotifications: boolean;
+  deliveryNotifications: boolean;
 }
 
 export interface UpdateDeliveryInfoRequest {

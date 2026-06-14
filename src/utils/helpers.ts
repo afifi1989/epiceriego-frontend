@@ -38,6 +38,7 @@ export const getStatusLabel = (status: string): string => {
     PREPARING: 'En préparation',
     READY: 'Prête',
     IN_DELIVERY: 'En livraison',
+    DELIVERY_FAILED: 'Échec livraison',
     DELIVERED: 'Livrée',
     CANCELLED: 'Annulée',
   };
@@ -54,6 +55,7 @@ export const getStatusColor = (status: string): string => {
     PREPARING: '#9370DB',
     READY: '#00CED1',
     IN_DELIVERY: '#8A2BE2',
+    DELIVERY_FAILED: '#E65100',
     DELIVERED: '#32CD32',
     CANCELLED: '#DC143C',
   };

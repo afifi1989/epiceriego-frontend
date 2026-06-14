@@ -1,11 +1,44 @@
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Linking, Alert } from 'react-native';
 import { Delivery } from '../../type';
+import {
+  NormalizedDeliveryStatus,
+  isInDelivery,
+  isReady,
+  normalizeDeliveryStatus,
+} from '../../utils/deliveryStatus';
+
+/**
+ * Ouvre le dialer avec le numéro du client. Action n°1 du livreur devant la
+ * porte — avant, le numéro était affiché en texte mort : recopie manuelle
+ * vers le dialer à chaque livraison.
+ */
+const callClient = (phone: string) => {
+  const sanitized = phone.replace(/[^\d+]/g, '');
+  Linking.openURL(`tel:${sanitized}`).catch(() =>
+    Alert.alert('Erreur', "Impossible d'ouvrir le composeur téléphonique."),
+  );
+};
+
+/**
+ * Ouvre Google Maps en mode ITINÉRAIRE vers l'adresse de livraison (URL
+ * universelle https — fonctionne iOS/Android, app Maps ou navigateur).
+ * On ne dispose pas des coordonnées GPS du client dans le DTO : l'adresse
+ * textuelle en destination est le bon fallback.
+ */
+const openItinerary = (address: string) => {
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+  Linking.openURL(url).catch(() =>
+    Alert.alert('Erreur', "Impossible d'ouvrir l'itinéraire."),
+  );
+};
 
 interface DeliveryCardProps {
   delivery: Delivery;
   onPress: () => void;
   onStartPress?: () => void;
   onCompletePress?: () => void;
+  /** V116 — Signaler que la livraison n'a pas pu se faire (IN_DELIVERY only). */
+  onReportProblem?: () => void;
   isLoading?: boolean;
 }
 
@@ -14,63 +47,67 @@ export const DeliveryCard = ({
   onPress,
   onStartPress,
   onCompletePress,
+  onReportProblem,
   isLoading = false,
 }: DeliveryCardProps) => {
-  const getStatusColor = (status: string): string => {
-    switch (status.toLowerCase()) {
+  const normalizedStatus = normalizeDeliveryStatus(delivery.status);
+  const isPickupOrder = delivery.deliveryType === 'PICKUP';
+
+  const getStatusColor = (status: NormalizedDeliveryStatus): string => {
+    switch (status) {
       case 'pending':
-      case 'en attente':
-        return '#FF9800';
       case 'preparing':
-      case 'en préparation':
         return '#FF9800';
       case 'ready':
-      case 'prête':
         return '#4CAF50';
-      case 'in_progress':
       case 'in_delivery':
-      case 'en cours':
         return '#2196F3';
-      case 'completed':
       case 'delivered':
-      case 'complétée':
         return '#4CAF50';
       case 'cancelled':
-      case 'annulée':
         return '#f44336';
       default:
         return '#999';
     }
   };
 
-  const getStatusLabel = (status: string): string => {
-    switch (status.toLowerCase()) {
+  const getStatusLabel = (status: NormalizedDeliveryStatus): string => {
+    switch (status) {
       case 'pending':
-      case 'en attente':
         return '⏳ En attente';
       case 'preparing':
-      case 'en préparation':
         return '🍳 En préparation';
       case 'ready':
-      case 'prête':
-        return '✅ Prête à récupérer';
-      case 'in_progress':
+        return isPickupOrder ? '✅ Prête — retrait client' : '✅ Prête à récupérer';
       case 'in_delivery':
-      case 'en cours':
         return '🚚 En cours';
-      case 'completed':
       case 'delivered':
-      case 'complétée':
         return '✅ Complétée';
       case 'cancelled':
-      case 'annulée':
         return '❌ Annulée';
       default:
-        return status;
+        return delivery.status;
     }
   };
 
-  const statusColor = getStatusColor(delivery.status);
+  /**
+   * Actions possibles, alignées sur les règles backend :
+   * - HOME_DELIVERY + READY        → « Récupérer » (delivery/{id}/start)
+   * - HOME_DELIVERY + IN_DELIVERY  → « Livré au client » (delivery/{id}/complete)
+   * - PICKUP + READY               → « Remis au client » (pickup/{id}/complete,
+   *                                   pas de phase IN_DELIVERY pour un retrait)
+   * PENDING/PREPARING : aucune action — le serveur exige le statut READY.
+   */
+  const canStart = !isPickupOrder && isReady(delivery.status) && !!onStartPress;
+  const canComplete =
+    ((isPickupOrder && isReady(delivery.status)) ||
+      (!isPickupOrder && isInDelivery(delivery.status))) &&
+    !!onCompletePress;
+  // V116 — Signaler un problème : seulement une fois en route (IN_DELIVERY).
+  const canReportProblem =
+    !isPickupOrder && isInDelivery(delivery.status) && !!onReportProblem;
+
+  const statusColor = getStatusColor(normalizedStatus);
 
   return (
     <TouchableOpacity
@@ -85,7 +122,7 @@ export const DeliveryCard = ({
           <Text style={styles.orderId}>Commande #{delivery.orderId}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-          <Text style={styles.statusText}>{getStatusLabel(delivery.status)}</Text>
+          <Text style={styles.statusText}>{getStatusLabel(normalizedStatus)}</Text>
         </View>
       </View>
 
@@ -112,6 +149,33 @@ export const DeliveryCard = ({
           <Text style={styles.label}>📞 Téléphone:</Text>
           <Text style={styles.value}>{delivery.telephoneLivraison || 'N/A'}</Text>
         </View>
+
+        {/* Actions terrain : 1 tap au lieu d'une recopie manuelle (audit UX).
+            Itinéraire masqué en retrait épicerie (le livreur n'y va pas). */}
+        <View style={styles.contactRow}>
+          {!!delivery.telephoneLivraison && (
+            <TouchableOpacity
+              style={styles.contactBtn}
+              onPress={() => callClient(delivery.telephoneLivraison!)}
+              accessibilityRole="button"
+              accessibilityLabel={`Appeler ${delivery.clientNom}`}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            >
+              <Text style={styles.contactBtnText}>📞 Appeler</Text>
+            </TouchableOpacity>
+          )}
+          {!!delivery.adresseLivraison && delivery.deliveryType !== 'PICKUP' && (
+            <TouchableOpacity
+              style={styles.contactBtn}
+              onPress={() => openItinerary(delivery.adresseLivraison)}
+              accessibilityRole="button"
+              accessibilityLabel={`Itinéraire vers ${delivery.adresseLivraison}`}
+              hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+            >
+              <Text style={styles.contactBtnText}>🗺️ Itinéraire</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Montant et articles */}
@@ -123,43 +187,59 @@ export const DeliveryCard = ({
         <Text style={styles.itemsCount}>{delivery.nombreItems} article(s)</Text>
       </View>
 
+      {/* V114 — Repère encaissement espèces (commande CASH non payée) */}
+      {delivery.paymentMethod === 'CASH' && delivery.paymentStatus !== 'PAID' && (
+        <View style={styles.cashBadge}>
+          <Text style={styles.cashBadgeText}>
+            💵 À encaisser : {delivery.total.toFixed(2)} DH en espèces
+          </Text>
+        </View>
+      )}
+
       {/* Boutons d'action */}
-      {(delivery.status.toLowerCase() === 'pending' ||
-        delivery.status.toLowerCase() === 'en attente' ||
-        delivery.status.toLowerCase() === 'preparing' ||
-        delivery.status.toLowerCase() === 'en préparation' ||
-        delivery.status.toLowerCase() === 'ready' ||
-        delivery.status.toLowerCase() === 'prête' ||
-        delivery.status.toLowerCase() === 'in_progress' ||
-        delivery.status.toLowerCase() === 'in_delivery' ||
-        delivery.status.toLowerCase() === 'en cours') && (
+      {(canStart || canComplete || canReportProblem) && (
         <View style={styles.actionsRow}>
-          {(delivery.status.toLowerCase() === 'pending' ||
-            delivery.status.toLowerCase() === 'en attente' ||
-            delivery.status.toLowerCase() === 'preparing' ||
-            delivery.status.toLowerCase() === 'en préparation' ||
-            delivery.status.toLowerCase() === 'ready' ||
-            delivery.status.toLowerCase() === 'prête') && onStartPress && (
+          {canStart && (
             <TouchableOpacity
-              style={[styles.actionBtn, styles.startBtn]}
+              style={[styles.actionBtn, styles.startBtn, isLoading && styles.actionBtnDisabled]}
               onPress={onStartPress}
               disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={`Récupérer la commande ${delivery.orderId}`}
+              accessibilityState={{ disabled: isLoading, busy: isLoading }}
             >
               <Text style={styles.actionBtnText}>
-                {delivery.deliveryType === 'PICKUP' ? '🏪 Récupérer' : '🚚 Récupérer'}
+                {isLoading ? '⏳ En cours…' : '🚚 Récupérer'}
               </Text>
             </TouchableOpacity>
           )}
-          {(delivery.status.toLowerCase() === 'in_progress' ||
-            delivery.status.toLowerCase() === 'en cours') && onCompletePress && (
+          {canComplete && (
             <TouchableOpacity
-              style={[styles.actionBtn, styles.completeBtn]}
+              style={[styles.actionBtn, styles.completeBtn, isLoading && styles.actionBtnDisabled]}
               onPress={onCompletePress}
               disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isPickupOrder
+                  ? `Marquer la commande ${delivery.orderId} comme remise au client`
+                  : `Marquer la commande ${delivery.orderId} comme livrée`
+              }
+              accessibilityState={{ disabled: isLoading, busy: isLoading }}
             >
               <Text style={styles.actionBtnText}>
-                {delivery.deliveryType === 'PICKUP' ? '✅ Remis au client' : '✅ Livré au client'}
+                {isLoading ? '⏳ En cours…' : isPickupOrder ? '🏪 Remis au client' : '✅ Livré au client'}
               </Text>
+            </TouchableOpacity>
+          )}
+          {canReportProblem && (
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.problemBtn, isLoading && styles.actionBtnDisabled]}
+              onPress={onReportProblem}
+              disabled={isLoading}
+              accessibilityRole="button"
+              accessibilityLabel={`Signaler un problème de livraison pour la commande ${delivery.orderId}`}
+            >
+              <Text style={styles.problemBtnText}>⚠️ Problème</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -236,21 +316,46 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     alignItems: 'flex-start',
   },
+  // Lisibilité terrain (audit UX) : la card est lue debout, en plein soleil,
+  // en 0,5s. L'adresse — l'info n°1 du métier — était paradoxalement la plus
+  // petite (13px) ; les labels #666 passaient mal en extérieur.
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#666',
+    color: '#555',
     width: 80,
   },
   value: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#333',
     flex: 1,
   },
   valueAddress: {
-    fontSize: 13,
-    color: '#333',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1A1A1A',
     flex: 1,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+  },
+  contactBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#F3E5F5',
+    borderWidth: 1,
+    borderColor: '#9C27B0',
+  },
+  contactBtnText: {
+    color: '#9C27B0',
+    fontWeight: '700',
+    fontSize: 13,
   },
   footer: {
     flexDirection: 'row',
@@ -278,6 +383,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
+  cashBadge: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+  },
+  cashBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#E65100',
+    textAlign: 'center',
+  },
   actionsRow: {
     flexDirection: 'row',
     padding: 10,
@@ -293,8 +413,22 @@ const styles = StyleSheet.create({
   startBtn: {
     backgroundColor: '#4CAF50',
   },
+  actionBtnDisabled: {
+    opacity: 0.55,
+  },
   completeBtn: {
     backgroundColor: '#2196F3',
+  },
+  problemBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#E65100',
+    flexGrow: 0,
+  },
+  problemBtnText: {
+    color: '#E65100',
+    fontWeight: '700',
+    fontSize: 13,
   },
   actionBtnText: {
     color: '#fff',

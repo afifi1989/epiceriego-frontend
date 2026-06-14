@@ -17,6 +17,33 @@ export interface OrderItem {
   barcode?: string;
 }
 
+export type RefundStatus = 'DRAFT' | 'PENDING' | 'PROCESSING' | 'PROCESSED' | 'FAILED' | 'CANCELLED';
+
+export interface RefundItem {
+  id: number;
+  orderItemId: number | null;
+  kind: 'ITEM' | 'DELIVERY_FEE';
+  label: string;
+  amount: number;
+  note?: string | null;
+}
+
+export interface Refund {
+  id: number;
+  orderId: number;
+  clientId: number;
+  paymentMethod: 'CARD' | 'MOBILE' | 'CLIENT_ACCOUNT';
+  currencyCode: string;
+  totalAmount: number;
+  status: RefundStatus;
+  settlementMethod?: string | null;
+  externalReference?: string | null;
+  reason?: string | null;
+  finalizedAt?: string | null;
+  processedAt?: string | null;
+  items: RefundItem[];
+}
+
 export interface OrderDetailDTO {
   id: number;
   orderNumber: string;
@@ -25,7 +52,7 @@ export interface OrderDetailDTO {
   clientEmail?: string;
   totalItems: number;
   totalAmount: number;
-  status: 'NEW' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+  status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'IN_DELIVERY' | 'DELIVERED' | 'CANCELLED';
   source?: 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
   items: OrderItem[];
   createdAt: string;
@@ -38,7 +65,7 @@ export interface OrderListDTO {
   clientName: string;
   totalItems: number;
   totalAmount: number;
-  status: 'NEW' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+  status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'IN_DELIVERY' | 'DELIVERED' | 'CANCELLED';
   source?: 'APP' | 'WEB' | 'WHATSAPP' | 'DIRECT_SALE';
   createdAt: string;
 }
@@ -129,12 +156,17 @@ class EpicierOrderService {
   }
 
   /**
-   * Mark item as unavailable
+   * Mark item as unavailable.
+   * @param message Mot optionnel de l'épicier au client (raison de l'indisponibilité).
+   *   Le backend notifie le client et, si la commande est pré-payée / à crédit,
+   *   enregistre une ligne de remboursement. Si TOUS les articles deviennent
+   *   indisponibles, la commande renvoyée a le statut CANCELLED.
    */
-  async markItemUnavailable(orderId: number, itemId: number) {
+  async markItemUnavailable(orderId: number, itemId: number, message?: string) {
     try {
       const response = await api.patch(
-        `/orders/${orderId}/items/${itemId}/unavailable`
+        `/orders/${orderId}/items/${itemId}/unavailable`,
+        message ? { message } : {}
       );
       return response.data;
     } catch (error) {
@@ -143,6 +175,48 @@ class EpicierOrderService {
         error
       );
       throw error;
+    }
+  }
+
+  /**
+   * Récupère le remboursement d'une commande (null si aucun).
+   */
+  async getOrderRefund(orderId: number): Promise<Refund | null> {
+    try {
+      const response = await api.get<Refund | null>(`/orders/${orderId}/refund`);
+      return response.data ?? null;
+    } catch (error) {
+      console.error(`Error fetching refund for order ${orderId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * V116 — Force le statut LIVRÉ sur une commande IN_DELIVERY / DELIVERY_FAILED
+   * (remise en main propre hors app, livreur injoignable…). Toujours tracé.
+   */
+  async forceDelivered(orderId: number, reason?: string) {
+    try {
+      const response = await api.put(`/orders/${orderId}/delivery/force-delivered`, { reason });
+      return response.data;
+    } catch (error: any) {
+      throw error?.response?.data?.message || 'Action impossible';
+    }
+  }
+
+  /**
+   * Valide et règle le remboursement (action épicier).
+   * @param reference Obligatoire pour un paiement carte/mobile (réf. du reversal).
+   */
+  async processOrderRefund(orderId: number, reference?: string): Promise<Refund> {
+    try {
+      const response = await api.put<Refund>(
+        `/orders/${orderId}/refund/process`,
+        reference ? { reference } : {}
+      );
+      return response.data;
+    } catch (error: any) {
+      throw error?.response?.data?.message || 'Impossible d\'effectuer le remboursement';
     }
   }
 
@@ -187,10 +261,12 @@ class EpicierOrderService {
   }
 
   /**
-   * Get new orders
+   * Get new orders (nouvelles commandes en attente d'acceptation par l'épicier).
+   * Le backend ne connaît pas le statut 'NEW' (enum = PENDING/ACCEPTED/…) et
+   * renvoyait un 400 « Statut invalide » : on interroge bien 'PENDING'.
    */
   async getNewOrders(page = 0, size = 20) {
-    return this.getOrders('NEW', page, size);
+    return this.getOrders('PENDING', page, size);
   }
 }
 

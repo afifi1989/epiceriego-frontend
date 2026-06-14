@@ -12,7 +12,7 @@ export type Feature =
   | 'variants:view' | 'variants:create' | 'variants:edit' | 'variants:delete'
   | 'stock:view' | 'stock:adjust' | 'stock:history'
   | 'barcodes:view' | 'barcodes:manage'
-  | 'orders:view' | 'orders:process'
+  | 'orders:view' | 'orders:process' | 'orders:refund'
   | 'dashboard:view'
   | 'collaborateurs:view' | 'collaborateurs:manage'
   | 'settings:edit'
@@ -33,7 +33,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'variants:view', 'variants:create', 'variants:edit', 'variants:delete',
     'stock:view', 'stock:adjust', 'stock:history',
     'barcodes:view', 'barcodes:manage',
-    'orders:view', 'orders:process',
+    'orders:view', 'orders:process', 'orders:refund',
     'dashboard:view',
     'collaborateurs:view', 'collaborateurs:manage',
     'settings:edit',
@@ -51,7 +51,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'variants:view', 'variants:create', 'variants:edit', 'variants:delete',
     'stock:view', 'stock:adjust', 'stock:history',
     'barcodes:view', 'barcodes:manage',
-    'orders:view', 'orders:process',
+    'orders:view', 'orders:process', 'orders:refund',
     'dashboard:view',
     'collaborateurs:view',
     'settings:edit',
@@ -112,6 +112,7 @@ export const FEATURE_TO_BACKEND: Record<Feature, string> = {
   'barcodes:manage':       'BARCODE_MANAGE',
   'orders:view':           'ORDER_VIEW',
   'orders:process':        'ORDER_PROCESS',
+  'orders:refund':         'ORDER_REFUND',
   'dashboard:view':        'DASHBOARD_VIEW',
   'collaborateurs:view':   'COLLABORATEUR_VIEW',
   'collaborateurs:manage': 'COLLABORATEUR_MANAGE',

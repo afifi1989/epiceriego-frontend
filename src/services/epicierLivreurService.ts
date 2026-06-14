@@ -123,4 +123,33 @@ export const epicierLivreurService = {
       throw error.response?.data?.message || 'Erreur lors de l\'assignation de la commande';
     }
   },
+
+  /**
+   * V116 — Réassigne une commande bloquée (IN_DELIVERY / DELIVERY_FAILED) à un
+   * autre livreur en ligne : détache l'ancien, repasse READY, assigne le nouveau.
+   */
+  reassignLivreur: async (orderId: number, livreurId: number, reason?: string): Promise<any> => {
+    try {
+      const response = await api.put(`/livreurs/order/${orderId}/reassign-livreur`, {
+        livreurId,
+        reason,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Impossible de réassigner la commande';
+    }
+  },
+
+  /**
+   * V116 — Remet une commande bloquée en file (détache le livreur, repasse READY)
+   * sans réassigner immédiatement.
+   */
+  returnDeliveryToPool: async (orderId: number, reason?: string): Promise<any> => {
+    try {
+      const response = await api.put(`/livreurs/order/${orderId}/return`, { reason });
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Impossible de remettre la commande en file';
+    }
+  },
 };

@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Écran de préparation de commande pour épicier
  * Gère le scanner de code-barre et la préparation complète de la commande
@@ -21,6 +22,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   Vibration,
   View,
@@ -118,6 +120,8 @@ export default function OrderPreparationScreen() {
   const [order, setOrder] = useState<OrderData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  /** Verrou synchrone anti double-soumission (cf. completeOrder). */
+  const isSavingRef = useRef(false);
   const [showScanner, setShowScanner] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [notes, setNotes] = useState('');
@@ -127,6 +131,10 @@ export default function OrderPreparationScreen() {
     quantity: number;
     unit: string;
   } | null>(null);
+  /** Article en cours de marquage « indisponible » + message épicier. */
+  const [unavailableItem, setUnavailableItem] = useState<{ itemId: number; name: string } | null>(null);
+  const [unavailableMessage, setUnavailableMessage] = useState('');
+  const [markingUnavailable, setMarkingUnavailable] = useState(false);
 
   useEffect(() => {
     loadOrder();
@@ -136,7 +144,20 @@ export default function OrderPreparationScreen() {
     if (!orderId) return;
     try {
       setIsLoading(true);
-      const apiData = await epicierOrderService.getOrderDetails(Number(orderId));
+      let apiData = await epicierOrderService.getOrderDetails(Number(orderId));
+      // Parité avec le web : à l'ouverture de la préparation, faire passer la
+      // commande ACCEPTED → PREPARING. Sans ça, si l'épicier coche les articles
+      // sans scanner, le statut PREPARING était sauté (la commande passait
+      // directement à READY au "Marquer comme prête"). Best-effort : on
+      // n'empêche pas la préparation si la transition échoue.
+      if (apiData?.status === 'ACCEPTED') {
+        try {
+          await epicierOrderService.updateOrderStatus(Number(orderId), 'PREPARING');
+          apiData = await epicierOrderService.getOrderDetails(Number(orderId));
+        } catch {
+          /* on garde apiData chargé ; le backend basculera au 1er scan */
+        }
+      }
       const mappedOrder = mapOrderDetailToOrderData(apiData);
       setOrder(mappedOrder);
     } catch (error) {
@@ -210,35 +231,42 @@ export default function OrderPreparationScreen() {
   };
 
   const handleMarkUnavailable = (itemId: number) => {
-    Alert.alert(
-      'Produit indisponible?',
-      'Marquer ce produit comme indisponible pour cette commande',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Marquer',
-          onPress: async () => {
-            try {
-              const updated = await epicierOrderService.markItemUnavailable(
-                Number(orderId),
-                itemId
-              );
-              setOrder(mapOrderDetailToOrderData(updated));
-              Toast.show({
-                type: 'success',
-                text1: 'Produit marqué comme indisponible',
-              });
-            } catch (error) {
-              Toast.show({
-                type: 'error',
-                text1: 'Erreur',
-              });
-            }
-          },
-          style: 'destructive',
-        },
-      ]
-    );
+    const item = order?.items.find((i) => i.id === itemId);
+    setUnavailableMessage('');
+    setUnavailableItem({ itemId, name: item?.productNom ?? 'cet article' });
+  };
+
+  const confirmMarkUnavailable = async () => {
+    if (!unavailableItem || markingUnavailable) return;
+    const { itemId } = unavailableItem;
+    try {
+      setMarkingUnavailable(true);
+      const updated = await epicierOrderService.markItemUnavailable(
+        Number(orderId),
+        itemId,
+        unavailableMessage.trim() || undefined
+      );
+      setUnavailableItem(null);
+      // Si tous les articles sont indisponibles, le backend annule la commande.
+      if (updated?.status === 'CANCELLED') {
+        Alert.alert(
+          'Commande annulée',
+          'Tous les articles étant indisponibles, la commande a été annulée et le client a été notifié.'
+        );
+        router.back();
+        return;
+      }
+      setOrder(mapOrderDetailToOrderData(updated));
+      Toast.show({ type: 'success', text1: 'Article marqué indisponible', text2: 'Le client a été notifié.' });
+    } catch (error: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Erreur',
+        text2: typeof error === 'string' ? error : error?.message || 'Action impossible',
+      });
+    } finally {
+      setMarkingUnavailable(false);
+    }
   };
 
   const handleQuantityChange = async (itemId: number, newQuantity: number) => {
@@ -322,6 +350,10 @@ export default function OrderPreparationScreen() {
   };
 
   const completeOrder = async () => {
+    // Verrou synchrone anti double-tap : `disabled={isSaving}` arrive après le
+    // re-render — un 2e tap très rapide passerait avant. Le ref est immédiat.
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
     try {
       setIsSaving(true);
       await epicierOrderService.completeOrder(Number(orderId), notes);
@@ -338,6 +370,7 @@ export default function OrderPreparationScreen() {
         text2: error.message || 'Impossible de compléter la commande',
       });
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -579,6 +612,55 @@ export default function OrderPreparationScreen() {
           </View>
         </Modal>
       )}
+
+      {/* Modale : marquer un article indisponible + message au client */}
+      <Modal
+        visible={!!unavailableItem}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setUnavailableItem(null)}
+      >
+        <View style={styles.notesModal}>
+          <View style={styles.notesContent}>
+            <View style={styles.notesHeader}>
+              <Text style={styles.notesTitle}>Article indisponible</Text>
+              <TouchableOpacity onPress={() => setUnavailableItem(null)} disabled={markingUnavailable}>
+                <MaterialCommunityIcons name="close" size={24} color={Colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: Colors.textSecondary, marginBottom: Spacing.sm }}>
+              « {unavailableItem?.name} » sera retiré de la commande. Le client sera
+              notifié (et remboursé si la commande est déjà payée).
+            </Text>
+
+            <TextInput
+              style={styles.messageInput}
+              placeholder="Message pour le client (optionnel) — ex. rupture de stock"
+              placeholderTextColor={Colors.textTertiary}
+              value={unavailableMessage}
+              onChangeText={setUnavailableMessage}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              editable={!markingUnavailable}
+              maxLength={500}
+            />
+
+            <TouchableOpacity
+              style={[styles.unavailableConfirmButton, markingUnavailable && { opacity: 0.6 }]}
+              onPress={confirmMarkUnavailable}
+              disabled={markingUnavailable}
+            >
+              {markingUnavailable ? (
+                <ActivityIndicator size="small" color={Colors.textInverse} />
+              ) : (
+                <Text style={styles.notesConfirmText}>Marquer indisponible</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Notes Modal */}
       <Modal
@@ -872,5 +954,22 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.base,
     fontWeight: '600',
     color: Colors.textInverse,
+  },
+  messageInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    minHeight: 80,
+    color: Colors.text,
+    fontSize: FontSizes.base,
+    backgroundColor: Colors.surface,
+  },
+  unavailableConfirmButton: {
+    backgroundColor: Colors.danger,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    marginTop: Spacing.lg,
   },
 });

@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +10,8 @@ import {
   Alert,
   ActivityIndicator,
   SafeAreaView,
+  Modal,
+  TextInput,
 } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -15,6 +19,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { orderService, OrderAuditLog } from '../../src/services/orderService';
+import epicierOrderService from '../../src/services/epicierOrderService';
 import { orderPreparationService } from '../../src/services/orderPreparationService';
 import {
   epicierLivreurService,
@@ -41,8 +46,15 @@ function getAuditLabel(action: string): string {
     DELIVERY_COMPLETED: 'Livraison terminée',
     PICKUP_COMPLETED: 'Retrait effectué',
     QR_VALIDATED: 'QR code validé',
+    DELIVERY_FAILED: 'Échec de livraison',
+    LIVREUR_UNASSIGNED: 'Livreur retiré',
+    LIVREUR_REASSIGNED: 'Commande réassignée',
+    DELIVERY_RETURNED: 'Remise en file',
+    DELIVERY_FORCE_DELIVERED: 'Livraison forcée',
     PAYMENT_RECORDED: 'Paiement enregistré',
     INVOICE_CREATED: 'Facture créée',
+    REFUND_INITIATED: 'Remboursement initié',
+    REFUND_PROCESSED: 'Remboursement effectué',
     DIRECT_SALE_CREATED: 'Vente directe',
     DELIVERY_INFO_UPDATED: 'Adresse modifiée',
   };
@@ -51,7 +63,7 @@ function getAuditLabel(action: string): string {
 
 function getAuditColor(action: string): string {
   const colors: Record<string, string> = {
-    ORDER_CREATED: '#2196F3',
+    ORDER_CREATED: Colors.primary,
     STATUS_CHANGED: '#FF9800',
     ORDER_CANCELLED: '#F44336',
     PRODUCT_SCANNED: '#9C27B0',
@@ -60,13 +72,22 @@ function getAuditColor(action: string): string {
     DELIVERY_COMPLETED: '#4CAF50',
     PICKUP_COMPLETED: '#4CAF50',
     QR_VALIDATED: '#4CAF50',
-    DIRECT_SALE_CREATED: '#2196F3',
+    DIRECT_SALE_CREATED: Colors.primary,
   };
   return colors[action] ?? '#757575';
 }
 
 export default function DetailsCommandeScreen() {
   const router = useRouter();
+  /** Garde anti double-tap pour les boutons de NAVIGATION : un 2e tap pendant
+   *  la transition (~600ms) empilerait l'écran deux fois. Ref = synchrone. */
+  const lastNavRef = useRef(0);
+  const pushOnce = (path: string) => {
+    const now = Date.now();
+    if (now - lastNavRef.current < 600) return;
+    lastNavRef.current = now;
+    router.push(path as any);
+  };
   const { currency: epicerieCurrency } = useCurrency();
   const { orderId } = useLocalSearchParams();
   const [order, setOrder] = useState<Order | null>(null);
@@ -79,6 +100,10 @@ export default function DetailsCommandeScreen() {
   const [downloadingInvoice, setDownloadingInvoice] = useState(false);
   const [auditHistory, setAuditHistory] = useState<OrderAuditLog[]>([]);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  // V115 — Remboursement
+  const [showRefundModal, setShowRefundModal] = useState(false);
+  const [refundReference, setRefundReference] = useState('');
+  const [refundProcessing, setRefundProcessing] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -114,11 +139,44 @@ export default function DetailsCommandeScreen() {
     }
   };
 
-  const handleUpdateStatus = async (newStatus: string) => {
+  /**
+   * V114 — Intercepte le passage à DELIVERED d'une commande espèces non payée
+   * pour exiger une confirmation explicite d'encaissement au comptoir avant de
+   * valider la remise.
+   */
+  const requestStatusChange = (newStatus: string) => {
+    const cashToCollect =
+      newStatus === 'DELIVERED' &&
+      order?.paymentMethod === 'CASH' &&
+      order?.paymentStatus !== 'PAID';
+
+    if (cashToCollect && order) {
+      const amount = `${order.total.toFixed(2)} DH`;
+      Alert.alert(
+        '💵 Encaissement espèces',
+        `Confirmez-vous avoir reçu ${amount} en espèces ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Oui, encaissé', onPress: () => handleUpdateStatus(newStatus, true) },
+        ]
+      );
+      return;
+    }
+    handleUpdateStatus(newStatus);
+  };
+
+  const handleUpdateStatus = async (newStatus: string, cashCollected?: boolean) => {
     if (!order) return;
 
+    // ── Optimistic update ──────────────────────────────────────────────
+    // Le badge statut change IMMÉDIATEMENT (avant : refetch complet → 1-2s
+    // où l'ancien statut restait affiché, l'épicier re-tapait). En cas
+    // d'échec serveur, on restaure le snapshot et on alerte. Le refetch
+    // tourne en arrière-plan pour resynchroniser audit/actions dérivées.
+    const previousOrder = order;
+    setOrder({ ...order, status: newStatus as Order['status'] });
+    setUpdating(true);
     try {
-      setUpdating(true);
       // Pour le passage à READY ("Prête"), on utilise l'endpoint dédié
       // POST /orders/{id}/complete (même que le web via completePreparation).
       // Avantages : autorise un passage direct ACCEPTED → READY sans étape
@@ -127,11 +185,13 @@ export default function DetailsCommandeScreen() {
       if (newStatus === 'READY') {
         await orderPreparationService.completeOrderPreparation(order.id);
       } else {
-        await orderService.updateOrderStatus(order.id, newStatus);
+        await orderService.updateOrderStatus(order.id, newStatus, cashCollected);
       }
-      Alert.alert('✅', 'Statut mis à jour avec succès');
-      await loadInitialData();
+      // Pas d'Alert de succès : le changement de badge EST le feedback
+      // (l'Alert bloquante ajoutait un tap "OK" à chaque transition).
+      loadInitialData(); // resync silencieuse (audit, livreurs, montants)
     } catch (error) {
+      setOrder(previousOrder); // revert visuel — le serveur a refusé
       Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
     } finally {
       setUpdating(false);
@@ -140,28 +200,117 @@ export default function DetailsCommandeScreen() {
 
   const handleAssignLivreur = async () => {
     if (!order || !selectedLivreurId) return;
-
+    // V116 — En phase livraison (IN_DELIVERY/DELIVERY_FAILED), la même modale
+    // sert à RÉASSIGNER (détache l'ancien + repasse READY + nouveau livreur).
+    const isReassign = order.status === 'IN_DELIVERY' || order.status === 'DELIVERY_FAILED';
     try {
       setAssigningLivreur(true);
-      await epicierLivreurService.assignOrderToLivreur(order.id, selectedLivreurId);
-      Alert.alert('✅', 'Livreur assigné avec succès');
+      if (isReassign) {
+        await epicierLivreurService.reassignLivreur(order.id, selectedLivreurId);
+        Alert.alert('✅', 'Commande réassignée à un autre livreur');
+      } else {
+        await epicierLivreurService.assignOrderToLivreur(order.id, selectedLivreurId);
+        Alert.alert('✅', 'Livreur assigné avec succès');
+      }
       setShowLivreurModal(false);
       setSelectedLivreurId(null);
       await loadInitialData();
     } catch (error: any) {
-      Alert.alert('Erreur', error.message || 'Impossible d\'assigner le livreur');
+      const message =
+        typeof error === 'string' ? error : error?.message || 'Impossible d\'assigner le livreur';
+      Alert.alert('Erreur', message);
+      await loadInitialData();
     } finally {
       setAssigningLivreur(false);
+    }
+  };
+
+  // V116 — Actions d'intervention sur une livraison bloquée (owner/manager).
+  const [intervening, setIntervening] = useState(false);
+  const runIntervention = async (action: () => Promise<any>, successMsg: string) => {
+    if (intervening) return;
+    try {
+      setIntervening(true);
+      await action();
+      Alert.alert('✅', successMsg);
+      await loadInitialData();
+    } catch (error: any) {
+      Alert.alert('Erreur', typeof error === 'string' ? error : error?.message || 'Action impossible');
+    } finally {
+      setIntervening(false);
+    }
+  };
+
+  const handleReturnToPool = () => {
+    if (!order) return;
+    Alert.alert('Remettre en file', 'Détacher le livreur et remettre la commande en attente d\'un livreur ?', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Confirmer', onPress: () => runIntervention(
+        () => epicierLivreurService.returnDeliveryToPool(order.id), 'Commande remise en file (Prête)') },
+    ]);
+  };
+
+  const handleForceDelivered = () => {
+    if (!order) return;
+    Alert.alert('Forcer « Livré »', 'Marquer cette commande comme livrée ? (à utiliser si la remise a bien eu lieu hors application)', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Marquer livrée', onPress: () => runIntervention(
+        () => epicierOrderService.forceDelivered(order.id), 'Commande marquée comme livrée') },
+    ]);
+  };
+
+  const handleCancelDelivery = () => {
+    if (!order) return;
+    Alert.alert('Annuler la commande', 'Annuler définitivement cette commande ? Le stock sera restitué et le client remboursé si nécessaire.', [
+      { text: 'Retour', style: 'cancel' },
+      { text: 'Annuler la commande', style: 'destructive', onPress: () => runIntervention(
+        () => orderService.cancelOrder(order.id), 'Commande annulée') },
+    ]);
+  };
+
+  // V115 — Remboursement : validé par l'épicier. Carte/mobile exigent une
+  // référence (saisie via modale) ; carnet (CLIENT_ACCOUNT) = confirmation simple.
+  const handleProcessRefund = () => {
+    if (!order) return;
+    if (order.paymentMethod === 'CARD' || order.paymentMethod === 'MOBILE') {
+      setRefundReference('');
+      setShowRefundModal(true);
+    } else {
+      Alert.alert(
+        'Effectuer le remboursement',
+        `Confirmer le remboursement de ${formatPrice(order.refundAmount ?? 0, order.currency || epicerieCurrency)} sur le compte client ?`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Confirmer', onPress: () => doProcessRefund() },
+        ]
+      );
+    }
+  };
+
+  const doProcessRefund = async (reference?: string) => {
+    if (!order || refundProcessing) return;
+    try {
+      setRefundProcessing(true);
+      await epicierOrderService.processOrderRefund(order.id, reference);
+      setShowRefundModal(false);
+      setRefundReference('');
+      Alert.alert('✅', 'Remboursement effectué');
+      await loadInitialData();
+    } catch (error: any) {
+      Alert.alert('Erreur', typeof error === 'string' ? error : error?.message || 'Remboursement impossible');
+    } finally {
+      setRefundProcessing(false);
     }
   };
 
   const canPrintInvoice = () =>
     order?.status === 'READY' || order?.status === 'DELIVERED';
 
-  const isPaid = () =>
-    order?.paymentMethod === 'CASH' ||
-    order?.paymentMethod === 'CARD' ||
-    order?.paymentMethod === 'MOBILE';
+  // V114 — Le statut de paiement vient désormais du backend (encaissement
+  // espèces confirmé par le livreur/épicier, ou règlement carnet). Plus de
+  // raccourci « CASH = payé » qui était faux : une commande espèces reste
+  // NON PAYÉE jusqu'à l'encaissement.
+  const isPaid = () => order?.paymentStatus === 'PAID';
 
   const handleDownloadInvoice = async () => {
     if (!order) return;
@@ -196,7 +345,7 @@ export default function DetailsCommandeScreen() {
     } else if (order.status === 'ACCEPTED') {
       // Symétrie avec le web : depuis ACCEPTED, l'épicier peut soit lancer
       // la préparation détaillée (item-par-item via "Préparer la commande"
-      // → écran preparer-commande), soit marquer directement la commande
+      // → écran commande-prep), soit marquer directement la commande
       // comme prête sans passer par PREPARING (typique des préparations
       // rapides où il n'y a rien à pointer).
       options.push({ text: 'Marquer comme prête', status: 'READY' });
@@ -222,7 +371,7 @@ export default function DetailsCommandeScreen() {
       [
         ...options.map(opt => ({
           text: opt.text,
-          onPress: () => handleUpdateStatus(opt.status),
+          onPress: () => requestStatusChange(opt.status),
         })),
         { text: 'Annuler', style: 'cancel' },
       ]
@@ -233,7 +382,7 @@ export default function DetailsCommandeScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -256,7 +405,7 @@ export default function DetailsCommandeScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <MaterialIcons name="arrow-back" size={24} color="#2196F3" />
+          <MaterialIcons name="arrow-back" size={24} color={Colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Détails Commande #{order.id}</Text>
         <View style={{ width: 40 }} />
@@ -279,6 +428,110 @@ export default function DetailsCommandeScreen() {
             </View>
           </View>
         </View>
+
+        {/* V116 — Intervention sur une livraison en cours / en échec */}
+        {(order.status === 'IN_DELIVERY' || order.status === 'DELIVERY_FAILED') && (
+          <PermissionGate feature="livreurs:manage">
+            <View style={[styles.section, order.status === 'DELIVERY_FAILED' ? styles.interventionFailed : styles.interventionLive]}>
+              <View style={styles.refundHeaderRow}>
+                <MaterialIcons
+                  name={order.status === 'DELIVERY_FAILED' ? 'error-outline' : 'local-shipping'}
+                  size={20}
+                  color={order.status === 'DELIVERY_FAILED' ? '#C62828' : '#3F51B5'}
+                />
+                <Text style={[styles.refundTitle, { color: order.status === 'DELIVERY_FAILED' ? '#C62828' : '#3F51B5' }]}>
+                  {order.status === 'DELIVERY_FAILED' ? 'Échec de livraison — à réassigner' : 'Livraison en cours'}
+                </Text>
+              </View>
+              {!!order.deliveryFailureReason && (
+                <Text style={styles.refundHint}>Motif : {order.deliveryFailureReason}</Text>
+              )}
+              {!!order.livreurNom && (
+                <Text style={styles.refundHint}>Livreur : {order.livreurNom}</Text>
+              )}
+              {!!order.deliveryAttempts && order.deliveryAttempts > 0 && (
+                <Text style={styles.refundHint}>{order.deliveryAttempts} tentative(s) échouée(s)</Text>
+              )}
+
+              <View style={styles.interventionActions}>
+                <TouchableOpacity
+                  style={[styles.interventionBtn, { backgroundColor: '#3F51B5' }]}
+                  onPress={() => { setSelectedLivreurId(null); setShowLivreurModal(true); }}
+                  disabled={intervening}
+                >
+                  <Text style={styles.interventionBtnText}>🔁 Réassigner</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.interventionBtn, { backgroundColor: '#607D8B' }]}
+                  onPress={handleReturnToPool}
+                  disabled={intervening}
+                >
+                  <Text style={styles.interventionBtnText}>↩️ Retour file</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.interventionBtn, { backgroundColor: '#2E7D32' }]}
+                  onPress={handleForceDelivered}
+                  disabled={intervening}
+                >
+                  <Text style={styles.interventionBtnText}>✅ Forcer livré</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.interventionBtn, { backgroundColor: '#C62828' }]}
+                  onPress={handleCancelDelivery}
+                  disabled={intervening}
+                >
+                  <Text style={styles.interventionBtnText}>✕ Annuler</Text>
+                </TouchableOpacity>
+              </View>
+              {intervening && <ActivityIndicator size="small" color="#3F51B5" style={{ marginTop: 8 }} />}
+            </View>
+          </PermissionGate>
+        )}
+
+        {/* V115 — Remboursement à effectuer */}
+        {order.refundStatus === 'PENDING' && (
+          <View style={[styles.section, styles.refundBanner]}>
+            <View style={styles.refundHeaderRow}>
+              <MaterialIcons name="account-balance-wallet" size={20} color="#E65100" />
+              <Text style={styles.refundTitle}>Remboursement à effectuer</Text>
+            </View>
+            <Text style={styles.refundAmount}>
+              {formatPrice(order.refundAmount ?? 0, order.currency || epicerieCurrency)}
+            </Text>
+            <Text style={styles.refundHint}>
+              {order.paymentMethod === 'CLIENT_ACCOUNT'
+                ? 'Sera porté au crédit du compte client.'
+                : 'Paiement '
+                  + (order.paymentMethod === 'MOBILE' ? 'mobile' : 'carte')
+                  + ' — une référence de remboursement est requise.'}
+            </Text>
+            <PermissionGate feature="orders:refund">
+              <TouchableOpacity
+                style={styles.refundButton}
+                onPress={handleProcessRefund}
+                disabled={refundProcessing}
+              >
+                {refundProcessing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.refundButtonText}>Effectuer le remboursement</Text>
+                )}
+              </TouchableOpacity>
+            </PermissionGate>
+          </View>
+        )}
+
+        {/* V115 — Remboursement effectué */}
+        {order.refundStatus === 'PROCESSED' && (
+          <View style={[styles.section, styles.refundDoneBanner]}>
+            <View style={styles.refundHeaderRow}>
+              <MaterialIcons name="check-circle" size={20} color="#2E7D32" />
+              <Text style={[styles.refundTitle, { color: '#2E7D32' }]}>
+                Remboursement effectué — {formatPrice(order.refundAmount ?? 0, order.currency || epicerieCurrency)}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Infos Client */}
         <View style={styles.section}>
@@ -524,7 +777,7 @@ export default function DetailsCommandeScreen() {
         {(order.status === 'ACCEPTED' || order.status === 'PREPARING') && (
           <TouchableOpacity
             style={[styles.actionButton, styles.prepareButton]}
-            onPress={() => router.push(`/preparer-commande?orderId=${order.id}` as any)}
+            onPress={() => pushOnce(`/commande-prep?orderId=${order.id}`)}
           >
             <MaterialIcons name="assignment" size={20} color="#fff" />
             <Text style={styles.actionButtonText}>
@@ -536,7 +789,7 @@ export default function DetailsCommandeScreen() {
         {order.status === 'READY' && order.deliveryType === 'PICKUP' && (
           <TouchableOpacity
             style={[styles.actionButton, styles.scanQrButton]}
-            onPress={() => router.push('/(epicier)/scan-qr')}
+            onPress={() => pushOnce('/(epicier)/scan-qr')}
           >
             <MaterialIcons name="qr-code-scanner" size={20} color="#fff" />
             <Text style={styles.actionButtonText}>Scanner le QR du client</Text>
@@ -574,6 +827,60 @@ export default function DetailsCommandeScreen() {
         title="Assigner un Livreur"
         description="Sélectionnez un livreur pour cette commande"
       />
+
+      {/* V115 — Référence de remboursement (carte / mobile) */}
+      <Modal
+        visible={showRefundModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRefundModal(false)}
+      >
+        <View style={styles.refundModalOverlay}>
+          <View style={styles.refundModalContent}>
+            <Text style={styles.refundModalTitle}>Effectuer le remboursement</Text>
+            <Text style={styles.refundModalAmount}>
+              {order ? formatPrice(order.refundAmount ?? 0, order.currency || epicerieCurrency) : ''}
+            </Text>
+            <Text style={styles.refundModalHint}>
+              Saisissez la référence du remboursement (n° de transaction / reversal)
+              effectué auprès du prestataire de paiement.
+            </Text>
+            <TextInput
+              style={styles.refundRefInput}
+              placeholder="Référence du remboursement"
+              placeholderTextColor={Colors.textTertiary}
+              value={refundReference}
+              onChangeText={setRefundReference}
+              editable={!refundProcessing}
+              autoCapitalize="characters"
+              maxLength={255}
+            />
+            <View style={styles.refundModalActions}>
+              <TouchableOpacity
+                style={styles.refundCancelBtn}
+                onPress={() => setShowRefundModal(false)}
+                disabled={refundProcessing}
+              >
+                <Text style={styles.refundCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.refundConfirmBtn,
+                  (refundProcessing || !refundReference.trim()) && { opacity: 0.5 },
+                ]}
+                onPress={() => doProcessRefund(refundReference.trim())}
+                disabled={refundProcessing || !refundReference.trim()}
+              >
+                {refundProcessing ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.refundConfirmText}>Confirmer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -648,7 +955,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     borderLeftWidth: 3,
-    borderLeftColor: '#2196F3',
+    borderLeftColor: Colors.primary,
   },
   infoRow: {
     flexDirection: 'row',
@@ -690,7 +997,7 @@ const styles = StyleSheet.create({
   itemPrice: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
   },
   itemDetails: {
     gap: 4,
@@ -731,7 +1038,7 @@ const styles = StyleSheet.create({
   totalValue: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
   },
   errorText: {
     fontSize: 16,
@@ -745,13 +1052,13 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flexDirection: 'row',
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    shadowColor: '#2196F3',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -888,4 +1195,94 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: 4,
   },
+
+  // V116 — Intervention livraison
+  interventionLive: {
+    backgroundColor: '#E8EAF6',
+    borderLeftWidth: 4,
+    borderLeftColor: '#3F51B5',
+  },
+  interventionFailed: {
+    backgroundColor: '#FFEBEE',
+    borderLeftWidth: 4,
+    borderLeftColor: '#C62828',
+  },
+  interventionActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  interventionBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexGrow: 1,
+    alignItems: 'center',
+  },
+  interventionBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  // V115 — Remboursement
+  refundBanner: {
+    backgroundColor: '#FFF3E0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#E65100',
+  },
+  refundDoneBanner: {
+    backgroundColor: '#E8F5E9',
+    borderLeftWidth: 4,
+    borderLeftColor: '#2E7D32',
+  },
+  refundHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  refundTitle: { fontSize: 15, fontWeight: '700', color: '#E65100' },
+  refundAmount: { fontSize: 22, fontWeight: '800', color: '#E65100', marginTop: 4 },
+  refundHint: { fontSize: 13, color: '#795548', marginTop: 4 },
+  refundButton: {
+    backgroundColor: '#E65100',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  refundButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  refundModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  refundModalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 20,
+  },
+  refundModalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  refundModalAmount: { fontSize: 24, fontWeight: '800', color: '#E65100', marginTop: 6 },
+  refundModalHint: { fontSize: 13, color: Colors.textSecondary, marginTop: 8 },
+  refundRefInput: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 12,
+    fontSize: 15,
+    color: Colors.text,
+  },
+  refundModalActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
+  refundCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: '#EEEEEE',
+  },
+  refundCancelText: { color: Colors.text, fontWeight: '600' },
+  refundConfirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: '#E65100',
+  },
+  refundConfirmText: { color: '#fff', fontWeight: '700' },
 });
