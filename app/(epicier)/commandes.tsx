@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
@@ -9,7 +11,9 @@ import {
   RefreshControl,
   ActivityIndicator,
   TextInput,
+  Vibration,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -36,6 +40,18 @@ const POLL_INTERVAL_MS = 15_000;
 const ARCHIVE_PAGE_SIZE = 20;
 const SEARCH_DEBOUNCE_MS = 400;
 
+/**
+ * Signal sensoriel "nouvelle commande" : double vibration distinctive +
+ * haptic. En boutique, l'épicier occupé au comptoir ne regarde pas l'écran —
+ * le badge visuel seul passait inaperçu jusqu'à 15s+ de retard. Le pattern
+ * est ignoré sur iOS (buzz simple ~400ms), supporté sur Android. Complète la
+ * notification push (qui ne sonne pas quand l'app est au premier plan).
+ */
+const signalNewOrder = () => {
+  Vibration.vibrate([0, 300, 150, 300]);
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+};
+
 export default function CommandesScreen() {
   const router = useRouter();
 
@@ -46,6 +62,8 @@ export default function CommandesScreen() {
   const [activeOrders, setActiveOrders] = useState<OrderListItem[]>([]);
   const [loadingActive, setLoadingActive] = useState(true);
   const [refreshingActive, setRefreshingActive] = useState(false);
+  // V116 — filtre rapide de l'onglet actives : toutes vs « à réassigner » (échec livraison)
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'TO_REASSIGN'>('ALL');
 
   // ── Archive orders (lazy, paginé, infinite scroll) ─────────────────
   const [archiveOrders, setArchiveOrders] = useState<OrderListItem[]>([]);
@@ -112,7 +130,10 @@ export default function CommandesScreen() {
         );
         if (previous.size > 0) {
           const fresh = Array.from(currentPendingIds).some(id => !previous.has(id));
-          if (fresh) setHasNewOrders(true);
+          if (fresh) {
+            setHasNewOrders(true);
+            signalNewOrder();
+          }
         }
         lastPendingIdsRef.current = currentPendingIds;
 
@@ -164,6 +185,9 @@ export default function CommandesScreen() {
       const intervalId = setInterval(() => {
         if (tab === 'active') {
           loadActive({ force: true, silent: true });
+          // Compteurs aussi : sinon les badges restent figés si les commandes
+          // sont traitées depuis un autre appareil (web, autre téléphone).
+          loadCounts();
         }
       }, POLL_INTERVAL_MS);
 
@@ -274,6 +298,9 @@ export default function CommandesScreen() {
         invalidateCache: ['orders'],
         description: `Commande #${orderId} → ${newStatus}`,
       });
+      // Confirmation physique — utile au comptoir où l'Alert peut être
+      // fermée machinalement sans être lue.
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       if (result.online) {
         Alert.alert('✅', 'Statut mis à jour');
       } else {
@@ -293,6 +320,7 @@ export default function CommandesScreen() {
   ) => {
     const verbe = action === 'accept' ? 'acceptee(s)' : 'refusee(s)';
     if (failed.length === 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('✅', `${successCount} commande(s) ${verbe}.`);
       return;
     }
@@ -379,6 +407,13 @@ export default function CommandesScreen() {
   };
 
   const pendingActive = activeOrders.filter(o => o.status === 'PENDING');
+  // V116 — commandes en échec de livraison (à réassigner) + liste affichée filtrée
+  const toReassignCount = activeOrders.filter(o => o.status === 'DELIVERY_FAILED').length;
+  // Si le filtre est actif mais qu'il n'y a plus rien à réassigner, on réaffiche
+  // tout (sinon la liste paraîtrait vide alors qu'il reste des commandes).
+  const visibleActiveOrders = (activeFilter === 'TO_REASSIGN' && toReassignCount > 0)
+    ? activeOrders.filter(o => o.status === 'DELIVERY_FAILED')
+    : activeOrders;
 
   // ═════════════════════════════════════════════════════════════════
   // Render : carte de commande (commune active + archive)
@@ -455,12 +490,16 @@ export default function CommandesScreen() {
                 <TouchableOpacity
                   style={[styles.quickBtn, styles.acceptBtn]}
                   onPress={() => handleUpdateStatus(item.id, 'ACCEPTED')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Accepter la commande ${item.id}`}
                 >
                   <Text style={styles.quickBtnText}>✅ Accepter</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.quickBtn, styles.rejectBtn]}
                   onPress={() => handleUpdateStatus(item.id, 'CANCELLED')}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Refuser la commande ${item.id}`}
                 >
                   <Text style={styles.quickBtnText}>❌ Refuser</Text>
                 </TouchableOpacity>
@@ -470,7 +509,9 @@ export default function CommandesScreen() {
               <View style={styles.quickActions}>
                 <TouchableOpacity
                   style={[styles.quickBtn, styles.prepareBtn]}
-                  onPress={() => router.push(`/preparer-commande?orderId=${item.id}` as any)}
+                  onPress={() => router.push(`/commande-prep?orderId=${item.id}` as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Préparer la commande ${item.id}`}
                 >
                   <Text style={styles.quickBtnText}>👨‍🍳 Préparer</Text>
                 </TouchableOpacity>
@@ -480,7 +521,9 @@ export default function CommandesScreen() {
               <View style={styles.quickActions}>
                 <TouchableOpacity
                   style={[styles.quickBtn, styles.prepareBtn]}
-                  onPress={() => router.push(`/preparer-commande?orderId=${item.id}` as any)}
+                  onPress={() => router.push(`/commande-prep?orderId=${item.id}` as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Continuer la préparation de la commande ${item.id}`}
                 >
                   <Text style={styles.quickBtnText}>👨‍🍳 Continuer</Text>
                 </TouchableOpacity>
@@ -508,7 +551,7 @@ export default function CommandesScreen() {
               style={styles.detailsBtn}
               onPress={() => router.push(`/details-commande?orderId=${item.id}` as any)}
             >
-              <MaterialIcons name="arrow-forward" size={18} color="#2196F3" />
+              <MaterialIcons name="arrow-forward" size={18} color={Colors.primary} />
               <Text style={styles.detailsBtnText}>Détails</Text>
             </TouchableOpacity>
           </View>
@@ -521,7 +564,7 @@ export default function CommandesScreen() {
               style={styles.detailsBtn}
               onPress={() => router.push(`/details-commande?orderId=${item.id}` as any)}
             >
-              <MaterialIcons name="arrow-forward" size={18} color="#2196F3" />
+              <MaterialIcons name="arrow-forward" size={18} color={Colors.primary} />
               <Text style={styles.detailsBtnText}>Détails</Text>
             </TouchableOpacity>
           </View>
@@ -537,7 +580,7 @@ export default function CommandesScreen() {
   if (loadingActive && activeOrders.length === 0 && tab === 'active') {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -651,8 +694,30 @@ export default function CommandesScreen() {
             </View>
           )}
 
+          {/* V116 — Filtre « À réassigner » (affiché s'il y a des échecs de livraison) */}
+          {toReassignCount > 0 && !selectionMode && (
+            <View style={reassignFilterStyles.row}>
+              <TouchableOpacity
+                style={[reassignFilterStyles.chip, activeFilter === 'ALL' && reassignFilterStyles.chipActive]}
+                onPress={() => setActiveFilter('ALL')}
+              >
+                <Text style={[reassignFilterStyles.text, activeFilter === 'ALL' && reassignFilterStyles.textActive]}>
+                  Toutes ({activeOrders.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[reassignFilterStyles.chip, reassignFilterStyles.chipReassign, activeFilter === 'TO_REASSIGN' && reassignFilterStyles.chipReassignActive]}
+                onPress={() => setActiveFilter('TO_REASSIGN')}
+              >
+                <Text style={[reassignFilterStyles.text, reassignFilterStyles.textReassign, activeFilter === 'TO_REASSIGN' && reassignFilterStyles.textReassignActive]}>
+                  ⚠️ À réassigner ({toReassignCount})
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <FlatList
-            data={activeOrders}
+            data={visibleActiveOrders}
             renderItem={renderOrder}
             keyExtractor={(item) => `active-${item.id}`}
             contentContainerStyle={[
@@ -787,7 +852,7 @@ export default function CommandesScreen() {
             ListFooterComponent={
               <View style={archiveStyles.footer}>
                 {archiveLoading && (
-                  <ActivityIndicator size="small" color="#2196F3" />
+                  <ActivityIndicator size="small" color={Colors.primary} />
                 )}
                 {!archiveLoading && archiveLast && archiveOrders.length > 0 && (
                   <Text style={archiveStyles.footerEnd}>
@@ -823,7 +888,7 @@ const topTabStyles = StyleSheet.create({
     marginBottom: -2,
   },
   tabActive: {
-    borderBottomColor: '#2196F3',
+    borderBottomColor: Colors.primary,
   },
   text: {
     fontSize: 15,
@@ -831,7 +896,7 @@ const topTabStyles = StyleSheet.create({
     color: '#6b7280',
   },
   textActive: {
-    color: '#2196F3',
+    color: Colors.primary,
   },
   badge: {
     minWidth: 22,
@@ -842,7 +907,7 @@ const topTabStyles = StyleSheet.create({
     alignItems: 'center',
   },
   badgeActive: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   badgeText: {
     fontSize: 11,
@@ -852,6 +917,30 @@ const topTabStyles = StyleSheet.create({
   badgeTextActive: {
     color: '#fff',
   },
+});
+
+// ── Styles : filtre « À réassigner » (V116) ─────────────────────────────
+const reassignFilterStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+  chip: {
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: '#ECEFF1',
+  },
+  chipActive: { backgroundColor: '#2196F3' },
+  chipReassign: { backgroundColor: '#FFF3E0' },
+  chipReassignActive: { backgroundColor: '#E65100' },
+  text: { fontSize: 13, fontWeight: '600', color: '#555' },
+  textActive: { color: '#fff' },
+  textReassign: { color: '#E65100' },
+  textReassignActive: { color: '#fff' },
 });
 
 // ── Styles : Archive ────────────────────────────────────────────────────
@@ -877,7 +966,7 @@ const archiveStyles = StyleSheet.create({
     alignItems: 'center',
   },
   filterBtnActive: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   filterText: {
     fontSize: 12,
@@ -929,7 +1018,7 @@ const selectionStyles = StyleSheet.create({
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 12,
@@ -1025,10 +1114,10 @@ const styles = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#2196F3',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
@@ -1095,7 +1184,7 @@ const styles = StyleSheet.create({
   orderTotal: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 6,
   },
   statusBadge: {
@@ -1140,13 +1229,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CAF50',
   },
   prepareBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   rejectBtn: {
     backgroundColor: '#f44336',
   },
   infoBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     opacity: 0.7,
   },
   scanBtn: {
@@ -1175,10 +1264,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#f5f5f5',
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
   },
   detailsBtnText: {
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '600',
     fontSize: 14,
   },
