@@ -408,6 +408,12 @@ function isValidBundle(b: any): b is CartBundle {
  */
 export interface CartGroup {
   epicerieId: number;
+  /**
+   * Nom de la boutique pour l'affichage, dérivé de la première ligne bundle
+   * qui le porte (CartItem ne transporte pas le nom). Peut être absent pour
+   * un groupe 100% items — les écrans affichent alors le fallback `#id`.
+   */
+  epicerieNom?: string;
   items: CartItem[];
   /** V106 — lignes bundle de la meme epicerie (peut etre vide). */
   bundles: CartBundle[];
@@ -438,6 +444,7 @@ export function groupCartByEpicerie(cart: CartItem[], bundles: CartBundle[] = []
     const bundlesSub = bds.reduce((s, b) => s + (b.snapshotPrice || 0) * (b.quantity || 0), 0);
     return {
       epicerieId,
+      epicerieNom: bds.find((b) => !!b.epicerieName)?.epicerieName,
       items: its,
       bundles: bds,
       subtotal: Math.round((itemsSub + bundlesSub) * 100) / 100,

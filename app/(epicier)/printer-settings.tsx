@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran Paramètres Imprimante — Axe POS / S5.
  *
@@ -99,7 +101,7 @@ export default function PrinterSettingsScreen() {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Imprimante</Text>
         </View>
-        <View style={styles.centered}><ActivityIndicator size="large" color="#2196F3" /></View>
+        <View style={styles.centered}><ActivityIndicator size="large" color={Colors.primary} /></View>
       </SafeAreaView>
     );
   }
@@ -111,7 +113,7 @@ export default function PrinterSettingsScreen() {
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Paramètres imprimante</Text>
-        {saving && <ActivityIndicator size="small" color="#2196F3" />}
+        {saving && <ActivityIndicator size="small" color={Colors.primary} />}
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
@@ -132,7 +134,7 @@ export default function PrinterSettingsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[
                 styles.backendLabel,
-                settings.backend === opt.value && { color: '#2196F3' }
+                settings.backend === opt.value && { color: Colors.primary }
               ]}>{opt.label}</Text>
               <Text style={styles.backendDesc}>{opt.description}</Text>
               {!opt.available && (
@@ -140,7 +142,7 @@ export default function PrinterSettingsScreen() {
               )}
             </View>
             {settings.backend === opt.value && (
-              <Ionicons name="checkmark-circle" size={24} color="#2196F3" />
+              <Ionicons name="checkmark-circle" size={24} color={Colors.primary} />
             )}
           </TouchableOpacity>
         ))}
@@ -158,7 +160,7 @@ export default function PrinterSettingsScreen() {
                 >
                   <Text style={[
                     styles.paperText,
-                    settings.paperWidth === w && { color: '#2196F3', fontWeight: '800' }
+                    settings.paperWidth === w && { color: Colors.primary, fontWeight: '800' }
                   ]}>{w} mm</Text>
                 </TouchableOpacity>
               ))}
@@ -258,7 +260,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 12, padding: 14,
     marginBottom: 8, borderWidth: 1.5, borderColor: '#e0e0e0'
   },
-  backendCardActive: { borderColor: '#2196F3', backgroundColor: '#e3f2fd' },
+  backendCardActive: { borderColor: Colors.primary, backgroundColor: '#e3f2fd' },
   backendCardDisabled: { opacity: 0.55 },
   backendLabel: { fontSize: 15, fontWeight: '800', color: '#333', marginBottom: 3 },
   backendDesc: { fontSize: 12, color: '#777' },
@@ -273,7 +275,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#e0e0e0', backgroundColor: '#fff',
     alignItems: 'center'
   },
-  paperBtnActive: { borderColor: '#2196F3', backgroundColor: '#e3f2fd' },
+  paperBtnActive: { borderColor: Colors.primary, backgroundColor: '#e3f2fd' },
   paperText: { fontSize: 15, fontWeight: '600', color: '#555' },
 
   hint: { fontSize: 12, color: '#999', marginTop: 6, fontStyle: 'italic' },
@@ -293,7 +295,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 12, fontSize: 15, color: '#333'
   },
   testBtn: {
-    backgroundColor: '#2196F3', borderRadius: 10,
+    backgroundColor: Colors.primary, borderRadius: 10,
     paddingHorizontal: 18, paddingVertical: 13
   },
   testBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },

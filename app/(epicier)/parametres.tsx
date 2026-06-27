@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Hub paramètres unifié — épicier mobile.
  *

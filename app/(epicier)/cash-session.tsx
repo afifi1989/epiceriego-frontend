@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran Caisse — Axe POS / S2.
  *
@@ -211,7 +213,7 @@ export default function CashSessionScreen() {
       >
 
         {mode === 'loading' && (
-          <View style={styles.centered}><ActivityIndicator size="large" color="#2196F3" /></View>
+          <View style={styles.centered}><ActivityIndicator size="large" color={Colors.primary} /></View>
         )}
 
         {/* ── Formulaire d'ouverture ── */}
@@ -226,9 +228,9 @@ export default function CashSessionScreen() {
               style={styles.historyLink}
               onPress={() => router.push('/(epicier)/cash-reports' as any)}
             >
-              <Ionicons name="document-text-outline" size={16} color="#2196F3" />
+              <Ionicons name="document-text-outline" size={16} color={Colors.primary} />
               <Text style={styles.historyLinkText}>Consulter l'historique des rapports Z</Text>
-              <Ionicons name="chevron-forward" size={16} color="#2196F3" />
+              <Ionicons name="chevron-forward" size={16} color={Colors.primary} />
             </TouchableOpacity>
 
             <Text style={styles.label}>Fond de caisse (DH)</Text>
@@ -278,7 +280,7 @@ export default function CashSessionScreen() {
               <>
                 {/* KPI grid */}
                 <View style={styles.kpiGrid}>
-                  <KpiCard label="Ventes" value={`${xReport.totalSales.toFixed(2)} DH`} color="#2196F3" sub={`${xReport.orderCount} ticket(s)`} />
+                  <KpiCard label="Ventes" value={`${xReport.totalSales.toFixed(2)} DH`} color={Colors.primary} sub={`${xReport.orderCount} ticket(s)`} />
                   <KpiCard label="Cash encaissé" value={`${xReport.totalCash.toFixed(2)} DH`} color="#2e7d32" />
                   <KpiCard label="Carte" value={`${xReport.totalCard.toFixed(2)} DH`} color="#1976D2" />
                   <KpiCard label="Compte client" value={`${xReport.totalAccount.toFixed(2)} DH`} color="#7B1FA2" />
@@ -308,10 +310,10 @@ export default function CashSessionScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: '#2196F3' }]}
+              style={[styles.primaryBtn, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.primary }]}
               onPress={() => router.push('/(epicier)/cash-reports' as any)}
             >
-              <Text style={[styles.primaryBtnText, { color: '#2196F3' }]}>📚 Historique des Z</Text>
+              <Text style={[styles.primaryBtnText, { color: Colors.primary }]}>📚 Historique des Z</Text>
             </TouchableOpacity>
 
             <Text style={styles.hintText}>
@@ -467,7 +469,7 @@ const styles = StyleSheet.create({
   textarea: { height: 70, paddingTop: 10, textAlignVertical: 'top' },
 
   primaryBtn: {
-    backgroundColor: '#2196F3', borderRadius: 12,
+    backgroundColor: Colors.primary, borderRadius: 12,
     paddingVertical: 16, alignItems: 'center', marginTop: 20
   },
   primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },

@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * WhatsApp Business settings screen for epicier.
  * Allows enabling/disabling WhatsApp ordering, configuring phone number,

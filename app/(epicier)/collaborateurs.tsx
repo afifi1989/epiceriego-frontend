@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
@@ -199,7 +201,7 @@ export default function CollaborateursScreen() {
         <View style={styles.cardInfo}>
           <Text style={styles.cardName}>{item.nom || '(compte en attente)'}</Text>
           {item.identifiant && (
-            <Text style={[styles.cardEmail, { fontWeight: '700', color: '#2196F3', fontFamily: 'monospace' }]}>{item.identifiant}</Text>
+            <Text style={[styles.cardEmail, { fontWeight: '700', color: Colors.primary, fontFamily: 'monospace' }]}>{item.identifiant}</Text>
           )}
           <Text style={styles.cardEmail}>{item.email}</Text>
           <View style={styles.cardBadges}>
@@ -261,7 +263,7 @@ export default function CollaborateursScreen() {
 
       {/* Liste */}
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} size="large" color="#2196F3" />
+        <ActivityIndicator style={{ marginTop: 40 }} size="large" color={Colors.primary} />
       ) : (
         <FlatList
           data={collaborateurs}
@@ -340,7 +342,7 @@ export default function CollaborateursScreen() {
                 >
                   <Text style={[
                     styles.roleOptionLabel,
-                    form.collaboratorRole === r.value && { color: '#2196F3' },
+                    form.collaboratorRole === r.value && { color: Colors.primary },
                   ]}>
                     {COLLABORATOR_ROLE_CONFIG[r.value].icon} {r.label}
                   </Text>
@@ -405,7 +407,7 @@ export default function CollaborateursScreen() {
                       {selected.identifiant && (
                         <View style={styles.detailRow}>
                           <Text style={styles.detailLabel}>Identifiant</Text>
-                          <Text style={[styles.detailValue, { fontWeight: '700', color: '#2196F3', fontFamily: 'monospace', fontSize: 16 }]}>{selected.identifiant}</Text>
+                          <Text style={[styles.detailValue, { fontWeight: '700', color: Colors.primary, fontFamily: 'monospace', fontSize: 16 }]}>{selected.identifiant}</Text>
                         </View>
                       )}
                       {selected.email && (
@@ -491,7 +493,7 @@ export default function CollaborateursScreen() {
                     )}
 
                     {actionLoading && (
-                      <ActivityIndicator style={{ marginTop: 16 }} color="#2196F3" />
+                      <ActivityIndicator style={{ marginTop: 16 }} color={Colors.primary} />
                     )}
                   </ScrollView>
                 </>
@@ -594,9 +596,9 @@ const styles = StyleSheet.create({
   // FAB
   fab: {
     position: 'absolute', bottom: 24, right: 20,
-    backgroundColor: '#2196F3', borderRadius: 28,
+    backgroundColor: Colors.primary, borderRadius: 28,
     paddingHorizontal: 24, paddingVertical: 14,
-    shadowColor: '#2196F3', shadowOffset: { width: 0, height: 4 },
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8, elevation: 6,
   },
   fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
@@ -631,7 +633,7 @@ const styles = StyleSheet.create({
     padding: 12, marginBottom: 8, backgroundColor: '#fafafa',
   },
   roleOptionActive: {
-    borderColor: '#2196F3', backgroundColor: '#e3f2fd',
+    borderColor: Colors.primary, backgroundColor: '#e3f2fd',
   },
   roleOptionLabel: { fontSize: 14, fontWeight: '600', color: '#333' },
   roleOptionDesc: { fontSize: 12, color: '#888', marginTop: 2 },
@@ -643,7 +645,7 @@ const styles = StyleSheet.create({
   infoBannerText: { fontSize: 12, color: '#1565c0', lineHeight: 18 },
 
   submitBtn: {
-    backgroundColor: '#2196F3', borderRadius: 10,
+    backgroundColor: Colors.primary, borderRadius: 10,
     height: 50, alignItems: 'center', justifyContent: 'center',
     marginBottom: 20,
   },

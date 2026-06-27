@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 /**
  * Modal de choix de session POS à reprendre — Axe POS / S6.
  *
@@ -119,7 +120,7 @@ export const PosSessionPicker: React.FC<Props> = ({
                   ) : null}
 
                   <View style={styles.resumeHint}>
-                    <Ionicons name="arrow-forward-circle" size={16} color="#2196F3" />
+                    <Ionicons name="arrow-forward-circle" size={16} color={Colors.primary} />
                     <Text style={styles.resumeHintText}>Reprendre ce panier</Text>
                   </View>
                 </TouchableOpacity>
@@ -201,7 +202,7 @@ const styles = StyleSheet.create({
   resumeHint: {
     flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8
   },
-  resumeHintText: { color: '#2196F3', fontWeight: '700', fontSize: 12 },
+  resumeHintText: { color: Colors.primary, fontWeight: '700', fontSize: 12 },
 
   footerActions: {
     flexDirection: 'row', gap: 8, marginTop: 12, alignItems: 'center'
@@ -214,7 +215,7 @@ const styles = StyleSheet.create({
 
   newBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, backgroundColor: '#2196F3',
+    gap: 6, backgroundColor: Colors.primary,
     paddingVertical: 14, borderRadius: 10
   },
   newBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 }

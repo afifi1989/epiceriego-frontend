@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -94,7 +95,7 @@ const styles = StyleSheet.create({
     color: '#888',
   },
   tabLabelActive: {
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '700',
   },
   tabLabelDisabled: {
@@ -106,7 +107,7 @@ const styles = StyleSheet.create({
     left: 8,
     right: 8,
     height: 3,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderRadius: 2,
   },
 });

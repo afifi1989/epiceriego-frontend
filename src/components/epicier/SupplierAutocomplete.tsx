@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -221,7 +222,7 @@ export default function SupplierAutocomplete(props: SupplierAutocompleteProps) {
         <View style={styles.dropdown}>
           {loading && (
             <View style={styles.dropdownLoading}>
-              <ActivityIndicator size="small" color="#2196F3" />
+              <ActivityIndicator size="small" color={Colors.primary} />
               <Text style={styles.dropdownLoadingText}>Recherche...</Text>
             </View>
           )}
@@ -349,7 +350,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#e3f2fd',
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
     borderWidth: 1,
     borderRadius: 8,
     paddingVertical: 10,

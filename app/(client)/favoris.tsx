@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -134,9 +135,9 @@ export default function FavorisScreen() {
           <View style={styles.cardInfo}>
             <Text style={styles.cardTitle}>{item.nomEpicerie}</Text>
             <Text style={styles.cardAddress}>{item.adresse}</Text>
-            <View style={styles.cardMeta}>
-              <Text style={styles.cardMetaText}>⭐ 4.5</Text>
-            </View>
+            {/* Note retirée : l'ancienne valeur "⭐ 4.5" était hardcodée (jamais
+                la vraie note). À réintroduire quand le DTO favoris portera
+                averageRating. */}
           </View>
         </View>
       </TouchableOpacity>

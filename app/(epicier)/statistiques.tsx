@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 // ============================================
 // app/(epicier)/statistiques.tsx
 // Écran des statistiques complètes pour l'épicier
@@ -101,7 +103,7 @@ export default function StatistiquesScreen() {
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Chargement des statistiques...</Text>
       </View>
     );
@@ -462,7 +464,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
@@ -473,7 +475,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   header: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     padding: 20,
     paddingTop: 10,
   },
@@ -509,7 +511,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   periodButtonActive: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   periodText: {
     fontSize: 13,
@@ -616,7 +618,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CAF50',
   },
   progressBlue: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   progressRed: {
     backgroundColor: '#f44336',
@@ -641,7 +643,7 @@ const styles = StyleSheet.create({
   statusValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 5,
   },
   statusLabel: {
@@ -679,7 +681,7 @@ const styles = StyleSheet.create({
   },
   chartBarFill: {
     width: '100%',
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderRadius: 4,
   },
   chartLabel: {
@@ -705,7 +707,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
@@ -838,6 +840,6 @@ const styles = StyleSheet.create({
   distributionValue: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
   },
 });

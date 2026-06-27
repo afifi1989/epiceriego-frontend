@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Livreur } from '../../services/epicierLivreurService';
 
@@ -195,7 +196,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   assignBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   unassignBtn: {
     backgroundColor: '#f44336',

@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import {
@@ -20,11 +21,20 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Skeleton, useToast } from "../../../src/components/feedback";
 import { searchHistoryService } from "../../../src/services/searchHistoryService";
 import { clientPreferencesService, ClientPreference } from "../../../src/services/clientPreferencesService";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+/**
+ * Hauteur de la barre StickyMiniCart hors safe area (paddingTop 4 + contenu
+ * ~64). La safe area bottom est ajoutée dynamiquement via useSafeAreaInsets —
+ * un padding fixe (ancien 110) cachait le dernier produit sous la barre sur
+ * iOS (barre réelle ≈116px avec le Home Indicator).
+ */
+const MINI_CART_BAR_HEIGHT = 72;
 import { ProductUnitDisplay } from "../../../components/client/ProductUnitDisplay";
 import { ProductImageModal } from "../../../src/components/client/ProductImageModal";
 import { FallbackImage } from "../../../components/client/FallbackImage";
@@ -110,6 +120,11 @@ export default function EpicerieDetailScreen() {
    *  uniquement au tout 1er chargement. Les refetch suivants (filtre, recherche)
    *  laissent la liste actuelle visible pour éviter un flash. */
   const [initialLoading, setInitialLoading] = useState(true);
+  /** Échec du dernier chargement (1ère page). Distingue « vraiment aucun
+   *  produit » d'une erreur réseau — sans lui, l'empty-state afficherait un
+   *  trompeur "Aucun produit trouvé" alors que le fetch a échoué, sans aucun
+   *  moyen de réessayer. */
+  const [loadError, setLoadError] = useState(false);
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
 
   // ── Branding (V101) ──────────────────────────────────────────────
@@ -258,8 +273,12 @@ export default function EpicerieDetailScreen() {
       setCurrentPage(result.number);
       setTotalProducts(result.totalElements);
       setHasMore(!result.last);
+      setLoadError(false);
     } catch (error) {
       console.error('[loadProducts] ERREUR:', error);
+      // Seul l'échec de la 1ère page bascule l'écran en mode erreur ; un
+      // échec d'infinite-scroll garde la liste déjà affichée.
+      if (!append) setLoadError(true);
     } finally {
       setLoading(false);
       // Une fois la 1ère page chargée (succès ou échec), on quitte le mode
@@ -593,6 +612,16 @@ export default function EpicerieDetailScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cart, id]);
 
+  // ── Dégagement bas des zones scrollables et des FABs ─────────────────────
+  // Mini-cart visible → on réserve sa hauteur réelle (barre + safe area +
+  // marge) pour que le dernier produit/contenu reste atteignable. Sinon,
+  // simple respiration au-dessus du Home Indicator.
+  const insets = useSafeAreaInsets();
+  const miniCartVisible = (currentEpicerieCart?.itemCount ?? 0) > 0;
+  const bottomClearance = miniCartVisible
+    ? MINI_CART_BAR_HEIGHT + Math.max(insets.bottom + 10, 16) + 12
+    : Math.max(insets.bottom, 16) + 12;
+
   // ── Catégories à plat pour les chips ─────────────────────────────────────
 
   const flatCategories = useMemo(() => {
@@ -690,6 +719,11 @@ export default function EpicerieDetailScreen() {
     clearBrandFilter();
     loadProducts(0, "", undefined, false, []);
   }, [loadProducts, clearBrandFilter]);
+
+  /** Relance le chargement après une erreur réseau, avec les filtres courants. */
+  const handleRetryLoad = useCallback(() => {
+    loadProducts(0, searchQuery, selectedCategoryIds, false, selectedTagIds);
+  }, [searchQuery, selectedCategoryIds, selectedTagIds, loadProducts]);
 
   // ── Chargement de la page suivante (infinite scroll) ─────────────────────
 
@@ -1006,7 +1040,7 @@ export default function EpicerieDetailScreen() {
         <View style={styles.epicCardBody}>
         {/* Header : nom + prix */}
         <View style={styles.epicCardHeader}>
-          <View style={{ flex: 1, marginRight: 10 }}>
+          <View style={{ flex: 1, marginEnd: 10 }}>
             <Text style={styles.epicCardName} numberOfLines={1}>{item.nom}</Text>
             {item.description ? (
               <Text style={styles.epicCardDesc} numberOfLines={2}>{item.description}</Text>
@@ -1621,7 +1655,7 @@ export default function EpicerieDetailScreen() {
             numColumns={viewMode === "grid" ? 2 : 1}
             columnWrapperStyle={viewMode === "grid" ? styles.gridColumnWrapper : undefined}
             keyExtractor={(item: Product) => `product-${item.id}-${item.photoUrl || "no-photo"}`}
-            contentContainerStyle={styles.listGrid}
+            contentContainerStyle={[styles.listGrid, { paddingBottom: bottomClearance }]}
             removeClippedSubviews={false}
             scrollEventThrottle={16}
             maxToRenderPerBatch={10}
@@ -1679,7 +1713,29 @@ export default function EpicerieDetailScreen() {
               ) : null
             }
             ListEmptyComponent={
-              viewMode === "sections" ? null : (
+              viewMode === "sections" ? null : loadError ? (
+                // Erreur réseau ≠ catalogue vide : on l'affiche comme telle,
+                // avec un vrai bouton Réessayer (sinon l'utilisateur restait
+                // face à un "Aucun produit trouvé" mensonger).
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyEmoji}>📡</Text>
+                  <Text style={styles.emptyText}>{t("epicerieDetail.loadError")}</Text>
+                  <Text style={styles.emptySubtext}>{t("epicerieDetail.loadErrorHint")}</Text>
+                  <TouchableOpacity
+                    style={styles.resetFiltersBtn}
+                    onPress={handleRetryLoad}
+                    disabled={loading}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("epicerieDetail.retry")}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#4CAF50" />
+                    ) : (
+                      <Text style={styles.resetFiltersBtnText}>{t("epicerieDetail.retry")}</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <View style={styles.emptyContainer}>
                   <Text style={styles.emptyEmoji}>🔍</Text>
                   <Text style={styles.emptyText}>{t("products.noProductsFound")}</Text>
@@ -1706,7 +1762,7 @@ export default function EpicerieDetailScreen() {
         {activeTab === "reviews" && epicerie && (
           <Animated.ScrollView
             style={{ flex: 1, backgroundColor: "#FAFAFA" }}
-            contentContainerStyle={{ paddingBottom: 120 }}
+            contentContainerStyle={{ paddingBottom: bottomClearance }}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             onScroll={Animated.event(
@@ -1824,7 +1880,7 @@ export default function EpicerieDetailScreen() {
         {activeTab === "info" && epicerie && (
           <Animated.ScrollView
             style={{ flex: 1, backgroundColor: "#FAFAFA" }}
-            contentContainerStyle={{ paddingBottom: 120 }}
+            contentContainerStyle={{ paddingBottom: bottomClearance }}
             showsVerticalScrollIndicator={false}
             scrollEventThrottle={16}
             onScroll={Animated.event(
@@ -2053,7 +2109,8 @@ export default function EpicerieDetailScreen() {
               styles.whatsappFab,
               // Surélever si la StickyMiniCart est visible pour cette épicerie
               // (panier non vide) — sinon le FAB chevaucherait la barre.
-              (currentEpicerieCart?.itemCount ?? 0) > 0 && styles.whatsappFabWithCart,
+              // Offset dynamique : hauteur réelle de la barre (safe area incluse).
+              miniCartVisible && { bottom: bottomClearance },
             ]}
             onPress={() => {
               const phone = epicerie.whatsappPhone!.replace(/[^0-9+]/g, "").replace("+", "");
@@ -2076,8 +2133,8 @@ export default function EpicerieDetailScreen() {
               styles.chatbotButton,
               // Surélever le FAB chatbot si la StickyMiniCart est visible
               // (panier non vide pour CETTE épicerie) — sinon il chevaucherait
-              // la barre flottante en bas.
-              (currentEpicerieCart?.itemCount ?? 0) > 0 && { bottom: 110 },
+              // la barre flottante en bas. Offset dynamique (safe area incluse).
+              miniCartVisible && { bottom: bottomClearance },
             ]}
             onPress={() => setShowChatbot(true)}
             activeOpacity={0.8}
@@ -2234,8 +2291,8 @@ const styles = StyleSheet.create({
   },
 
   /* === Mini-header sticky : ajout de boutons back + loupe === */
-  miniHeaderBackBtn: { padding: 4, marginRight: 6 },
-  miniHeaderSearchBtn: { padding: 4, marginLeft: 8 },
+  miniHeaderBackBtn: { padding: 4, marginEnd: 6 },
+  miniHeaderSearchBtn: { padding: 4, marginStart: 8 },
   miniHeaderRightGroup: {
     flexDirection: "row",
     alignItems: "center",
@@ -2276,11 +2333,11 @@ const styles = StyleSheet.create({
 
   /* === LISTE === */
   list: { padding: 12, paddingTop: 8 },
-  // paddingBottom élargi pour laisser respirer le dernier produit sous la
-  // StickyMiniCart (~90px de haut avec safe area iOS). Évite que le bouton
+  // Le paddingBottom est appliqué DYNAMIQUEMENT au render (bottomClearance :
+  // hauteur réelle de la StickyMiniCart + safe area). Évite que le bouton
   // "Ajouter" du dernier item soit masqué par la barre flottante.
-  listGrid: { paddingTop: 8, paddingBottom: 110 },
-  listCard: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 110 },
+  listGrid: { paddingTop: 8 },
+  listCard: { paddingHorizontal: 12, paddingTop: 8 },
 
   /* === CARTE (vue par défaut) === */
   bigCard: {
@@ -2497,7 +2554,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   miniHeaderTitle: { fontSize: 16, fontWeight: "800", flex: 1, letterSpacing: -0.2 },
-  miniHeaderRating: { fontSize: 14, fontWeight: "700", marginLeft: 12 },
+  miniHeaderRating: { fontSize: 14, fontWeight: "700", marginStart: 12 },
 
   // ── Tab Avis ──────────────────────────────────────────────────────────
   reviewsSummaryCard: {
@@ -2638,8 +2695,8 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     backgroundColor: "#E3F2FD",
     borderRadius: 999,
-    paddingLeft: 10,
-    paddingRight: 6,
+    paddingStart: 10,
+    paddingEnd: 6,
     paddingVertical: 4,
     gap: 6,
     borderWidth: 1,
@@ -2652,7 +2709,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1565C0",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 2,
+    marginStart: 2,
   },
   activeBrandFilterClearText: {
     color: "#fff",
@@ -2710,7 +2767,7 @@ const styles = StyleSheet.create({
   },
   productImageContainer: {
     width: 76, height: 76, backgroundColor: "#f5f5f5", borderRadius: 4,
-    marginRight: 12, overflow: "hidden", justifyContent: "center", alignItems: "center", position: "relative",
+    marginEnd: 12, overflow: "hidden", justifyContent: "center", alignItems: "center", position: "relative",
   },
   productImage: { width: "100%", height: "100%" },
   zoomIconOverlay: {
@@ -2732,7 +2789,7 @@ const styles = StyleSheet.create({
   seeMoreText: { fontSize: 11, color: "#4CAF50", fontWeight: "600" },
   addButton: {
     backgroundColor: "#4CAF50", width: 40, height: 40, borderRadius: 20,
-    justifyContent: "center", alignItems: "center", marginLeft: 8,
+    justifyContent: "center", alignItems: "center", marginStart: 8,
     shadowColor: "#4CAF50", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3, elevation: 3,
   },
   addButtonOos: { backgroundColor: "#e0e0e0", shadowOpacity: 0 },
@@ -2936,7 +2993,6 @@ const styles = StyleSheet.create({
     shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 6, elevation: 8,
     gap: 7,
   },
-  whatsappFabWithCart: { bottom: 110 },
   whatsappFabIcon: { fontSize: 22 },
   whatsappFabLabel: { color: "#fff", fontSize: 13, fontWeight: "bold" },
 

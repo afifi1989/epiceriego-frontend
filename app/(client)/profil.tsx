@@ -1,5 +1,8 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
+// Rouge "danger" unifié sur la palette du design system (était #ff5252).
+import { lightColors } from '../../src/theme/colors';
 import {
   Alert,
   ScrollView,
@@ -15,6 +18,26 @@ import { profileService } from '../../src/services/profileService';
 import { EditPhoneModal } from '../../src/components/client/EditPhoneModal';
 import { EditAddressModal } from '../../src/components/client/EditAddressModal';
 import { User } from '../../src/type';
+
+/**
+ * Ligne d'action du profil — factorise les 9 entrées (icône + libellé +
+ * chevron) et porte l'accessibilité en un seul endroit (role bouton, label =
+ * libellé traduit, sans lire l'emoji décoratif).
+ */
+function ActionRow({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      style={styles.actionButton}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <Text style={styles.actionIcon}>{icon}</Text>
+      <Text style={styles.actionText}>{label}</Text>
+      <Text style={styles.actionArrow}>›</Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function ProfilScreen() {
   const router = useRouter();
@@ -128,13 +151,15 @@ export default function ProfilScreen() {
             style={styles.infoRow}
             onPress={() => setShowEditPhone(true)}
             activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('profile.phone')} — ${user?.telephone?.trim() || t('profile.notProvided')}`}
           >
             <Text style={styles.infoLabel}>📱 {t('profile.phone')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
               <Text style={styles.infoValue}>
                 {user?.telephone && user.telephone.trim() !== '' ? user.telephone : t('profile.notProvided')}
               </Text>
-              <Text style={{ marginLeft: 6, color: '#4CAF50', fontWeight: '600' }}>
+              <Text style={{ marginStart: 6, color: '#4CAF50', fontWeight: '600' }}>
                 {user?.telephone && user.telephone.trim() !== '' ? '✎' : '+'}
               </Text>
             </View>
@@ -146,13 +171,15 @@ export default function ProfilScreen() {
             style={styles.infoRow}
             onPress={() => setShowEditAddress(true)}
             activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('profile.address')} — ${user?.adresse?.trim() || t('profile.notProvided')}`}
           >
             <Text style={styles.infoLabel}>📍 {t('profile.address')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 1 }}>
               <Text style={styles.infoValue} numberOfLines={2}>
                 {user?.adresse && user.adresse.trim() !== '' ? user.adresse : t('profile.notProvided')}
               </Text>
-              <Text style={{ marginLeft: 6, color: '#4CAF50', fontWeight: '600' }}>
+              <Text style={{ marginStart: 6, color: '#4CAF50', fontWeight: '600' }}>
                 {user?.adresse && user.adresse.trim() !== '' ? '✎' : '+'}
               </Text>
             </View>
@@ -163,89 +190,23 @@ export default function ProfilScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('profile.actions')}</Text>
 
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/(commandes)')}
-        >
-          <Text style={styles.actionIcon}>🛍️</Text>
-          <Text style={styles.actionText}>{t('profile.myOrders')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/favoris')}
-        >
-          <Text style={styles.actionIcon}>❤️</Text>
-          <Text style={styles.actionText}>{t('profile.myFavorites')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/mon-carnet')}
-        >
-          <Text style={styles.actionIcon}>📒</Text>
-          <Text style={styles.actionText}>{t('profile.myCarnet')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/factures-paiements')}
-        >
-          <Text style={styles.actionIcon}>💳</Text>
-          <Text style={styles.actionText}>{t('profile.myInvoices')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/fidelite' as any)}
-        >
-          <Text style={styles.actionIcon}>⭐</Text>
-          <Text style={styles.actionText}>{t('profile.myLoyalty')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/invitations')}
-        >
-          <Text style={styles.actionIcon}>✉️</Text>
-          <Text style={styles.actionText}>{t('profile.myInvitations')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/notifications')}
-        >
-          <Text style={styles.actionIcon}>📢</Text>
-          <Text style={styles.actionText}>{t('profile.myNotifications')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/settings' as any)}
-        >
-          <Text style={styles.actionIcon}>⚙️</Text>
-          <Text style={styles.actionText}>{t('profile.settings')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/(client)/aide-support' as any)}
-        >
-          <Text style={styles.actionIcon}>❓</Text>
-          <Text style={styles.actionText}>{t('profile.helpSupport')}</Text>
-          <Text style={styles.actionArrow}>›</Text>
-        </TouchableOpacity>
+        <ActionRow icon="🛍️" label={t('profile.myOrders')} onPress={() => router.push('/(client)/(commandes)')} />
+        <ActionRow icon="❤️" label={t('profile.myFavorites')} onPress={() => router.push('/(client)/favoris')} />
+        <ActionRow icon="📒" label={t('profile.myCarnet')} onPress={() => router.push('/(client)/mon-carnet')} />
+        <ActionRow icon="💳" label={t('profile.myInvoices')} onPress={() => router.push('/(client)/factures-paiements')} />
+        <ActionRow icon="⭐" label={t('profile.myLoyalty')} onPress={() => router.push('/(client)/fidelite' as any)} />
+        <ActionRow icon="✉️" label={t('profile.myInvitations')} onPress={() => router.push('/(client)/invitations')} />
+        <ActionRow icon="📢" label={t('profile.myNotifications')} onPress={() => router.push('/(client)/notifications')} />
+        <ActionRow icon="⚙️" label={t('profile.settings')} onPress={() => router.push('/(client)/settings' as any)} />
+        <ActionRow icon="❓" label={t('profile.helpSupport')} onPress={() => router.push('/(client)/aide-support' as any)} />
       </View>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+      <TouchableOpacity
+        style={styles.logoutButton}
+        onPress={handleLogout}
+        accessibilityRole="button"
+        accessibilityLabel={t('profile.logout')}
+      >
         <Text style={styles.logoutText}>🚪 {t('profile.logout')}</Text>
       </TouchableOpacity>
 
@@ -302,7 +263,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 10,
-    marginLeft: 5,
+    marginStart: 5,
   },
   infoCard: {
     backgroundColor: '#fff',
@@ -330,7 +291,7 @@ const styles = StyleSheet.create({
     color: '#333',
     flex: 1,
     textAlign: 'right',
-    marginLeft: 10,
+    marginStart: 10,
   },
   divider: {
     height: 1,
@@ -351,7 +312,7 @@ const styles = StyleSheet.create({
   },
   actionIcon: {
     fontSize: 24,
-    marginRight: 15,
+    marginEnd: 15,
   },
   actionText: {
     fontSize: 16,
@@ -375,11 +336,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     borderWidth: 2,
-    borderColor: '#ff5252',
+    borderColor: lightColors.danger,
   },
   logoutText: {
     fontSize: 16,
-    color: '#ff5252',
+    color: lightColors.danger,
     fontWeight: 'bold',
   },
   footer: {

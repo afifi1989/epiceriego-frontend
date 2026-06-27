@@ -1,3 +1,4 @@
+import { Colors } from '../../../../constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -205,7 +206,7 @@ export const BarcodesTab: React.FC<BarcodesTabProps> = ({ product, user }) => {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#2196F3" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /></View>;
   }
 
   if (units.length === 0) {
@@ -359,7 +360,7 @@ export const BarcodesTab: React.FC<BarcodesTabProps> = ({ product, user }) => {
                 returnKeyType="done"
               />
               <TouchableOpacity style={styles.scanBtn} onPress={openScanner}>
-                <Ionicons name="camera-outline" size={20} color="#2196F3" />
+                <Ionicons name="camera-outline" size={20} color={Colors.primary} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.addBtn, (!newBarcode.trim() || adding) && styles.btnDisabled]}
@@ -609,7 +610,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#90caf9',
   },
   addBtn: {
-    backgroundColor: '#2196F3', borderRadius: 10,
+    backgroundColor: Colors.primary, borderRadius: 10,
     paddingHorizontal: 16, height: 42,
     alignItems: 'center', justifyContent: 'center'
   },

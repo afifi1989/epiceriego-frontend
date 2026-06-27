@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -112,7 +114,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#2196F3',
+        tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: '#999',
         tabBarStyle: {
           backgroundColor: '#fff',
@@ -126,7 +128,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
           fontSize: 12,
           fontWeight: '600',
         },
-        headerStyle: { backgroundColor: '#2196F3' },
+        headerStyle: { backgroundColor: Colors.primary },
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: 'bold' },
       }}
@@ -172,12 +174,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
           title: 'Profil',
           tabBarIcon: () => <Text style={{ fontSize: 24 }}>👤</Text>,
           headerShown: false,
-        }}
-      />
-      <Tabs.Screen
-        name="parametrage"
-        options={{
-          href: null,
         }}
       />
       <Tabs.Screen
@@ -262,12 +258,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
-        name="modifier-profil"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
         name="horaires"
         options={{
           href: null,
@@ -336,12 +326,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
       />
       <Tabs.Screen
         name="commande-prep"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="commandes-list"
         options={{
           href: null,
         }}
@@ -452,12 +436,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
             />
 
       <Tabs.Screen
-                          name="preparer-commande"
-                          options={{
-                            href: null,
-                          }}
-                        />
-      <Tabs.Screen
         name="scan-qr"
         options={{
           href: null,
@@ -492,7 +470,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         options={{
           href: null,
           headerTitle: '🏪 Mon Épicerie',
-          headerStyle: { backgroundColor: '#2196F3' },
+          headerStyle: { backgroundColor: Colors.primary },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: 'bold' },
         }}
@@ -527,13 +505,6 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
-        name="synonymes"
-        options={{
-          href: null,
-          headerShown: false,
-        }}
-      />
-      <Tabs.Screen
         name="fidelite"
         options={{
           href: null,
@@ -544,7 +515,7 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         options={{
           href: null,
           headerTitle: '⭐ Mon abonnement',
-          headerStyle: { backgroundColor: '#2196F3' },
+          headerStyle: { backgroundColor: Colors.primary },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: 'bold' },
         }}
@@ -594,7 +565,7 @@ export default function EpicierLayout() {
   if (isAuthenticated === null) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }

@@ -97,7 +97,7 @@ const storyStyles = (theme: Theme) => StyleSheet.create({
   item: {
     width: 76,
     alignItems: 'center',
-    marginRight: theme.spacing.md,
+    marginEnd: theme.spacing.md,
   },
   ring: {
     width: 68,

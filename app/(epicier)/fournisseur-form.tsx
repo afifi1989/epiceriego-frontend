@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -181,7 +183,7 @@ export default function FournisseurFormScreen() {
   if (loadingInitial) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -388,7 +390,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#e0e0e0',
     gap: 6,
   },
-  typeBtnActive: { borderColor: '#2196F3', backgroundColor: '#e3f2fd' },
+  typeBtnActive: { borderColor: Colors.primary, backgroundColor: '#e3f2fd' },
   typeEmoji: { fontSize: 16 },
   typeLabel: { fontSize: 13, color: '#666', fontWeight: '600' },
   typeLabelActive: { color: '#1565c0' },
@@ -412,7 +414,7 @@ const styles = StyleSheet.create({
 
   saveBtn: {
     marginTop: 24, paddingVertical: 14,
-    backgroundColor: '#2196F3', borderRadius: 10,
+    backgroundColor: Colors.primary, borderRadius: 10,
     alignItems: 'center',
   },
   saveBtnDisabled: { backgroundColor: '#90caf9' },

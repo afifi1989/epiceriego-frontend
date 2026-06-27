@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran Approvisionnement — ÉPICIER
  * Permet de scanner un code-barre produit (EAN-13, UPC…) pour identifier
@@ -27,7 +29,7 @@ import { STORAGE_KEYS } from '../../src/constants/config';
 import { normalize } from '../../src/utils/synonymExpansion';
 import { BarcodeProductResult, Product, ProductUnit } from '../../src/type';
 
-const EPICIER_BLUE = '#2196F3';
+const EPICIER_BLUE = Colors.primary;
 
 export default function ApprovisionnementScreen() {
   const router = useRouter();

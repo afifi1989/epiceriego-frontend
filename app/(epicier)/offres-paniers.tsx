@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Liste des bundles / offres groupees pour l'epicier connecte.
  *
@@ -33,7 +35,7 @@ import bundleOfferService, {
   BundleOfferStatus,
 } from '../../src/services/bundleOfferService';
 
-const BLUE = '#2196F3';
+const BLUE = Colors.primary;
 const GREEN = '#388E3C';
 const ORANGE = '#F57C00';
 const GREY = '#9E9E9E';

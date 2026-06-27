@@ -189,7 +189,7 @@ function estimateDeliveryEta(distanceKm: number | null): string | null {
 const makeStyles = (theme: Theme, width: number) => StyleSheet.create({
   card: {
     width,
-    marginRight: theme.spacing.md,
+    marginEnd: theme.spacing.md,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     overflow: 'hidden',

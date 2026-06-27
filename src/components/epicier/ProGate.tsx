@@ -45,9 +45,14 @@ export function ProGate({ feature, children, hideWhenLocked }: ProGateProps) {
       <Pressable
         onPress={() => router.push('/(epicier)/mon-abonnement')}
         style={styles.overlay}
+        accessibilityRole="button"
+        accessibilityLabel="Fonctionnalité Pro — voir les offres d'abonnement"
       >
         <Text style={styles.lockIcon}>🔒</Text>
         <Text style={styles.lockLabel}>PRO</Text>
+        {/* Le verrou seul n'expliquait ni pourquoi ni quoi faire — l'épicier
+            au plan gratuit doit voir que c'est débloquable et où aller. */}
+        <Text style={styles.lockHint}>Voir les offres ›</Text>
       </Pressable>
     </View>
   );
@@ -89,6 +94,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#7C3AED',
     letterSpacing: 0.5,
+  },
+  lockHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#7C3AED',
+    opacity: 0.85,
   },
   inlineBadge: {
     paddingHorizontal: 6,

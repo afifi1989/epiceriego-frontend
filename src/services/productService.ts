@@ -117,6 +117,28 @@ export const productService = {
   },
 
   /**
+   * Vérifie en parallèle quels produits n'existent plus côté serveur.
+   * Utilisé par la réconciliation du panier client : un produit supprimé par
+   * l'épicier laisserait un item orphelin qui ferait échouer le checkout.
+   *
+   * Conservateur par design : seuls les statuts 404/410 marquent un produit
+   * comme supprimé. Les erreurs réseau/serveur (offline, timeout, 5xx) sont
+   * ignorées — on ne retire jamais un article du panier sur un simple doute.
+   */
+  findDeletedProductIds: async (ids: number[]): Promise<Set<number>> => {
+    const deleted = new Set<number>();
+    if (ids.length === 0) return deleted;
+    const results = await Promise.allSettled(ids.map((id) => api.get(`/products/${id}`)));
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        const status = (result.reason as any)?.response?.status;
+        if (status === 404 || status === 410) deleted.add(ids[index]);
+      }
+    });
+    return deleted;
+  },
+
+  /**
    * Traduit automatiquement un produit du français vers AR / EN / TZ via le LLM.
    * Retourne { fr, ar, en, tz } → { nom, description }
    */

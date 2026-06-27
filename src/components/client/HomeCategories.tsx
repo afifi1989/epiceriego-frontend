@@ -255,7 +255,7 @@ const cardStyles = (theme: Theme) => StyleSheet.create({
   card: {
     width: 84,
     alignItems: 'center',
-    marginRight: theme.spacing.md,
+    marginEnd: theme.spacing.md,
   },
   iconBox: {
     width: 64,
@@ -329,6 +329,6 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
   skeletonCard: {
     width: 84,
     alignItems: 'center',
-    marginRight: theme.spacing.md,
+    marginEnd: theme.spacing.md,
   },
 });

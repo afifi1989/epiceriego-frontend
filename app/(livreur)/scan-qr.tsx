@@ -1,3 +1,4 @@
+export { LivreurErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Écran Scanner QR — LIVREUR
  * Scanne le QR Code d'un client pour valider une livraison à domicile (HOME_DELIVERY).
@@ -54,13 +55,21 @@ export default function LivreurScanQrScreen() {
       );
     } catch (err: any) {
       setScannerVisible(false);
+      // Fallback explicite si le QR est illisible/expiré : la validation
+      // manuelle existe déjà ("✅ Livré au client" sur la card) — on guide
+      // le livreur vers ce chemin au lieu de le laisser boucler sur le scan.
+      // (Un code court à saisir nécessiterait un endpoint backend dédié.)
       Alert.alert(
         'Erreur de validation',
         typeof err === 'string' ? err : 'QR Code invalide, expiré ou déjà utilisé.',
         [
           {
-            text: 'Réessayer',
+            text: 'Réessayer le scan',
             onPress: () => setScannerVisible(true),
+          },
+          {
+            text: 'Valider sans QR',
+            onPress: () => router.push('/(livreur)/deliveries'),
           },
           { text: 'Annuler', style: 'cancel' },
         ]
@@ -111,6 +120,8 @@ export default function LivreurScanQrScreen() {
           style={styles.scanButton}
           onPress={() => setScannerVisible(true)}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Ouvrir le scanner de QR code"
         >
           <MaterialCommunityIcons name="camera" size={24} color="#fff" style={{ marginRight: 10 }} />
           <Text style={styles.scanButtonText}>Scanner le QR du client</Text>
@@ -121,7 +132,9 @@ export default function LivreurScanQrScreen() {
           <MaterialCommunityIcons name="information-outline" size={18} color="#666" />
           <Text style={styles.helpText}>
             La livraison doit être en statut <Text style={styles.bold}>EN LIVRAISON</Text> et
-            vous devez être le livreur assigné pour valider par QR Code.
+            vous devez être le livreur assigné pour valider par QR Code.{'\n'}
+            <Text style={styles.bold}>QR illisible ?</Text> Validez depuis la liste des
+            livraisons avec le bouton « ✅ Livré au client ».
           </Text>
         </View>
       </View>

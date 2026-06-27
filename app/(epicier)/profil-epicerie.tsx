@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -64,7 +66,7 @@ export default function ProfilEpicerieScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -223,7 +225,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f5f5' },
 
   header: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     padding: 30, paddingTop: 40,
     alignItems: 'center',
   },
@@ -249,7 +251,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08, shadowRadius: 4, elevation: 3,
   },
   statIcon: { fontSize: 26, marginBottom: 5 },
-  statValue: { fontSize: 18, fontWeight: 'bold', color: '#2196F3' },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: Colors.primary },
   statWarning: { color: '#f44336' },
   statLabel: { fontSize: 11, color: '#888', marginTop: 2, fontWeight: '600' },
 

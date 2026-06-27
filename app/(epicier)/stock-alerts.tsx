@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran "Alertes stock" (S4) — vue consolidée pour l'épicier :
  * ruptures / stock bas / DLC proche / ruptures prévisionnelles.
@@ -80,7 +82,7 @@ export default function StockAlertsScreen() {
       </View>
 
       {loading && !alerts
-        ? <View style={styles.centered}><ActivityIndicator color="#2196F3" size="large" /></View>
+        ? <View style={styles.centered}><ActivityIndicator color={Colors.primary} size="large" /></View>
         : (
           <>
             {/* Onglets */}

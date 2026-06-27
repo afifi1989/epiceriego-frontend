@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Écran QR Code — CLIENT
  * Affiche le QR Code de validation de la commande.
@@ -206,7 +207,7 @@ export default function OrderQrCodeScreen() {
         style={[styles.actionButton, { backgroundColor: accentColor }]}
         onPress={loadQrToken}
       >
-        <MaterialCommunityIcons name="refresh" size={20} color="#fff" style={{ marginRight: 8 }} />
+        <MaterialCommunityIcons name="refresh" size={20} color="#fff" style={{ marginEnd: 8 }} />
         <Text style={styles.actionButtonText}>Actualiser le QR Code</Text>
       </TouchableOpacity>
 

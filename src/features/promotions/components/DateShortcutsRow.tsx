@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -43,7 +44,7 @@ const styles = StyleSheet.create({
   chip: {
     backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 7,

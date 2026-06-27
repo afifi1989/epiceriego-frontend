@@ -26,6 +26,7 @@ export const NotificationType = {
   ORDER_DETAIL: 'ORDER_DETAIL',
 
   DELIVERY: 'DELIVERY',
+  DELIVERY_ASSIGNED: 'DELIVERY_ASSIGNED',
 
   PROMOTION: 'PROMOTION',
   PROMO: 'PROMO',
@@ -84,6 +85,7 @@ const FAMILY_MAP: Record<NotificationTypeValue, NotificationFamily> = {
   [NotificationType.ORDER_CANCELLED]: 'ORDER',
   [NotificationType.ORDER_DETAIL]: 'ORDER',
   [NotificationType.DELIVERY]: 'DELIVERY',
+  [NotificationType.DELIVERY_ASSIGNED]: 'DELIVERY',
   [NotificationType.PROMOTION]: 'PROMOTION',
   [NotificationType.PROMO]: 'PROMOTION',
   [NotificationType.EPICERIE]: 'EPICERIE',

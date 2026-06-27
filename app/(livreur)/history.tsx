@@ -1,3 +1,4 @@
+export { LivreurErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import {
   View,
   Text,
@@ -14,6 +15,11 @@ import { useFocusEffect } from 'expo-router';
 import { DeliveryCard } from '../../src/components/livreur/DeliveryCard';
 import { livreurService } from '../../src/services/livreurService';
 import { Delivery } from '../../src/type';
+import {
+  isAwaitingPickup,
+  isCancelled,
+  isDelivered,
+} from '../../src/utils/deliveryStatus';
 
 type FilterStatus = 'all' | 'completed' | 'pending' | 'cancelled';
 
@@ -43,20 +49,20 @@ export default function LivreurHistoryScreen() {
     }
   }, []);
 
-  // Appliquer le filtre
+  // Appliquer le filtre (statuts normalisés : le backend renvoie
+  // DELIVERED/CANCELLED/READY..., pas 'completed'/'in_progress')
   useEffect(() => {
     let filtered = deliveries;
 
     if (filterStatus !== 'all') {
       filtered = deliveries.filter(d => {
-        const status = d.status.toLowerCase();
         switch (filterStatus) {
           case 'completed':
-            return status === 'completed' || status === 'complétée';
+            return isDelivered(d.status);
           case 'pending':
-            return status === 'pending' || status === 'en attente';
+            return isAwaitingPickup(d.status);
           case 'cancelled':
-            return status === 'cancelled' || status === 'annulée';
+            return isCancelled(d.status);
           default:
             return true;
         }
@@ -85,12 +91,15 @@ export default function LivreurHistoryScreen() {
     setIsRefreshing(false);
   };
 
-  // Calculer les statistiques
+  // Calculer les statistiques (le « montant total livré » ne compte
+  // que les livraisons réellement DELIVERED)
   const stats = {
-    completed: deliveries.filter(d => d.status.toLowerCase() === 'completed' || d.status.toLowerCase() === 'complétée').length,
-    pending: deliveries.filter(d => d.status.toLowerCase() === 'pending' || d.status.toLowerCase() === 'en attente').length,
-    cancelled: deliveries.filter(d => d.status.toLowerCase() === 'cancelled' || d.status.toLowerCase() === 'annulée').length,
-    totalAmount: deliveries.reduce((sum, d) => sum + d.total, 0),
+    completed: deliveries.filter(d => isDelivered(d.status)).length,
+    pending: deliveries.filter(d => isAwaitingPickup(d.status)).length,
+    cancelled: deliveries.filter(d => isCancelled(d.status)).length,
+    totalAmount: deliveries
+      .filter(d => isDelivered(d.status))
+      .reduce((sum, d) => sum + d.total, 0),
   };
 
   const renderDelivery = ({ item }: { item: Delivery }) => (

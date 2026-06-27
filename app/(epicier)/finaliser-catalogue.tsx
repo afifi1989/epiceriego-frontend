@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Écran « Finaliser mon catalogue » — saisie du stock de départ des produits
  * importés/brouillon, hors onboarding (accessible via la bannière des écrans

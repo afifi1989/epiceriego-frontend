@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -25,6 +26,7 @@ import { DeliveryQuote, deliveryQuoteService } from '../../src/services/delivery
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService, BatchOrderError } from '../../src/services/orderService';
 import { paymentService } from '../../src/services/paymentService';
+import { productService } from '../../src/services/productService';
 import { AppliedPromoCode, extractPromoRejection } from '../../src/services/promoCodeService';
 import { profileService } from '../../src/services/profileService';
 import shopLinkService from '../../src/services/shopLinkService';
@@ -75,6 +77,13 @@ export default function CartScreen() {
   /** Timer pour la persistance débauncée du panier. Coalesce les clics rapides
    *  sur +/- en une seule écriture AsyncStorage. */
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Verrou synchrone anti double-soumission. `disabled={loading}` ne suffit
+   * pas : setState est asynchrone, un 2e tap très rapide peut entrer dans
+   * handleOrder avant que le re-render ne désactive le bouton → risque de
+   * commande dupliquée. Le ref, lui, est lu/écrit de façon synchrone.
+   */
+  const isSubmittingRef = useRef(false);
 
   /** Last delivery coordinates obtained (saved address or GPS). Used to attach
    *  lat/lng to the order payload — the backend recomputes the fee from these. */
@@ -105,7 +114,12 @@ export default function CartScreen() {
   // tamper with it. `null` means "no quote yet" (manual address typed, or
   // location not yet picked up).
   const [epicerie, setEpicerie] = useState<Epicerie | null>(null);
-  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  // Devis de livraison PAR épicerie (clé = epicerieId). Source de vérité unique
+  // pour mono ET multi-boutique. En multi, on calcule un devis pour CHAQUE
+  // boutique (le mode zone/forfait est résolu côté serveur via /delivery-quote)
+  // puis on agrège les frais ; une boutique non livrable à l'adresse bloque le
+  // checkout (règle de gestion obligatoire).
+  const [deliveryQuotes, setDeliveryQuotes] = useState<Record<number, DeliveryQuote>>({});
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [hasSavedAddress, setHasSavedAddress] = useState(false);
 
@@ -133,6 +147,38 @@ export default function CartScreen() {
     ? (creditInfoByEpicerie[primaryEpicerieId] ?? null)
     : null;
 
+  // Devis de l'épicerie primaire — alimente l'affichage mono existant.
+  const deliveryQuote: DeliveryQuote | null =
+    primaryEpicerieId != null ? (deliveryQuotes[primaryEpicerieId] ?? null) : null;
+
+  /**
+   * Agrège les frais de livraison sur TOUTES les boutiques du panier
+   * (HOME_DELIVERY uniquement). Règle de gestion obligatoire : chaque boutique
+   * doit avoir un devis livrable (`canDeliver` + `deliveryFee`) — calculé par
+   * zone (distance) ou forfaitaire, c'est le serveur qui tranche via
+   * `/delivery-quote`. Si une seule boutique n'est pas livrable à l'adresse,
+   * la commande est bloquée (`allDeliverable=false`).
+   *
+   * - `total`         : somme des frais des boutiques livrables.
+   * - `undeliverable` : boutiques sans devis livrable (pas de devis OU hors zone).
+   * - `pending`       : au moins un devis manque encore (coords pas fournies).
+   */
+  const computeDeliveryAggregate = (groups: CartGroup[]) => {
+    if (deliveryType !== 'HOME_DELIVERY') {
+      return { total: 0, allDeliverable: true, undeliverable: [] as CartGroup[], pending: false };
+    }
+    let total = 0;
+    let pending = false;
+    const undeliverable: CartGroup[] = [];
+    for (const g of groups) {
+      const q = deliveryQuotes[g.epicerieId];
+      if (!q) { pending = true; undeliverable.push(g); continue; }
+      if (!q.canDeliver || q.deliveryFee == null) { undeliverable.push(g); continue; }
+      total += q.deliveryFee;
+    }
+    return { total, allDeliverable: undeliverable.length === 0, undeliverable, pending };
+  };
+
   // V95 — Code promo applique sur le panier. Reset automatique lors d'un
   // changement d'epicerie (un code est scopé a une épicerie). Sera transmis
   // dans createOrder.promoCode au checkout — le serveur fait l'application
@@ -154,6 +200,37 @@ export default function CartScreen() {
     // /promo-codes/validate quand le subtotal bouge.
   }, [primaryEpicerieId, appliedPromo]);
 
+  /**
+   * Réconciliation du panier : si l'épicier a supprimé un produit, l'item
+   * devient orphelin et le checkout échouerait tardivement avec une erreur
+   * serveur bloquante. On vérifie en arrière-plan (sans bloquer l'affichage)
+   * et on retire les articles introuvables avec un toast explicatif.
+   *
+   * Seul un 404/410 retire un article — jamais une erreur réseau (offline ≠
+   * supprimé, cf. productService.findDeletedProductIds). Best-effort : un
+   * échec de la réconciliation ne doit jamais impacter le panier.
+   */
+  const reconcileDeletedProducts = useCallback(
+    async (items: CartItem[], isCancelled: () => boolean) => {
+      try {
+        const ids = [...new Set(items.map((i) => i.productId))];
+        if (ids.length === 0) return;
+        const deletedIds = await productService.findDeletedProductIds(ids);
+        if (deletedIds.size === 0 || isCancelled()) return;
+        setCart((prev) => {
+          const next = prev.filter((i) => !deletedIds.has(i.productId));
+          if (next.length === prev.length) return prev;
+          cartService.saveCart(next).catch(() => {});
+          return next;
+        });
+        toast.info(t('cart.itemsRemovedTitle'), t('cart.itemsRemovedByStore'));
+      } catch {
+        // Réconciliation best-effort — silencieux par design.
+      }
+    },
+    [toast, t]
+  );
+
   // Charger le panier CHAQUE FOIS qu'on navigue vers cette page
   useFocusEffect(
     useCallback(() => {
@@ -167,6 +244,10 @@ export default function CartScreen() {
           if (cancelled) return;
           setCart(savedCart);
           setCartBundles(savedBundles);
+
+          // Fire-and-forget : la vérification des produits supprimés tourne
+          // pendant que l'utilisateur voit déjà son panier.
+          reconcileDeletedProducts(savedCart, () => cancelled);
 
           // Load credit info pour CHAQUE épicerie du panier (multi-boutique).
           // V106 — Inclut les bundles pour ne pas oublier les paniers 100% bundles.
@@ -203,7 +284,7 @@ export default function CartScreen() {
 
       loadCart();
       return () => { cancelled = true; };
-    }, [toast, t])
+    }, [toast, t, reconcileDeletedProducts])
   );
 
   // Si le composant est démonté avec un timer pending, on flush la dernière
@@ -295,30 +376,50 @@ export default function CartScreen() {
    * loading state and gracefully degrades to `null` on error — the user can
    * still place the order without a fee preview, the server will recompute.
    */
-  const fetchQuote = useCallback(async (lat: number, lng: number) => {
-    if (!epicerie) return;
+  const fetchQuotes = useCallback(async (lat: number, lng: number) => {
+    // Calcule un devis pour CHAQUE boutique du panier (multi-épicerie inclus).
+    // Le backend applique par boutique le bon mode (ZONES → distance / haversine,
+    // FLAT_RATE → forfait, NONE → non livrable). On ne fait aucun calcul ici :
+    // on agrège seulement les montants renvoyés.
+    const groups = groupCartByEpicerie(cart, cartBundles);
+    if (groups.length === 0) return;
     setQuoteLoading(true);
     try {
-      const q = await deliveryQuoteService.quote(epicerie.id, lat, lng);
-      setDeliveryQuote(q);
-      // If the épicerie cannot deliver to this point, auto-switch to PICKUP
-      // so the user immediately sees a viable next step instead of being stuck.
-      if (!q.canDeliver && deliveryType === 'HOME_DELIVERY') {
-        setDeliveryType('PICKUP');
-        showCheckoutWarning(
-          t('common.error'),
-          q.mode === 'NONE'
-            ? 'Cette épicerie ne livre pas — retrait en boutique uniquement.'
-            : 'Adresse hors zone de livraison — basculé sur retrait en boutique.',
-        );
+      const entries = await Promise.all(
+        groups.map(async (g) => {
+          try {
+            const q = await deliveryQuoteService.quote(g.epicerieId, lat, lng);
+            return [g.epicerieId, q] as const;
+          } catch (e) {
+            console.warn('[CartScreen] Quote failed for', g.epicerieId, e);
+            return [g.epicerieId, null] as const;
+          }
+        }),
+      );
+      const map: Record<number, DeliveryQuote> = {};
+      for (const [id, q] of entries) if (q) map[id] = q;
+      setDeliveryQuotes(map);
+
+      // Mono-boutique : si l'unique épicerie ne livre pas, bascule auto en
+      // PICKUP (UX existante). En MULTI, on ne bascule pas (impossible de mixer
+      // les types) — le blocage se fait au checkout avec la liste des boutiques
+      // hors zone, via computeDeliveryAggregate.
+      if (groups.length === 1) {
+        const q = map[groups[0].epicerieId];
+        if (q && !q.canDeliver && deliveryType === 'HOME_DELIVERY') {
+          setDeliveryType('PICKUP');
+          showCheckoutWarning(
+            t('common.error'),
+            q.mode === 'NONE'
+              ? 'Cette épicerie ne livre pas — retrait en boutique uniquement.'
+              : 'Adresse hors zone de livraison — basculé sur retrait en boutique.',
+          );
+        }
       }
-    } catch (e) {
-      console.warn('[CartScreen] Quote failed:', e);
-      setDeliveryQuote(null);
     } finally {
       setQuoteLoading(false);
     }
-  }, [epicerie, deliveryType, t, toast]);
+  }, [cart, cartBundles, deliveryType, t, toast]);
 
   /** Use the address + lat/lng saved on the user's profile. */
   const useSavedAddress = useCallback(async () => {
@@ -331,11 +432,11 @@ export default function CartScreen() {
       if (me.adresse) setAdresse(me.adresse);
       if (me.telephone) setTelephone(me.telephone);
       lastCoordsRef.current = { lat: me.latitude, lng: me.longitude };
-      await fetchQuote(me.latitude, me.longitude);
+      await fetchQuotes(me.latitude, me.longitude);
     } catch (e) {
       console.warn('[CartScreen] useSavedAddress failed:', e);
     }
-  }, [fetchQuote, t, toast]);
+  }, [fetchQuotes, t, toast]);
 
   /** Ask for GPS permission, get a fresh fix, and fetch the quote. */
   const useGpsLocation = useCallback(async () => {
@@ -364,14 +465,14 @@ export default function CartScreen() {
           if (parts.length > 0) setAdresse(parts.join(', '));
         }
       } catch { /* noop */ }
-      await fetchQuote(pos.coords.latitude, pos.coords.longitude);
+      await fetchQuotes(pos.coords.latitude, pos.coords.longitude);
     } catch (e) {
       console.warn('[CartScreen] GPS failed:', e);
       showCheckoutError(t('common.error'), 'Impossible de récupérer votre position.');
     } finally {
       setQuoteLoading(false);
     }
-  }, [fetchQuote, t, toast]);
+  }, [fetchQuotes, t, toast]);
 
   const loadSavedPaymentMethods = async () => {
     try {
@@ -647,6 +748,35 @@ export default function CartScreen() {
       return;
     }
 
+    // Règle de gestion OBLIGATOIRE : en livraison à domicile, les frais doivent
+    // être calculés pour CHAQUE boutique du panier (zone ou forfait). Sans
+    // devis livrable pour toutes, la commande ne peut pas passer.
+    if (deliveryType === 'HOME_DELIVERY') {
+      if (quoteLoading) {
+        showCheckoutWarning(t('common.error'), 'Calcul des frais de livraison en cours, patientez…');
+        return;
+      }
+      const groups = groupCartByEpicerie(cart, cartBundles);
+      const agg = computeDeliveryAggregate(groups);
+      if (!lastCoordsRef.current || agg.pending) {
+        showCheckoutWarning(
+          t('common.error'),
+          'Calculez les frais de livraison via « Mon adresse » ou le GPS avant de continuer.',
+        );
+        return;
+      }
+      if (!agg.allDeliverable) {
+        const names = agg.undeliverable.map(g => g.epicerieNom || `#${g.epicerieId}`).join(', ');
+        showCheckoutWarning(
+          'Livraison indisponible',
+          groups.length > 1
+            ? `Ces boutiques ne livrent pas à votre adresse : ${names}. Retirez-les du panier ou choisissez le retrait en boutique.`
+            : 'Cette épicerie ne livre pas à votre adresse. Choisissez le retrait en boutique.',
+        );
+        return;
+      }
+    }
+
     setCheckoutError(null);
     setCheckoutStep('payment');
   };
@@ -655,6 +785,27 @@ export default function CartScreen() {
     // Reset à chaque retry — sinon une ancienne erreur reste affichée pendant
     // qu'on charge la nouvelle tentative.
     setCheckoutError(null);
+
+    // Règle OBLIGATOIRE (défense en profondeur — déjà vérifiée à l'étape
+    // livraison) : en HOME_DELIVERY, chaque boutique doit avoir un devis
+    // livrable. Bloque le submit sinon, avant tout appel réseau. Le backend
+    // re-valide de toute façon (anti-hack), mais on évite un échec tardif.
+    if (deliveryType === 'HOME_DELIVERY') {
+      const dGroups = groupCartByEpicerie(cart, cartBundles);
+      const agg = computeDeliveryAggregate(dGroups);
+      if (!lastCoordsRef.current || agg.pending || !agg.allDeliverable) {
+        const names = agg.undeliverable.map(g => g.epicerieNom || `#${g.epicerieId}`).join(', ');
+        showCheckoutError(
+          'Livraison indisponible',
+          !lastCoordsRef.current || agg.pending
+            ? 'Calculez les frais de livraison (adresse / GPS) avant de valider.'
+            : dGroups.length > 1
+              ? `Ces boutiques ne livrent pas à votre adresse : ${names}. Retirez-les ou choisissez le retrait.`
+              : 'Cette épicerie ne livre pas à votre adresse. Choisissez le retrait en boutique.',
+        );
+        return;
+      }
+    }
 
     // Validation du paiement par carte
     if (paymentMethod === 'CARD' && selectedSavedCard === null && !showCardForm) {
@@ -709,12 +860,14 @@ export default function CartScreen() {
         // le refus qu'au retour serveur. On compare maintenant au total réel
         // (subtotal − promo + frais de livraison) avant l'appel API.
         const groupSubtotal = g.items.reduce((s, i) => s + computeItemTotal(i), 0);
-        const discountVal = !isMulti ? (appliedPromo?.discount ?? 0) : 0;
-        const deliveryFeeVal = (!isMulti
-              && deliveryType === 'HOME_DELIVERY'
-              && !!deliveryQuote?.canDeliver
-              && deliveryQuote.deliveryFee != null)
-          ? deliveryQuote.deliveryFee
+        const discountVal = !isMulti ? (appliedPromo?.discountAmount ?? 0) : 0;
+        // Frais de livraison de CETTE boutique (devis propre à l'épicerie) —
+        // inclus aussi en multi désormais, pour un check crédit fidèle.
+        const gQuote = deliveryQuotes[g.epicerieId];
+        const deliveryFeeVal = (deliveryType === 'HOME_DELIVERY'
+              && !!gQuote?.canDeliver
+              && gQuote.deliveryFee != null)
+          ? gQuote.deliveryFee
           : 0;
         const estimatedTotal = Math.max(0, groupSubtotal - discountVal + deliveryFeeVal);
 
@@ -733,6 +886,10 @@ export default function CartScreen() {
       }
     }
 
+    // Tout ce qui précède est synchrone (aucune réentrance possible) ; à
+    // partir d'ici on entre dans la zone async → on pose le verrou.
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setLoading(true);
 
     try {
@@ -749,10 +906,7 @@ export default function CartScreen() {
       const isMultiEpicerie = groups.length > 1;
 
       if (isMultiEpicerie && paymentMethod === 'CARD') {
-        showCheckoutWarning(
-          t('common.error'),
-          'Le paiement par carte n\'est pas disponible pour une commande multi-boutiques. Choisissez espèces ou compte client.'
-        );
+        showCheckoutWarning(t('common.error'), t('cart.multiStoreCardUnavailable'));
         return;
       }
 
@@ -760,10 +914,7 @@ export default function CartScreen() {
         // Un code promo est specifique a une boutique : on ne peut pas
         // l'appliquer a plusieurs commandes en meme temps. L'utilisateur
         // doit le retirer ou commander les boutiques separement.
-        showCheckoutWarning(
-          t('common.error'),
-          'Le code promo ne peut s\'appliquer qu\'a une seule boutique. Retirez-le ou separez vos commandes.'
-        );
+        showCheckoutWarning(t('common.error'), t('cart.multiStorePromoUnavailable'));
         return;
       }
 
@@ -946,8 +1097,10 @@ export default function CartScreen() {
       // a l'utilisateur laquelle de ses boutiques a pose probleme.
       if (error instanceof BatchOrderError) {
         showCheckoutError(
-          'Aucune commande creee',
-          `Echec sur l'une de vos boutiques (commande #${error.failedIndex + 1}) : ${error.message}. Aucune autre commande n'a ete creee.`
+          t('cart.batchOrderFailedTitle'),
+          t('cart.batchOrderFailedMessage')
+            .replace('{{index}}', String(error.failedIndex + 1))
+            .replace('{{message}}', error.message)
         );
         return;
       }
@@ -969,6 +1122,7 @@ export default function CartScreen() {
         showCheckoutError(t('common.error'), errorMessage);
       }
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -1179,7 +1333,7 @@ export default function CartScreen() {
       backgroundColor: '#ffebee',
       justifyContent: 'center',
       alignItems: 'center',
-      marginLeft: 8,
+      marginStart: 8,
     },
     removeButtonText: {
       color: '#c62828',
@@ -1452,6 +1606,47 @@ export default function CartScreen() {
       fontSize: 12,
       color: '#777',
       marginTop: 4,
+    },
+    // —— Devis multi-boutique (une ligne par épicerie) ——
+    multiQuoteRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 6,
+    },
+    multiQuoteName: {
+      flex: 1,
+      fontSize: 13,
+      color: '#333',
+      marginRight: 8,
+    },
+    multiQuoteFee: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#1B5E20',
+    },
+    multiQuoteFeeKo: {
+      color: '#C62828',
+      fontWeight: '600',
+    },
+    multiQuoteTotalRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 8,
+      paddingTop: 8,
+      borderTopWidth: 1,
+      borderTopColor: '#E0E0E0',
+    },
+    multiQuoteTotalLabel: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: '#333',
+    },
+    multiQuoteTotalValue: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: '#1B5E20',
     },
     subTotalRow: {
       flexDirection: 'row',
@@ -1885,10 +2080,15 @@ export default function CartScreen() {
         {(() => {
           // Decomposition affichee uniquement si livraison OU promo present.
           // Pour PICKUP sans promo : on garde l'affichage compact (juste Total).
+          // Frais de livraison = somme des devis de TOUTES les boutiques (multi
+          // inclus). Affiché seulement quand tous les devis sont livrables, pour
+          // ne pas montrer un total partiel trompeur.
+          const deliveryAgg = computeDeliveryAggregate(cartGroups);
           const showDelivery = deliveryType === 'HOME_DELIVERY'
-            && !!deliveryQuote?.canDeliver
-            && deliveryQuote.deliveryFee != null;
-          const deliveryFeeVal = showDelivery ? (deliveryQuote!.deliveryFee ?? 0) : 0;
+            && deliveryAgg.allDeliverable
+            && !deliveryAgg.pending
+            && deliveryAgg.total > 0;
+          const deliveryFeeVal = showDelivery ? deliveryAgg.total : 0;
           const discountVal = appliedPromo?.discountAmount ?? 0;
           const finalTotal = Math.max(0, getTotal() - discountVal + deliveryFeeVal);
           const showDecomposition = showDelivery || appliedPromo != null;
@@ -2089,7 +2289,7 @@ export default function CartScreen() {
                       // Manual edit invalidates the previous fee preview — the
                       // user clearly typed a new address that doesn't match
                       // the lat/lng we still hold.
-                      if (deliveryQuote) setDeliveryQuote(null);
+                      setDeliveryQuotes({});
                       lastCoordsRef.current = null;
                     }}
                   />
@@ -2131,14 +2331,20 @@ export default function CartScreen() {
                         </TouchableOpacity>
                       </View>
 
-                      {/* Quote preview card */}
+                      {/* Devis livraison — mono = carte unique ; multi = une
+                          ligne par boutique + total agrégé (règle obligatoire :
+                          toutes les boutiques doivent être livrables). */}
                       {quoteLoading ? (
                         <View style={styles.quoteCard}>
                           <ActivityIndicator size="small" color="#4CAF50" />
                           <Text style={styles.quoteCardSubText}>Calcul des frais…</Text>
                         </View>
-                      ) : deliveryQuote ? (
-                        deliveryQuote.canDeliver && deliveryQuote.deliveryFee != null ? (
+                      ) : Object.keys(deliveryQuotes).length === 0 ? (
+                        <Text style={styles.quoteCardSubText}>
+                          ℹ️ Utilisez votre adresse enregistrée ou le GPS pour calculer les frais.
+                        </Text>
+                      ) : cartGroups.length === 1 ? (
+                        deliveryQuote && deliveryQuote.canDeliver && deliveryQuote.deliveryFee != null ? (
                           <View style={[styles.quoteCard, styles.quoteCardOk]}>
                             <Text style={styles.quoteCardTitle}>✅ Livraison disponible</Text>
                             <Text style={styles.quoteCardLine}>
@@ -2158,16 +2364,50 @@ export default function CartScreen() {
                           <View style={[styles.quoteCard, styles.quoteCardKo]}>
                             <Text style={styles.quoteCardTitleKo}>⚠️ Livraison indisponible</Text>
                             <Text style={styles.quoteCardSubText}>
-                              {deliveryQuote.mode === 'NONE'
+                              {deliveryQuote?.mode === 'NONE'
                                 ? 'Cette épicerie ne livre pas. Choisissez le retrait en boutique.'
                                 : 'Adresse hors zone de livraison. Choisissez le retrait en boutique.'}
                             </Text>
                           </View>
                         )
                       ) : (
-                        <Text style={styles.quoteCardSubText}>
-                          ℹ️ Utilisez votre adresse enregistrée ou le GPS pour calculer les frais.
-                        </Text>
+                        <View style={styles.quoteCard}>
+                          <Text style={styles.quoteCardTitle}>Frais de livraison par boutique</Text>
+                          {cartGroups.map((g) => {
+                            const q = deliveryQuotes[g.epicerieId];
+                            const ok = !!q && q.canDeliver && q.deliveryFee != null;
+                            return (
+                              <View key={g.epicerieId} style={styles.multiQuoteRow}>
+                                <Text style={styles.multiQuoteName} numberOfLines={1}>
+                                  {ok ? '✅' : !q ? '⏳' : '⚠️'} {g.epicerieNom || `#${g.epicerieId}`}
+                                </Text>
+                                <Text style={[styles.multiQuoteFee, !ok && styles.multiQuoteFeeKo]}>
+                                  {ok
+                                    ? formatPrice(q!.deliveryFee!, currency)
+                                    : !q
+                                      ? 'À calculer'
+                                      : (q.mode === 'NONE' ? 'Ne livre pas' : 'Hors zone')}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                          {(() => {
+                            const agg = computeDeliveryAggregate(cartGroups);
+                            return agg.allDeliverable ? (
+                              <View style={styles.multiQuoteTotalRow}>
+                                <Text style={styles.multiQuoteTotalLabel}>Total livraison</Text>
+                                <Text style={styles.multiQuoteTotalValue}>
+                                  {formatPrice(agg.total, currency)}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={[styles.quoteCardSubText, { marginTop: 8 }]}>
+                                ⚠️ Une ou plusieurs boutiques ne livrent pas à votre adresse —
+                                retirez-les ou choisissez le retrait en boutique.
+                              </Text>
+                            );
+                          })()}
+                        </View>
                       )}
                     </>
                   )}
@@ -2222,14 +2462,18 @@ export default function CartScreen() {
                       <Text style={styles.summaryValue}>{telephone}</Text>
                     </View>
                   )}
-                  {deliveryType === 'HOME_DELIVERY' && deliveryQuote?.canDeliver && deliveryQuote.deliveryFee != null && (
-                    <View style={styles.summaryItem}>
-                      <Text style={styles.summaryLabel}>Frais de livraison:</Text>
-                      <Text style={styles.summaryValue}>
-                        {formatPrice(deliveryQuote.deliveryFee, currency)}
-                      </Text>
-                    </View>
-                  )}
+                  {deliveryType === 'HOME_DELIVERY' && (() => {
+                    const agg = computeDeliveryAggregate(cartGroups);
+                    if (!agg.allDeliverable || agg.total <= 0) return null;
+                    return (
+                      <View style={styles.summaryItem}>
+                        <Text style={styles.summaryLabel}>
+                          {cartGroups.length > 1 ? 'Frais de livraison (total):' : 'Frais de livraison:'}
+                        </Text>
+                        <Text style={styles.summaryValue}>{formatPrice(agg.total, currency)}</Text>
+                      </View>
+                    );
+                  })()}
                 </View>
 
                 {/* Méthode de Paiement */}
@@ -2319,7 +2563,7 @@ export default function CartScreen() {
                           && deliveryQuote.deliveryFee != null)
                       ? deliveryQuote.deliveryFee
                       : 0;
-                    const discountVal = appliedPromo?.discount ?? 0;
+                    const discountVal = appliedPromo?.discountAmount ?? 0;
 
                     // ── MULTI ───────────────────────────────────────────────
                     if (isMulti) {

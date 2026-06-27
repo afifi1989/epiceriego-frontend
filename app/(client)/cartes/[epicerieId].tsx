@@ -1,4 +1,7 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+// Rouge "danger" unifié sur la palette du design system (était #B00020).
+import { lightColors } from '../../../src/theme/colors';
 import {
   View,
   Text,
@@ -249,6 +252,9 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, onPress, disab
     onPress={onPress}
     disabled={disabled}
     activeOpacity={0.7}
+    accessibilityRole="button"
+    accessibilityLabel={label}
+    accessibilityState={{ disabled: !!disabled }}
   >
     <Text style={styles.actionIcon}>{icon}</Text>
     <Text style={[styles.actionLabel, disabled && styles.actionLabelDisabled]}>{label}</Text>
@@ -358,7 +364,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 14,
-    color: '#B00020',
+    color: lightColors.danger,
     textAlign: 'center',
     marginBottom: 16,
   },

@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Ecran de creation / edition d'un bundle offer (panier groupe).
  *
@@ -49,7 +51,7 @@ import { productService } from '../../src/services/productService';
 import { TranslationTabs } from '../../src/components/epicier/TranslationTabs';
 import { EMPTY_TRANSLATIONS, Epicerie, Product, ProductTranslations } from '../../src/type';
 
-const BLUE = '#2196F3';
+const BLUE = Colors.primary;
 const GREEN = '#388E3C';
 const RED = '#C62828';
 
@@ -948,7 +950,7 @@ const styles = StyleSheet.create({
   imagePickerHint: { marginTop: 6, fontSize: 13, color: '#9E9E9E' },
   imageActions: { flexDirection: 'row', gap: 16, marginTop: 8 },
   imageActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  imageActionText: { fontSize: 13, fontWeight: '600', color: '#2196F3' },
+  imageActionText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
 
   featuredRow: {
     flexDirection: 'row',

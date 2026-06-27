@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Mon abonnement — Page épicier qui montre le plan actif, son statut
  * (trial / actif / expiré) + le comparatif des 4 plans pour basculer.

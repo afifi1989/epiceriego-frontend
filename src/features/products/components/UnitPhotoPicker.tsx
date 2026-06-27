@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
@@ -156,7 +157,7 @@ const styles = StyleSheet.create({
 
   addBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, backgroundColor: '#2196F3', paddingVertical: 11, borderRadius: 10
+    gap: 8, backgroundColor: Colors.primary, paddingVertical: 11, borderRadius: 10
   },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   fallbackHint: { fontSize: 11, color: '#999', marginTop: 6, fontStyle: 'italic' }

@@ -216,7 +216,7 @@ const styles = StyleSheet.create({
     height: 40,
   },
   searchIcon: {
-    marginRight: 6,
+    marginEnd: 6,
   },
   input: {
     flex: 1,
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEE',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 6,
+    marginStart: 6,
   },
   clearInsideText: {
     fontSize: 11,
@@ -263,22 +263,22 @@ const styles = StyleSheet.create({
   historyContent: {
     flexDirection: 'row',
     gap: 8,
-    paddingRight: 12,
+    paddingEnd: 12,
   },
   historyChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F4F4F4',
     borderRadius: 16,
-    paddingLeft: 10,
-    paddingRight: 4,
+    paddingStart: 10,
+    paddingEnd: 4,
     height: 30,
   },
   historyChipMain: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingRight: 6,
+    paddingEnd: 6,
   },
   historyChipText: {
     fontSize: 12,

@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Paramètres détaillés de l'épicerie — réutilise les step components
  * de l'onboarding.
@@ -231,7 +233,7 @@ export default function ParametresEpicerieScreen() {
       <SafeAreaView style={styles.container}>
         <Stack.Screen options={{ title: 'Paramètres épicerie' }} />
         <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       </SafeAreaView>
     );

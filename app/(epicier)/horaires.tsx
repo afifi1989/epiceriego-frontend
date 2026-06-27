@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Gestion des horaires d'ouverture pour l'épicier
  */
@@ -90,7 +92,7 @@ export default function ShopHoursScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -103,7 +105,7 @@ export default function ShopHoursScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <MaterialIcons name="arrow-back" size={24} color="#2196F3" />
+          <MaterialIcons name="arrow-back" size={24} color={Colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Horaires d'ouverture</Text>
         <View style={{ width: 40 }} />
@@ -169,7 +171,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   savingText: {
     color: '#fff',

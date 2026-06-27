@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import React, { useState, useEffect } from 'react';
 import { useRequirePermission } from '../../src/hooks/useRequirePermission';
 import {
@@ -213,7 +215,7 @@ export default function ModifierInfosScreen() {
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -455,7 +457,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 15,
   },
   sectionTitleMargin: {
@@ -493,9 +495,9 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderRadius: 8,
-    shadowColor: '#2196F3',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
@@ -593,9 +595,9 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
-    shadowColor: '#2196F3',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,

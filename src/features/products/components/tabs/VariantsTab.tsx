@@ -1,3 +1,4 @@
+import { Colors } from '../../../../constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -124,7 +125,7 @@ export const VariantsTab: React.FC<VariantsTabProps> = ({ product, user, onChang
   const getStockColor = (s: number) => s <= 0 ? '#e53935' : s <= 5 ? '#f57c00' : '#388e3c';
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#2196F3" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /></View>;
   }
 
   return (
@@ -268,7 +269,7 @@ export const VariantsTab: React.FC<VariantsTabProps> = ({ product, user, onChang
               value={form.isAvailable ?? true}
               onValueChange={v => setForm(f => ({ ...f, isAvailable: v }))}
               trackColor={{ false: '#ccc', true: '#bbdefb' }}
-              thumbColor={form.isAvailable ? '#2196F3' : '#f4f3f4'}
+              thumbColor={form.isAvailable ? Colors.primary : '#f4f3f4'}
             />
           </View>
 
@@ -324,7 +325,7 @@ export const VariantsTab: React.FC<VariantsTabProps> = ({ product, user, onChang
               <View style={styles.unitActions}>
                 {can('variants:edit') && (
                   <TouchableOpacity onPress={() => openEditForm(unit)} style={styles.iconBtn}>
-                    <Ionicons name="pencil" size={18} color="#2196F3" />
+                    <Ionicons name="pencil" size={18} color={Colors.primary} />
                   </TouchableOpacity>
                 )}
                 {can('variants:delete') && (
@@ -367,7 +368,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderRadius: 14,
     padding: 16, marginBottom: 14,
     borderWidth: 1.5, borderColor: '#90caf9',
-    shadowColor: '#2196F3', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3
+    shadowColor: Colors.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3
   },
   formHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   formTitle: { fontSize: 15, fontWeight: '700', color: '#1565c0' },
@@ -378,7 +379,7 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1.5, borderColor: '#e0e0e0',
     backgroundColor: '#f9f9f9', alignItems: 'center'
   },
-  typeBtnActive: { backgroundColor: '#e3f2fd', borderColor: '#2196F3' },
+  typeBtnActive: { backgroundColor: '#e3f2fd', borderColor: Colors.primary },
   typeBtnText: { fontSize: 13, fontWeight: '600', color: '#555' },
   typeBtnTextActive: { color: '#1565c0' },
   typeBtnHint: { fontSize: 10, color: '#999', marginTop: 2 },
@@ -408,7 +409,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#ddd', alignItems: 'center'
   },
   cancelBtnText: { color: '#666', fontWeight: '600' },
-  saveBtn: { flex: 2, backgroundColor: '#2196F3', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  saveBtn: { flex: 2, backgroundColor: Colors.primary, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '700' },
   btnDisabled: { opacity: 0.6 },
 
@@ -420,7 +421,7 @@ const styles = StyleSheet.create({
   toolbarCount: { fontSize: 13, color: '#777', fontWeight: '500' },
   addBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#2196F3', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20
+    backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20
   },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
     marginBottom: 10, borderWidth: 1, borderColor: '#e0e0e0',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2
   },
-  unitCardEditing: { borderColor: '#2196F3', borderWidth: 1.5 },
+  unitCardEditing: { borderColor: Colors.primary, borderWidth: 1.5 },
   unitTop: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   rowThumb: {
     width: 44, height: 44, borderRadius: 8,
@@ -443,7 +444,7 @@ const styles = StyleSheet.create({
   unitActions: { flexDirection: 'row', gap: 8 },
   iconBtn: { padding: 6 },
   unitBottom: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  unitPrice: { fontSize: 16, fontWeight: '700', color: '#2196F3' },
+  unitPrice: { fontSize: 16, fontWeight: '700', color: Colors.primary },
   unitPricePromo: { color: '#e53935' },
   unitPrixBarre: { fontSize: 13, color: '#999', textDecorationLine: 'line-through', marginRight: 4 },
   promoBanner: {

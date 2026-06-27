@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -15,6 +16,7 @@ import { useLanguage } from '../../../src/context/LanguageContext';
 import { orderService } from '../../../src/services/orderService';
 import { reorderService } from '../../../src/services/reorderService';
 import { Order } from '../../../src/type';
+import { formatDate } from '../../../src/utils/dateFormat';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../../src/utils/helpers';
 
 /** Statuts pour lesquels la commande est terminée et "recommandable". */
@@ -22,7 +24,7 @@ const REORDER_ALLOWED_STATUSES = new Set(['DELIVERED', 'CANCELLED']);
 
 export default function OrdersScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const toast = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   /** Skeleton uniquement au 1er chargement. Les pull-to-refresh suivants
@@ -108,9 +110,11 @@ export default function OrdersScreen() {
         <TouchableOpacity
           onPress={() => router.push(`/(client)/(commandes)/${item.id}`)}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('orders.commandePrefix')}${item.id}, ${getStatusLabel(item.status)}, ${item.epicerieNom}, ${formatPrice(item.total, item.currency)}`}
         >
           <View style={styles.cardHeader}>
-            <Text style={styles.orderNumber}>Commande #{item.id}</Text>
+            <Text style={styles.orderNumber}>{t('orders.commandePrefix')}{item.id}</Text>
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
               <Text style={styles.statusText}>{getStatusLabel(item.status)}</Text>
             </View>
@@ -132,7 +136,7 @@ export default function OrdersScreen() {
             <View style={styles.infoRow}>
               <Text style={styles.label}>{t('orders.date')}</Text>
               <Text style={styles.value}>
-                {new Date(item.createdAt).toLocaleDateString('fr-FR')}
+                {formatDate(item.createdAt, language)}
               </Text>
             </View>
           </View>
@@ -142,6 +146,9 @@ export default function OrdersScreen() {
           <TouchableOpacity
             style={styles.detailLink}
             onPress={() => router.push(`/(client)/(commandes)/${item.id}`)}
+            accessibilityRole="button"
+            accessibilityLabel={`${t('orders.viewDetails')} — ${t('orders.commandePrefix')}${item.id}`}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.moreInfo}>{t('orders.viewDetails')}</Text>
           </TouchableOpacity>
@@ -151,7 +158,7 @@ export default function OrdersScreen() {
               style={styles.reorderBtn}
               onPress={() => handleReorder(item)}
               accessibilityRole="button"
-              accessibilityLabel={`Recommander la commande ${item.id}`}
+              accessibilityLabel={`${t('orders.reorder') || 'Recommander'} — ${t('orders.commandePrefix')}${item.id}`}
             >
               <Ionicons name="repeat" size={14} color="#fff" />
               <Text style={styles.reorderBtnText}>

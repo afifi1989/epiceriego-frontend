@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -255,7 +256,13 @@ const CarnetCard: React.FC<CarnetCardProps> = ({ entry, onPress, theme, t }) => 
       : t('carnet.creditExhausted');
 
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.92}>
+    <TouchableOpacity
+      style={styles.card}
+      onPress={onPress}
+      activeOpacity={0.92}
+      accessibilityRole="button"
+      accessibilityLabel={`${epicerie?.nomEpicerie || `Épicerie #${relation.epicerieId}`} — ${statusLabel}`}
+    >
       {/* Bandeau supérieur : logo + nom + statut */}
       <View style={styles.cardTop}>
         {epicerie?.photoUrl ? (

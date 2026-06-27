@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Historique des rapports Z — Axe POS / S4.
  *
@@ -84,7 +86,7 @@ export default function CashReportsScreen() {
       </View>
 
       {loading
-        ? <View style={styles.centered}><ActivityIndicator size="large" color="#2196F3" /></View>
+        ? <View style={styles.centered}><ActivityIndicator size="large" color={Colors.primary} /></View>
         : (
           <ScrollView
             style={{ flex: 1 }}
@@ -139,10 +141,10 @@ export default function CashReportsScreen() {
                   onPress={() => share(s)}
                 >
                   {sharingId === s.id
-                    ? <ActivityIndicator color="#2196F3" />
+                    ? <ActivityIndicator color={Colors.primary} />
                     : (
                       <>
-                        <Ionicons name="share-outline" size={18} color="#2196F3" />
+                        <Ionicons name="share-outline" size={18} color={Colors.primary} />
                         <Text style={styles.shareBtnText}>Télécharger / Partager PDF</Text>
                       </>
                     )}
@@ -196,7 +198,7 @@ const styles = StyleSheet.create({
   shareBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, padding: 10, borderRadius: 8,
-    borderWidth: 1.5, borderColor: '#2196F3', backgroundColor: '#e3f2fd'
+    borderWidth: 1.5, borderColor: Colors.primary, backgroundColor: '#e3f2fd'
   },
-  shareBtnText: { color: '#2196F3', fontWeight: '700', fontSize: 13 }
+  shareBtnText: { color: Colors.primary, fontWeight: '700', fontSize: 13 }
 });

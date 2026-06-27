@@ -1,9 +1,13 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 // ============================================
 // app/(epicier)/dashboard.tsx
 // Dashboard complet pour l'épicier
 // ============================================
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { Skeleton } from '../../src/components/feedback';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -174,6 +178,7 @@ export default function EpicierDashboardScreen() {
   const handleAcceptOrder = async (orderId: number): Promise<void> => {
     try {
       await orderService.updateOrderStatus(orderId, 'ACCEPTED');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       Alert.alert('✅', 'Commande acceptée !');
       loadDashboardData();
     } catch (error) {
@@ -196,6 +201,7 @@ export default function EpicierDashboardScreen() {
           onPress: async () => {
             try {
               await orderService.updateOrderStatus(orderId, 'CANCELLED');
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
               Alert.alert('✅', 'Commande refusée');
               loadDashboardData();
             } catch (error) {
@@ -208,13 +214,56 @@ export default function EpicierDashboardScreen() {
   };
 
   /**
+   * Tuile de raccourci — style épuré : carte blanche, accent couleur à
+   * gauche + pastille d'icône teintée. Remplace les cartes KPI : l'accueil
+   * mène désormais avec les actions, pas les chiffres.
+   */
+  const Tile = ({
+    emoji,
+    label,
+    accent,
+    onPress,
+    highlight = false,
+  }: {
+    emoji: string;
+    label: string;
+    accent: string;
+    onPress: () => void;
+    highlight?: boolean;
+  }) => (
+    <TouchableOpacity
+      style={[styles.tile, { borderLeftColor: accent }, highlight && styles.tileHighlight]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
+      <View style={[styles.tileIconWrap, { backgroundColor: accent + '1A' }]}>
+        <Text style={styles.tileEmoji}>{emoji}</Text>
+      </View>
+      <Text style={styles.tileLabel}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  /**
    * Écran de chargement
    */
   if (loading) {
+    // Skeleton qui imite la page (KPIs 2×2 + section commandes) plutôt qu'un
+    // spinner nu : perception de vitesse, pas de flash de layout au chargement.
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
-        <Text style={styles.loadingText}>Chargement...</Text>
+      <View style={[styles.container, { padding: 15 }]}>
+        <Skeleton variant="text" width="55%" height={22} style={{ marginBottom: 14 }} />
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+          <Skeleton variant="rect" height={80} style={{ flex: 1, borderRadius: 12 }} />
+          <Skeleton variant="rect" height={80} style={{ flex: 1, borderRadius: 12 }} />
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 18 }}>
+          <Skeleton variant="rect" height={80} style={{ flex: 1, borderRadius: 12 }} />
+          <Skeleton variant="rect" height={80} style={{ flex: 1, borderRadius: 12 }} />
+        </View>
+        <Skeleton variant="text" width="45%" height={18} style={{ marginBottom: 10 }} />
+        {[0, 1].map(i => (
+          <Skeleton key={i} variant="rect" height={120} style={{ borderRadius: 12, marginBottom: 10 }} />
+        ))}
       </View>
     );
   }
@@ -255,133 +304,93 @@ export default function EpicierDashboardScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Statistiques */}
-      <View style={styles.statsContainer}>
-        <View style={[styles.statCard, styles.statBlue]}>
-          <Text style={styles.statValue}>{stats.totalOrders}</Text>
-          <Text style={styles.statLabel}>Commandes Total</Text>
-        </View>
-        <View style={[styles.statCard, styles.statOrange]}>
-          <Text style={styles.statValue}>{stats.pendingOrders}</Text>
-          <Text style={styles.statLabel}>En Attente</Text>
-        </View>
-      </View>
-
-      <View style={styles.statsContainer}>
-        <View style={[styles.statCard, styles.statGreen]}>
-          <Text style={styles.statValue}>{formatPrice(stats.todayRevenue, currency)}</Text>
-          <Text style={styles.statLabel}>Revenue Aujourd'hui</Text>
-        </View>
-        <View style={[styles.statCard, styles.statPurple]}>
-          <Text style={styles.statValue}>{stats.productsCount}</Text>
-          <Text style={styles.statLabel}>Produits</Text>
-        </View>
-      </View>
-
-      {/* Widget Stock — alertes a reapprovisionner (auto-masque si stock OK).
-          Place EN PREMIER car critique pour l'operationnel quotidien. */}
-      <DashboardStockWidget />
-
-      {/* Widget Promotions (V70+) — necessite promotions:manage cote backend */}
-      {can('promotions:manage') && <DashboardPromoWidget />}
-
-      {/* V95 Phase 6 — Widget Codes promos (économies offertes 30j) */}
-      {can('stats:view') && <DashboardPromoCodesWidget />}
-
-      {/* Actions rapides — 6 raccourcis principaux + bouton "Plus" pour le reste.
-          Selection basee sur la frequence d'usage quotidienne d'un epicier :
-          vente directe (POS) > catalogue > stats > approvisionnement > promotions > caisse.
-          Le reste (livreurs, fournisseurs, alertes, imprimante, fidelite...) est
-          accessible via la modale "Plus d'actions". */}
-      <View style={styles.quickActions}>
-        <Text style={styles.sectionTitle}>Actions Rapides</Text>
-        <View style={styles.actionsGrid}>
-          {/* 1. Vente directe — l'action #1 du quotidien, mise en highlight */}
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonHighlight]}
+      {/* Hub de raccourcis — accueil moderne (tuiles épurées + accent couleur).
+          Remplace les anciennes cartes KPI : la page d'accueil mène désormais
+          avec les actions directes ; les chiffres vivent sur la page
+          Statistiques dédiée (lien stylé juste en dessous). */}
+      <View style={styles.hub}>
+        <Text style={styles.sectionTitle}>Raccourcis</Text>
+        <View style={styles.tilesGrid}>
+          {/* Vente directe — action #1 du quotidien, mise en avant */}
+          <Tile
+            emoji="🛒"
+            label="Vente directe"
+            accent="#16A34A"
+            highlight
             onPress={() => router.push('/(epicier)/vente-directe')}
-          >
-            <Text style={styles.actionEmoji}>🛒</Text>
-            <Text style={styles.actionText}>Vente Directe</Text>
-          </TouchableOpacity>
-
-          {/* 2. Produits — catalogue */}
-          <TouchableOpacity
-            style={styles.actionButton}
+          />
+          <Tile
+            emoji="📦"
+            label="Produits"
+            accent="#2563EB"
             onPress={() => router.push('/(epicier)/produits')}
-          >
-            <Text style={styles.actionEmoji}>📦</Text>
-            <Text style={styles.actionText}>Produits</Text>
-          </TouchableOpacity>
-
-          {/* 3. Statistiques — suivi des ventes */}
-          {can('stats:view') && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push('/(epicier)/statistiques')}
-            >
-              <Text style={styles.actionEmoji}>📊</Text>
-              <Text style={styles.actionText}>Statistiques</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* 4. Approvisionner — geste recurrent stock */}
+          />
           {can('stock:adjust') && (
-            <TouchableOpacity
-              style={styles.actionButton}
+            <Tile
+              emoji="🏷️"
+              label="Approvisionner"
+              accent="#F59E0B"
               onPress={() => router.push('/(epicier)/approvisionnement')}
-            >
-              <Text style={styles.actionEmoji}>🏷️</Text>
-              <Text style={styles.actionText}>Approvisionner</Text>
-            </TouchableOpacity>
+            />
           )}
-
-          {/* 5. Promotions — levier commercial */}
           {can('promotions:manage') && (
-            <TouchableOpacity
-              style={styles.actionButton}
+            <Tile
+              emoji="🎉"
+              label="Promotions"
+              accent="#EC4899"
               onPress={() => router.push('/(epicier)/promotions')}
-            >
-              <Text style={styles.actionEmoji}>🎉</Text>
-              <Text style={styles.actionText}>Promotions</Text>
-            </TouchableOpacity>
+            />
           )}
-
-          {/* 6. Caisse — ouverture/cloture du jour */}
           {can('settings:edit') && (
-            <TouchableOpacity
-              style={styles.actionButton}
+            <Tile
+              emoji="💰"
+              label="Caisse"
+              accent="#0D9488"
               onPress={() => router.push('/(epicier)/cash-session' as any)}
-            >
-              <Text style={styles.actionEmoji}>💰</Text>
-              <Text style={styles.actionText}>Caisse</Text>
-            </TouchableOpacity>
+            />
           )}
-
-          {/* 7. Offres & paniers — bundles groupés (ex: Panier Ramadan).
-              Pas de garde de permission : l'entrée reste visible pour faire
-              découvrir la fonctionnalité (cohérent avec produits.tsx) ; le 402
-              d'abonnement s'affiche le cas échéant à la création côté backend. */}
-          <TouchableOpacity
-            style={styles.actionButton}
+          {/* Offres & paniers — pas de garde permission (découverte) */}
+          <Tile
+            emoji="🎁"
+            label="Offres & paniers"
+            accent="#9333EA"
             onPress={() => router.push('/(epicier)/offres-paniers')}
-          >
-            <Text style={styles.actionEmoji}>🎁</Text>
-            <Text style={styles.actionText}>Offres & paniers</Text>
-          </TouchableOpacity>
-
-          {/* 8. Bouton "Plus" — ouvre la modale avec le reste des actions */}
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonMore]}
+          />
+          {/* Plus — ouvre la modale avec les raccourcis secondaires */}
+          <Tile
+            emoji="⋯"
+            label="Plus"
+            accent="#94A3B8"
             onPress={() => setShowMoreActions(true)}
-          >
-            <Text style={styles.actionEmoji}>⋯</Text>
-            <Text style={styles.actionText}>Plus</Text>
-          </TouchableOpacity>
+          />
         </View>
       </View>
 
-      {/* Commandes en attente */}
+      {/* Lien stylé vers la page Statistiques — les chiffres détaillés
+          (CA, top produits, clients, périodes) vivent là-bas. */}
+      {can('stats:view') && (
+        <TouchableOpacity
+          style={styles.statsLink}
+          onPress={() => router.push('/(epicier)/statistiques')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.statsLinkIcon}>
+            <Text style={{ fontSize: 22 }}>📊</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statsLinkTitle}>Statistiques</Text>
+            <Text style={styles.statsLinkSub}>
+              Chiffre d'affaires, top produits, clients…
+            </Text>
+          </View>
+          <Text style={styles.statsLinkArrow}>›</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Commandes en attente — REMONTÉES en tête (audit UX) : c'est l'action
+          n°1 de l'épicier, elle exigeait ~900px de scroll sous les widgets et
+          les 8 quick actions. Position fixe et prévisible ; à 0 commande, le
+          petit état "✅ Aucune commande en attente" sert de signal tout-va-bien. */}
       <View style={styles.ordersSection}>
         <Text style={styles.sectionTitle}>
           Commandes en Attente ({stats.pendingOrders})
@@ -424,6 +433,8 @@ export default function EpicierDashboardScreen() {
                 <TouchableOpacity
                   style={[styles.orderButton, styles.acceptButton]}
                   onPress={() => handleAcceptOrder(order.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Accepter la commande de ${order.clientNom}, ${formatPrice(order.total, order.currency || currency)}`}
                 >
                   <Text style={styles.orderButtonText}>✅ Accepter</Text>
                 </TouchableOpacity>
@@ -431,6 +442,8 @@ export default function EpicierDashboardScreen() {
                 <TouchableOpacity
                   style={[styles.orderButton, styles.rejectButton]}
                   onPress={() => handleRejectOrder(order.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Refuser la commande de ${order.clientNom}`}
                 >
                   <Text style={styles.orderButtonText}>❌ Refuser</Text>
                 </TouchableOpacity>
@@ -445,6 +458,15 @@ export default function EpicierDashboardScreen() {
           </View>
         )}
       </View>
+
+      {/* Widget Stock — alertes a reapprovisionner (auto-masque si stock OK). */}
+      <DashboardStockWidget />
+
+      {/* Widget Promotions (V70+) — necessite promotions:manage cote backend */}
+      {can('promotions:manage') && <DashboardPromoWidget />}
+
+      {/* V95 Phase 6 — Widget Codes promos (économies offertes 30j) */}
+      {can('stats:view') && <DashboardPromoCodesWidget />}
 
       {/* Commandes récentes */}
       <View style={styles.ordersSection}>
@@ -659,7 +681,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   header: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     padding: 20,
     alignItems: 'center',
   },
@@ -719,6 +741,89 @@ const styles = StyleSheet.create({
   },
   quickActions: {
     padding: 15,
+  },
+  // ── Hub de raccourcis (tuiles épurées + accent couleur) ──
+  hub: {
+    padding: 15,
+  },
+  tilesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  tile: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  tileHighlight: {
+    borderLeftWidth: 5,
+    backgroundColor: '#F6FFF8',
+  },
+  tileIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  tileEmoji: {
+    fontSize: 24,
+  },
+  tileLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  // ── Lien stylé vers les statistiques ──
+  statsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#fff',
+    marginHorizontal: 15,
+    marginBottom: 5,
+    padding: 16,
+    borderRadius: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: '#9333EA',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  statsLinkIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#9333EA1A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsLinkTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1f2937',
+  },
+  statsLinkSub: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  statsLinkArrow: {
+    fontSize: 22,
+    color: '#9333EA',
+    fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 18,
@@ -798,7 +903,7 @@ const styles = StyleSheet.create({
   orderTotal: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 2,
   },
   orderItems: {
@@ -900,7 +1005,7 @@ const styles = StyleSheet.create({
   recentOrderTotal: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
   },
   recentOrderDate: {
     fontSize: 12,

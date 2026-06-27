@@ -1,3 +1,4 @@
+import { Colors } from '../../../../constants/colors';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import React, { useEffect, useState } from 'react';
@@ -136,6 +137,31 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
     setRcpInvoice('');
     setRcpNotes('');
     setReceptionVisible(true);
+  };
+
+  /**
+   * Fermeture protégée du modal réception (X, backdrop, bouton back Android) :
+   * si des champs ont été saisis, on confirme avant de jeter — un tap hors du
+   * modal pendant la saisie d'une réception (qté, DLC, coût, fournisseur)
+   * perdait tout silencieusement. La fermeture programmatique après
+   * sauvegarde appelle directement setReceptionVisible(false).
+   */
+  const closeReception = () => {
+    if (receptionSaving) return;
+    const hasInput = rcpQty !== '1' || !!rcpExpiry || !!rcpUnitCost
+      || !!rcpSupplier || !!rcpSupplierSelected || !!rcpInvoice || !!rcpNotes;
+    if (!hasInput) {
+      setReceptionVisible(false);
+      return;
+    }
+    Alert.alert(
+      'Réception non enregistrée',
+      'Les informations saisies seront perdues. Fermer quand même ?',
+      [
+        { text: 'Continuer la saisie', style: 'cancel' },
+        { text: 'Fermer', style: 'destructive', onPress: () => setReceptionVisible(false) },
+      ],
+    );
   };
 
   const saveReception = async () => {
@@ -292,7 +318,7 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
   };
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator size="large" color="#2196F3" /></View>;
+    return <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /></View>;
   }
 
   if (units.length === 0) {
@@ -340,7 +366,7 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
         )}
       </View>
 
-      {batchesLoading && <ActivityIndicator color="#2196F3" style={{ marginVertical: 10 }} />}
+      {batchesLoading && <ActivityIndicator color={Colors.primary} style={{ marginVertical: 10 }} />}
 
       {!batchesLoading && batches.length === 0 && (
         <View style={styles.noBatches}>
@@ -555,25 +581,25 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
               disabled={historyLoading}
             >
               {historyLoading
-                ? <ActivityIndicator color="#2196F3" />
+                ? <ActivityIndicator color={Colors.primary} />
                 : <Text style={styles.loadMoreText}>Charger plus</Text>
               }
             </TouchableOpacity>
           )}
 
           {historyLoading && history.length === 0 && (
-            <ActivityIndicator color="#2196F3" style={{ marginTop: 16 }} />
+            <ActivityIndicator color={Colors.primary} style={{ marginTop: 16 }} />
           )}
         </>
       )}
 
       {/* ── Modal Réception ── */}
-      <Modal visible={receptionVisible} animationType="slide" transparent onRequestClose={() => setReceptionVisible(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => !receptionSaving && setReceptionVisible(false)}>
+      <Modal visible={receptionVisible} animationType="slide" transparent onRequestClose={closeReception}>
+        <Pressable style={styles.modalOverlay} onPress={closeReception}>
           <Pressable style={styles.modalSheet} onPress={e => e.stopPropagation()}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Réceptionner une marchandise</Text>
-              <TouchableOpacity onPress={() => !receptionSaving && setReceptionVisible(false)}>
+              <TouchableOpacity onPress={closeReception}>
                 <Ionicons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
@@ -739,12 +765,12 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 14, borderWidth: 1.5, borderColor: '#e0e0e0',
     alignItems: 'center'
   },
-  unitCardSelected: { borderColor: '#2196F3', backgroundColor: '#e3f2fd' },
+  unitCardSelected: { borderColor: Colors.primary, backgroundColor: '#e3f2fd' },
   unitCardName: { fontSize: 13, fontWeight: '700', color: '#333', marginBottom: 4, textAlign: 'center' },
   unitCardStock: { fontSize: 28, fontWeight: '900' },
   unitCardStockLabel: { fontSize: 11, color: '#999', marginBottom: 6 },
   stockLevelDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 4 },
-  unitCardPrice: { fontSize: 12, color: '#2196F3', fontWeight: '600' },
+  unitCardPrice: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
 
   // ── Formulaire ──
   field: { marginBottom: 12 },
@@ -790,7 +816,7 @@ const styles = StyleSheet.create({
   previewLevel: { fontSize: 12, fontWeight: '600', textAlign: 'right', marginTop: 4 },
 
   applyBtn: {
-    backgroundColor: '#2196F3', borderRadius: 12,
+    backgroundColor: Colors.primary, borderRadius: 12,
     paddingVertical: 14, alignItems: 'center', marginTop: 4
   },
   applyBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
@@ -815,9 +841,9 @@ const styles = StyleSheet.create({
   // ── Load more / empty ──
   loadMoreBtn: {
     marginTop: 8, paddingVertical: 12, borderRadius: 10,
-    borderWidth: 1, borderColor: '#2196F3', alignItems: 'center'
+    borderWidth: 1, borderColor: Colors.primary, alignItems: 'center'
   },
-  loadMoreText: { color: '#2196F3', fontSize: 14, fontWeight: '600' },
+  loadMoreText: { color: Colors.primary, fontSize: 14, fontWeight: '600' },
   noHistory: {
     alignItems: 'center', paddingVertical: 24, gap: 6
   },
@@ -830,7 +856,7 @@ const styles = StyleSheet.create({
   },
   receptionBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#2196F3', paddingVertical: 7, paddingHorizontal: 12,
+    backgroundColor: Colors.primary, paddingVertical: 7, paddingHorizontal: 12,
     borderRadius: 8
   },
   receptionBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },

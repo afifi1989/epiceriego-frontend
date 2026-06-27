@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Pressable, Platform, Text, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { authService } from '../../src/services/authService';
@@ -48,7 +49,7 @@ export default function LogoutButton() {
   };
 
   return (
-    <Pressable onPress={handleLogout} style={{ marginRight: 15 }}>
+    <Pressable onPress={handleLogout} style={{ marginEnd: 15 }}>
       <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
         {t('settings.logout')}
       </Text>

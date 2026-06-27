@@ -1,10 +1,11 @@
+import { Colors } from '../../../../src/constants/colors';
 import { Stack } from 'expo-router';
 
 export default function CreditLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: '#2196F3' },
+        headerStyle: { backgroundColor: Colors.primary },
         headerTintColor: '#fff',
         headerTitleStyle: { fontWeight: 'bold' },
       }}

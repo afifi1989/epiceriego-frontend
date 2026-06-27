@@ -6,10 +6,17 @@ import { NotificationType, NotificationTypeValue, normalizeType } from './types'
  * Resolvers receive the notification's `data` payload and return the route
  * to push. If `data` lacks the required field (e.g. orderId), fall back to
  * a list view rather than crashing.
+ *
+ * Routing is role-aware: a CLIENT and a LIVREUR tapping the same
+ * notification type must land in their own layout group — crossing
+ * layouts bounces the user through the wrong auth guard.
  */
 type RouteResolver = (data: Record<string, any>) => string;
 
+export type RoutingRole = 'CLIENT' | 'LIVREUR';
+
 const FALLBACK_ROUTE = '/(client)/notifications';
+const LIVREUR_FALLBACK_ROUTE = '/(livreur)/deliveries';
 
 const ROUTE_RESOLVERS: Partial<Record<NotificationTypeValue, RouteResolver>> = {
   [NotificationType.ORDER_DETAIL]: (d) =>
@@ -48,8 +55,32 @@ const ROUTE_RESOLVERS: Partial<Record<NotificationTypeValue, RouteResolver>> = {
   [NotificationType.INVITATION]: () => FALLBACK_ROUTE,
 };
 
-export function resolveRoute(type: string | undefined | null, data: Record<string, any>): string {
+/**
+ * Routes côté livreur : toutes les notifications de course mènent à la
+ * liste des livraisons (pas d'écran de détail dédié pour le moment).
+ */
+const LIVREUR_ROUTE_RESOLVERS: Partial<Record<NotificationTypeValue, RouteResolver>> = {
+  [NotificationType.DELIVERY_ASSIGNED]: () => LIVREUR_FALLBACK_ROUTE,
+  [NotificationType.DELIVERY]: () => LIVREUR_FALLBACK_ROUTE,
+  [NotificationType.ORDER_READY]: () => LIVREUR_FALLBACK_ROUTE,
+  [NotificationType.ORDER_OUT_FOR_DELIVERY]: () => LIVREUR_FALLBACK_ROUTE,
+  [NotificationType.ORDER_DELIVERED]: () => '/(livreur)/history',
+};
+
+export function resolveRoute(
+  type: string | undefined | null,
+  data: Record<string, any>,
+  role: RoutingRole = 'CLIENT'
+): string {
   const normalized = normalizeType(type);
+
+  if (role === 'LIVREUR') {
+    if (normalized && LIVREUR_ROUTE_RESOLVERS[normalized]) {
+      return LIVREUR_ROUTE_RESOLVERS[normalized]!(data);
+    }
+    return LIVREUR_FALLBACK_ROUTE;
+  }
+
   if (normalized && ROUTE_RESOLVERS[normalized]) {
     return ROUTE_RESOLVERS[normalized]!(data);
   }

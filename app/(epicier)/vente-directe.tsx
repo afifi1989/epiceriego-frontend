@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Vente Directe — Point of Sale (POS) — Épicier
  *
@@ -13,7 +15,10 @@
 
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCurrency } from '../../src/context/CurrencyContext';
+import { formatPrice } from '../../src/utils/helpers';
 import {
   ActivityIndicator,
   Alert,
@@ -153,7 +158,7 @@ const PAYMENT_COLOR: Record<PaymentMethod, string> = {
   CASH: '#388E3C', CARD: '#1976D2', CLIENT_ACCOUNT: '#7B1FA2', MOBILE: '#FB8C00'
 };
 
-const BLUE = '#2196F3';
+const BLUE = Colors.primary;
 
 // ─── Composant ───────────────────────────────────────────────────────────────
 
@@ -325,6 +330,14 @@ export default function VenteDirecteScreen() {
   // UI états
   const [showCart, setShowCart]         = useState(false);
   const [submitting, setSubmitting]     = useState(false);
+  /** Verrou synchrone anti double-soumission (cf. doSubmit) — l'état React
+   *  `submitting` pilote l'UI, le ref garantit l'atomicité. */
+  const isSubmittingRef = useRef(false);
+
+  // Devise de l'épicerie — avant : "DH" hardcodé 22× dans le POS, faux pour
+  // toute boutique configurée dans une autre devise (aligné details-commande).
+  const { currency } = useCurrency();
+  const fmt = useCallback((n: number) => formatPrice(n, currency), [currency]);
 
   // Sélection variante
   const [unitPickerProduct, setUnitPickerProduct] = useState<Product | null>(null);
@@ -661,6 +674,9 @@ export default function VenteDirecteScreen() {
       }
 
       setShowBarcodeScanner(false);
+      // Confirmation physique du scan — en boutique bruyante, le retour
+      // visuel seul peut passer inaperçu (cohérent avec commande-prep).
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
       const availableUnits = (product.units ?? []).filter(u => u.isAvailable && u.stock > 0);
 
@@ -690,6 +706,7 @@ export default function VenteDirecteScreen() {
       setSelectedUnit(matchedUnit);
       setUnitQty('1');
     } catch (err: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       Alert.alert('Code-barre non reconnu', err?.message || 'Aucun produit associé à ce code-barre.');
     } finally {
       setBarcodeLoading(false);
@@ -697,6 +714,35 @@ export default function VenteDirecteScreen() {
   };
 
   // ── Validation commande ───────────────────────────────────────────────────
+
+  /**
+   * Bascule vers le mode "Passage". Si un client inscrit est sélectionné,
+   * on confirme d'abord : avant, le switch le retirait silencieusement de la
+   * vente en cours — l'épicier pouvait encaisser en passant sans s'en rendre
+   * compte (pas de crédit/fidélité créditée au client).
+   */
+  const switchToWalkIn = () => {
+    if (clientMode === 'walkIn') return;
+    if (!selectedClient) {
+      setClientMode('walkIn');
+      return;
+    }
+    Alert.alert(
+      'Changer de mode ?',
+      `Le client « ${selectedClient.clientNom} » sera retiré de cette vente.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Passer en mode Passage',
+          style: 'destructive',
+          onPress: () => {
+            setClientMode('walkIn');
+            setSelectedClient(null);
+          },
+        },
+      ],
+    );
+  };
 
   const handleSubmit = () => {
     // Walk-in mode skips the "client required" check — that's the whole point
@@ -712,9 +758,10 @@ export default function VenteDirecteScreen() {
 
   const doSubmit = async () => {
     if (clientMode === 'registered' && !selectedClient) return;
-    setSubmitting(true);
 
-    // S3 — Split payment : si paymentLines défini et somme == total, on l'envoie.
+    // S3 — Split payment : validation SYNCHRONE faite AVANT de poser le verrou.
+    // (Auparavant ce return sortait après setSubmitting(true) sans finally →
+    // bouton "Valider" bloqué définitivement en cas de split invalide.)
     const useSplit = paymentLines && paymentLines.length > 0;
     if (useSplit) {
       const sum = paymentLines!.reduce((s, l) => s + l.amount, 0);
@@ -726,6 +773,13 @@ export default function VenteDirecteScreen() {
         return;
       }
     }
+
+    // Verrou SYNCHRONE anti double-tap : `disabled={submitting}` ne suffit pas
+    // (setState est asynchrone — un 2e tap très rapide au comptoir entre avant
+    // le re-render → vente dupliquée). Le ref, lui, est lu/écrit immédiatement.
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setSubmitting(true);
 
     const isWalkIn = clientMode === 'walkIn';
 
@@ -766,8 +820,8 @@ export default function VenteDirecteScreen() {
 
     const endpoint = isWalkIn ? '/orders/walk-in-sale' : '/orders/direct-sale';
     const description = isWalkIn
-      ? `Vente passante — ${cartTotal.toFixed(2)} DH`
-      : `Vente directe ${selectedClient!.clientNom} — ${cartTotal.toFixed(2)} DH`;
+      ? `Vente passante — ${fmt(cartTotal)}`
+      : `Vente directe ${selectedClient!.clientNom} — ${fmt(cartTotal)}`;
 
     try {
       const result = await offlineService.writeOrQueue({
@@ -778,6 +832,10 @@ export default function VenteDirecteScreen() {
         invalidateCache: ['orders', 'products'],
         description,
       });
+
+      // Vente enregistrée (online OU mise en file offline) → confirmation
+      // physique immédiate, avant même l'Alert de succès.
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
       const clientNomSaved = isWalkIn ? '🚶 Client de passage' : selectedClient!.clientNom;
       const totalSaved = cartTotal;
@@ -846,13 +904,13 @@ export default function VenteDirecteScreen() {
 
         Alert.alert(
           '✅ Vente enregistrée',
-          `Total : ${totalSaved.toFixed(2)} DH\nCommande créée pour ${clientNomSaved}`,
+          `Total : ${fmt(totalSaved)}\nCommande créée pour ${clientNomSaved}`,
           successButtons
         );
       } else {
         Alert.alert(
           '📦 Vente enregistrée hors-ligne',
-          `${totalSaved.toFixed(2)} DH pour ${clientNomSaved}\nSera synchronisée au retour du réseau.`,
+          `${fmt(totalSaved)} pour ${clientNomSaved}\nSera synchronisée au retour du réseau.`,
           [
             { text: 'Nouvelle vente' },
             { text: 'Retour', onPress: () => router.back() },
@@ -871,6 +929,7 @@ export default function VenteDirecteScreen() {
         Alert.alert('Erreur', msg);
       }
     } finally {
+      isSubmittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -967,11 +1026,11 @@ export default function VenteDirecteScreen() {
             <View style={styles.modeToggle}>
               <TouchableOpacity
                 style={[styles.modeBtn, clientMode === 'walkIn' && styles.modeBtnActive]}
-                onPress={() => {
-                  setClientMode('walkIn');
-                  setSelectedClient(null);
-                }}
+                onPress={switchToWalkIn}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Mode client de passage"
+                accessibilityState={{ selected: clientMode === 'walkIn' }}
               >
                 <Text style={[styles.modeBtnText, clientMode === 'walkIn' && styles.modeBtnTextActive]}>
                   {t('walkIn.modeWalkIn')}
@@ -981,6 +1040,9 @@ export default function VenteDirecteScreen() {
                 style={[styles.modeBtn, clientMode === 'registered' && styles.modeBtnActive]}
                 onPress={() => setClientMode('registered')}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Mode client inscrit"
+                accessibilityState={{ selected: clientMode === 'registered' }}
               >
                 <Text style={[styles.modeBtnText, clientMode === 'registered' && styles.modeBtnTextActive]}>
                   {t('walkIn.modeRegistered')}
@@ -1166,7 +1228,7 @@ export default function VenteDirecteScreen() {
                       </View>
                       <Text style={styles.productName} numberOfLines={2}>{product.nom}</Text>
                       <Text style={styles.productPrice}>
-                        {hasUnits ? 'à partir de ' : ''}{minPrice.toFixed(2)} DH
+                        {hasUnits ? 'à partir de ' : ''}{fmt(minPrice)}
                       </Text>
                       {hasUnits && (
                         <Text style={styles.productUnitsHint}>
@@ -1222,7 +1284,7 @@ export default function VenteDirecteScreen() {
                   <Text style={styles.cartPanelItemUnit} numberOfLines={1}>{item.unitLabel}</Text>
                   <View style={styles.cartPanelItemBottom}>
                     <Text style={styles.cartPanelItemQty}>×{item.quantite}</Text>
-                    <Text style={styles.cartPanelItemPrice}>{(item.prix * item.quantite).toFixed(2)} DH</Text>
+                    <Text style={styles.cartPanelItemPrice}>{fmt(item.prix * item.quantite)}</Text>
                   </View>
                 </View>
               ))}
@@ -1250,20 +1312,20 @@ export default function VenteDirecteScreen() {
                   <>
                     <View style={styles.cartPanelSubRow}>
                       <Text style={styles.cartPanelSubLabel}>Sous-total</Text>
-                      <Text style={styles.cartPanelSubValue}>{cartSubtotal.toFixed(2)} DH</Text>
+                      <Text style={styles.cartPanelSubValue}>{fmt(cartSubtotal)}</Text>
                     </View>
                     <View style={styles.cartPanelSubRow}>
                       <Text style={[styles.cartPanelSubLabel, { color: '#2e7d32' }]}>
                         Remise ({appliedPromo.code})
                       </Text>
                       <Text style={[styles.cartPanelSubValue, { color: '#2e7d32', fontWeight: '700' }]}>
-                        −{appliedPromo.discountAmount.toFixed(2)} DH
+                        −{fmt(appliedPromo.discountAmount)}
                       </Text>
                     </View>
                   </>
                 )}
                 <Text style={styles.cartPanelTotalLabel}>Total</Text>
-                <Text style={styles.cartPanelTotalValue}>{cartTotal.toFixed(2)} DH</Text>
+                <Text style={styles.cartPanelTotalValue}>{fmt(cartTotal)}</Text>
               </View>
               <TouchableOpacity
                 style={[
@@ -1442,7 +1504,7 @@ export default function VenteDirecteScreen() {
                         Stock : {unit.stock > 0 ? unit.stock : 'Rupture'}
                       </Text>
                     </View>
-                    <Text style={styles.unitPrice}>{unit.prix.toFixed(2)} DH</Text>
+                    <Text style={styles.unitPrice}>{fmt(unit.prix)}</Text>
                     {selectedUnit?.id === unit.id && (
                       <Ionicons name="checkmark-circle" size={22} color={BLUE} style={{ marginLeft: 10 }} />
                     )}
@@ -1478,7 +1540,7 @@ export default function VenteDirecteScreen() {
                 <View style={styles.unitPreview}>
                   <Text style={styles.unitPreviewLabel}>Sous-total estimé</Text>
                   <Text style={styles.unitPreviewTotal}>
-                    {(selectedUnit.prix * (parseFloat(unitQty) || 1)).toFixed(2)} DH
+                    {fmt((selectedUnit.prix * (parseFloat(unitQty) || 1)))}
                   </Text>
                 </View>
               )}
@@ -1526,7 +1588,7 @@ export default function VenteDirecteScreen() {
                 <View key={idx} style={styles.cartRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cartItemName}>{item.productNom}</Text>
-                    <Text style={styles.cartItemUnit}>{item.unitLabel} — {item.prix.toFixed(2)} DH</Text>
+                    <Text style={styles.cartItemUnit}>{item.unitLabel} — {fmt(item.prix)}</Text>
                   </View>
                   <View style={styles.cartQtyControl}>
                     <TouchableOpacity style={styles.cartQtyBtn} onPress={() => updateQty(idx, -1)}>
@@ -1537,7 +1599,7 @@ export default function VenteDirecteScreen() {
                       <Ionicons name="add" size={16} color={BLUE} />
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.cartItemTotal}>{(item.prix * item.quantite).toFixed(2)} DH</Text>
+                  <Text style={styles.cartItemTotal}>{fmt(item.prix * item.quantite)}</Text>
                   <TouchableOpacity onPress={() => removeFromCart(idx)} style={{ padding: 6 }}>
                     <Ionicons name="trash-outline" size={18} color="#e53935" />
                   </TouchableOpacity>
@@ -1566,7 +1628,7 @@ export default function VenteDirecteScreen() {
                 <View style={styles.totalRow}>
                   <Text style={[styles.totalLabel, { fontSize: 13, color: '#666' }]}>Sous-total</Text>
                   <Text style={[styles.totalValue, { fontSize: 13, color: '#666', fontWeight: '600' }]}>
-                    {cartSubtotal.toFixed(2)} DH
+                    {fmt(cartSubtotal)}
                   </Text>
                 </View>
                 <View style={styles.totalRow}>
@@ -1574,7 +1636,7 @@ export default function VenteDirecteScreen() {
                     Remise ({appliedPromo.code})
                   </Text>
                   <Text style={[styles.totalValue, { fontSize: 13, color: '#2e7d32', fontWeight: '700' }]}>
-                    −{appliedPromo.discountAmount.toFixed(2)} DH
+                    −{fmt(appliedPromo.discountAmount)}
                   </Text>
                 </View>
               </>
@@ -1583,7 +1645,7 @@ export default function VenteDirecteScreen() {
             {/* Total */}
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>{cartTotal.toFixed(2)} DH</Text>
+              <Text style={styles.totalValue}>{fmt(cartTotal)}</Text>
             </View>
 
             {/* Mode de paiement */}
@@ -1601,13 +1663,13 @@ export default function VenteDirecteScreen() {
                 style={{
                   paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
                   borderWidth: 1.5,
-                  borderColor: paymentLines ? '#e53935' : '#2196F3',
+                  borderColor: paymentLines ? '#e53935' : Colors.primary,
                   backgroundColor: paymentLines ? '#ffebee' : '#e3f2fd'
                 }}
               >
                 <Text style={{
                   fontSize: 12, fontWeight: '800',
-                  color: paymentLines ? '#e53935' : '#2196F3'
+                  color: paymentLines ? '#e53935' : Colors.primary
                 }}>
                   {paymentLines ? '✕ Split ON' : '⚡ Split'}
                 </Text>
@@ -1654,7 +1716,7 @@ export default function VenteDirecteScreen() {
                   <Text style={styles.paymentAccountHint}>
                     {!selectedClient.allowCredit
                       ? '🔒 Compte indisponible : crédit non autorisé pour ce client'
-                      : `🔒 Compte indisponible : plafond dépassé (${(selectedClient.creditLimit ?? 0).toFixed(2)} DH)`}
+                      : `🔒 Compte indisponible : plafond dépassé (${fmt(selectedClient.creditLimit ?? 0)})`}
                   </Text>
                 )}
               </>
@@ -1713,11 +1775,11 @@ export default function VenteDirecteScreen() {
                     style={{
                       flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
                       gap: 6, padding: 10, borderRadius: 8,
-                      borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#2196F3'
+                      borderWidth: 1.5, borderStyle: 'dashed', borderColor: Colors.primary
                     }}
                   >
-                    <Ionicons name="add-circle-outline" size={18} color="#2196F3" />
-                    <Text style={{ color: '#2196F3', fontWeight: '700' }}>Ajouter un moyen</Text>
+                    <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+                    <Text style={{ color: Colors.primary, fontWeight: '700' }}>Ajouter un moyen</Text>
                   </TouchableOpacity>
                   <View style={{
                     flexDirection: 'row', justifyContent: 'space-between',
@@ -1729,7 +1791,7 @@ export default function VenteDirecteScreen() {
                       fontWeight: '800', fontSize: 16,
                       color: Math.abs(remaining) < 0.01 ? '#2e7d32' : '#e65100'
                     }}>
-                      {remaining.toFixed(2)} DH
+                      {fmt(remaining)}
                     </Text>
                   </View>
                 </View>
@@ -1758,6 +1820,12 @@ export default function VenteDirecteScreen() {
               onPress={handleSubmit}
               disabled={submitting || cart.length === 0
                 || (clientMode === 'registered' && !selectedClient)}
+              accessibilityRole="button"
+              accessibilityLabel={`Valider la vente, total ${fmt(cartTotal)}`}
+              accessibilityState={{
+                disabled: submitting || cart.length === 0
+                  || (clientMode === 'registered' && !selectedClient),
+              }}
             >
               {submitting ? (
                 <ActivityIndicator color="#fff" />
@@ -1765,7 +1833,7 @@ export default function VenteDirecteScreen() {
                 <>
                   <MaterialCommunityIcons name="check-circle" size={22} color="#fff" />
                   <Text style={styles.submitBtnText}>
-                    Valider la vente — {cartTotal.toFixed(2)} DH
+                    Valider la vente — {fmt(cartTotal)}
                   </Text>
                 </>
               )}
@@ -1819,7 +1887,7 @@ export default function VenteDirecteScreen() {
             {/* Total mis en évidence */}
             <View style={styles.confirmTotalBox}>
               <Text style={styles.confirmTotalLabel}>Total à payer</Text>
-              <Text style={styles.confirmTotalValue}>{cartTotal.toFixed(2)} DH</Text>
+              <Text style={styles.confirmTotalValue}>{fmt(cartTotal)}</Text>
             </View>
 
             <View style={styles.confirmRow}>
@@ -1854,7 +1922,7 @@ export default function VenteDirecteScreen() {
                   <View style={styles.insufficientBox}>
                     <Ionicons name="warning" size={16} color="#e53935" />
                     <Text style={styles.insufficientText}>
-                      Montant insuffisant — manque {(cartTotal - amountGivenNum).toFixed(2)} DH
+                      Montant insuffisant — manque {fmt(cartTotal - amountGivenNum)}
                     </Text>
                   </View>
                 )}
@@ -1865,7 +1933,7 @@ export default function VenteDirecteScreen() {
                     <View>
                       <Text style={styles.changeBoxLabel}>Monnaie à rendre</Text>
                     </View>
-                    <Text style={styles.changeBoxAmount}>{change.toFixed(2)} DH</Text>
+                    <Text style={styles.changeBoxAmount}>{fmt(change)}</Text>
                   </View>
                 )}
 
@@ -1893,6 +1961,9 @@ export default function VenteDirecteScreen() {
               style={[styles.confirmValidateBtn, submitting && { opacity: 0.6 }]}
               onPress={doSubmit}
               disabled={submitting}
+              accessibilityRole="button"
+              accessibilityLabel={`Confirmer et encaisser ${fmt(cartTotal)}`}
+              accessibilityState={{ disabled: submitting, busy: submitting }}
             >
               {submitting
                 ? <ActivityIndicator color="#fff" />

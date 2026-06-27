@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 /**
  * CarnetTimeline — Liste chronologique des transactions du carnet
  * Affiche factures, paiements et avances avec solde cumulé
@@ -5,7 +6,14 @@
 
 import React from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useLanguage } from '../../../context/LanguageContext';
+import { formatDate, formatTime } from '../../../utils/dateFormat';
 import { CarnetTransaction, TRANSACTION_CONFIG } from '../types';
+
+/** Format des en-têtes de date de la timeline (ex: "5 juin 2026"). */
+const DATE_HEADER_OPTS: Intl.DateTimeFormatOptions = {
+  day: 'numeric', month: 'short', year: 'numeric',
+};
 
 interface Props {
   transactions: CarnetTransaction[];
@@ -15,6 +23,7 @@ interface Props {
 }
 
 export function CarnetTimeline({ transactions, hasMore, onLoadMore, loading }: Props) {
+  const { language } = useLanguage();
   if (transactions.length === 0 && !loading) {
     return (
       <View style={styles.empty}>
@@ -32,8 +41,9 @@ export function CarnetTimeline({ transactions, hasMore, onLoadMore, loading }: P
       {transactions.map((tx, idx) => {
         const config = TRANSACTION_CONFIG[tx.type] ?? TRANSACTION_CONFIG.INVOICE;
         const amount = tx.debit > 0 ? tx.debit : tx.credit;
-        const dateStr = formatDate(tx.date);
-        const showDateHeader = idx === 0 || formatDate(transactions[idx - 1].date) !== dateStr;
+        const dateStr = formatDate(tx.date, language, DATE_HEADER_OPTS);
+        const showDateHeader = idx === 0
+          || formatDate(transactions[idx - 1].date, language, DATE_HEADER_OPTS) !== dateStr;
 
         return (
           <View key={tx.id}>
@@ -60,7 +70,7 @@ export function CarnetTimeline({ transactions, hasMore, onLoadMore, loading }: P
                   </Text>
                 </View>
                 <View style={styles.bottomRow}>
-                  <Text style={styles.time}>{formatTime(tx.date)}</Text>
+                  <Text style={styles.time}>{formatTime(tx.date, language)}</Text>
                   {tx.status === 'UNPAID' && (
                     <View style={styles.unpaidBadge}>
                       <Text style={styles.unpaidText}>Impayé</Text>
@@ -79,7 +89,7 @@ export function CarnetTimeline({ transactions, hasMore, onLoadMore, loading }: P
       {hasMore && (
         <TouchableOpacity style={styles.loadMoreBtn} onPress={onLoadMore} disabled={loading}>
           {loading ? (
-            <ActivityIndicator size="small" color="#2196F3" />
+            <ActivityIndicator size="small" color={Colors.primary} />
           ) : (
             <Text style={styles.loadMoreText}>Charger plus...</Text>
           )}
@@ -87,18 +97,6 @@ export function CarnetTimeline({ transactions, hasMore, onLoadMore, loading }: P
       )}
     </View>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
 // ── Styles ──────────────────────────────────────────────────────
@@ -144,5 +142,5 @@ const styles = StyleSheet.create({
   balance: { fontSize: 11, color: '#999', marginLeft: 'auto' },
 
   loadMoreBtn: { alignItems: 'center', paddingVertical: 16 },
-  loadMoreText: { fontSize: 14, fontWeight: '600', color: '#2196F3' },
+  loadMoreText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
 });

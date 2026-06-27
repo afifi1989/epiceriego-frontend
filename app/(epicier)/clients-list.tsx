@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import React, { useEffect, useState } from 'react';
 import {
   View,

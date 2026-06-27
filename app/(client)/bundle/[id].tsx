@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Detail d'un bundle / panier groupe cote client.
  *

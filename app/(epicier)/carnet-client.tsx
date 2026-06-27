@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Carnet Digital (الكرني) — Écran unifié de gestion client
  *
@@ -38,7 +40,7 @@ import { QuickAdvanceModal } from '../../src/features/carnet/components/QuickAdv
 import { CreditSettingsModal } from '../../src/features/carnet/components/CreditSettingsModal';
 import { loyaltyService, LoyaltyBalance } from '../../src/services/loyaltyService';
 
-const BLUE = '#2196F3';
+const BLUE = Colors.primary;
 
 export default function CarnetScreen() {
   const router = useRouter();
@@ -541,7 +543,7 @@ const filterChipsStyles = StyleSheet.create({
     borderColor: '#e5e7eb',
   },
   chipActive: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderColor: '#1976D2',
   },
   chipText: {

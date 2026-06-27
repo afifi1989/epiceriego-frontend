@@ -1,6 +1,7 @@
 import api from './api';
 import {
   CreateOrderRequest,
+  DeliveryTracking,
   Order,
   OrderCounts,
   OrderListItem,
@@ -213,9 +214,11 @@ export const orderService = {
   /**
    * Met à jour le statut d'une commande
    */
-  updateOrderStatus: async (id: number, status: string): Promise<Order> => {
+  updateOrderStatus: async (id: number, status: string, cashCollected?: boolean): Promise<Order> => {
     try {
-      const response = await api.put<Order>(`/orders/${id}/status`, { status });
+      // V114 — cashCollected : confirmation d'encaissement espèces quand
+      // l'épicier valide une remise (CASH → DELIVERED).
+      const response = await api.put<Order>(`/orders/${id}/status`, { status, cashCollected });
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur';
@@ -279,6 +282,20 @@ export const orderService = {
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Impossible de récupérer le QR Code';
+    }
+  },
+
+  /**
+   * Suivi temps réel de la livraison (position du livreur).
+   * Disponible uniquement pour le client propriétaire, pendant IN_DELIVERY.
+   * Appelé en polling (~10 s) par l'écran de suivi — pas de cache.
+   */
+  getDeliveryTracking: async (orderId: number): Promise<DeliveryTracking> => {
+    try {
+      const response = await api.get<DeliveryTracking>(`/orders/${orderId}/tracking`);
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Suivi indisponible';
     }
   },
 

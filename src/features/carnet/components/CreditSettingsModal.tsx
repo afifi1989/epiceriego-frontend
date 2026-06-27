@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 /**
  * CreditSettingsModal — Modal pour configurer le crédit d'un client
  */
@@ -60,7 +61,7 @@ export function CreditSettingsModal({
 
         <View style={styles.body}>
           <View style={styles.clientRow}>
-            <Ionicons name="person" size={18} color="#2196F3" />
+            <Ionicons name="person" size={18} color={Colors.primary} />
             <Text style={styles.clientName}>{clientName}</Text>
           </View>
 
@@ -144,7 +145,7 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', padding: 16, gap: 10, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0', marginTop: 'auto' },
   cancelBtn: { flex: 1, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#e0e0e0', alignItems: 'center' },
   cancelText: { fontSize: 15, fontWeight: '600', color: '#666' },
-  submitBtn: { flex: 2, flexDirection: 'row', padding: 14, borderRadius: 10, backgroundColor: '#2196F3', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  submitBtn: { flex: 2, flexDirection: 'row', padding: 14, borderRadius: 10, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', gap: 8 },
   submitBtnDisabled: { opacity: 0.5 },
   submitText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });

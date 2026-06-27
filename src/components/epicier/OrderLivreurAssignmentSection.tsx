@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import {
   View,
   Text,
@@ -201,7 +202,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   assignButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',

@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -20,7 +21,7 @@ export function PromoPreviewList({ preview, loading, error }: Props) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color="#2196F3" />
+        <ActivityIndicator color={Colors.primary} />
         <Text style={styles.loading}>{t('promotions.wizard.previewLoading')}</Text>
       </View>
     );

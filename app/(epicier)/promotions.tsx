@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback } from 'react';
 import {
@@ -45,7 +47,7 @@ export default function PromotionsScreen() {
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -94,7 +96,7 @@ export default function PromotionsScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={refetch}
-            tintColor="#2196F3"
+            tintColor={Colors.primary}
           />
         }
         contentContainerStyle={filtered.length === 0 && stats.total === 0 ? styles.emptyScroll : styles.scroll}
@@ -135,7 +137,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   retryBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 22,
     paddingVertical: 11,
     borderRadius: 10,
@@ -148,14 +150,14 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 24,
     right: 20,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 13,
     borderRadius: 28,
     gap: 8,
-    shadowColor: '#2196F3',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

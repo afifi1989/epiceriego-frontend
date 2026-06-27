@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 /**
  * Modal de rattachement manuel d'un client virtuel a un compte mobile reel.
  *
@@ -116,7 +117,7 @@ export const LinkVirtualClientModal: React.FC<Props> = ({
 
           {loading && (
             <View style={styles.center}>
-              <ActivityIndicator size="large" color="#2196F3" />
+              <ActivityIndicator size="large" color={Colors.primary} />
               <Text style={styles.loadingText}>Recherche des comptes...</Text>
             </View>
           )}
@@ -218,7 +219,7 @@ const styles = StyleSheet.create({
   },
   avatar: {
     width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
     marginRight: 12,
   },

@@ -1,5 +1,9 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
+// Rouge "danger" unifié sur la palette du design system (était #d32f2f).
+import { lightColors } from '../../src/theme/colors';
+import { formatTime } from '../../src/utils/dateFormat';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -34,7 +38,7 @@ interface GroupedNotifications {
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const toast = useToast();
   const [notifications, setNotifications] = useState<GroupedNotifications>({});
   const [loading, setLoading] = useState(true);
@@ -403,29 +407,31 @@ export default function NotificationsScreen() {
     const showGenericNavButton =
       deepLinkRoute !== null && deepLinkRoute !== '/(client)/notifications';
 
-    let navButtonLabel: string | null = null;
+    // Libellé traduit + emoji décoratif séparés : le texte sert aussi
+    // d'accessibilityLabel (un lecteur d'écran ne doit pas lire l'emoji).
+    let navButton: { emoji: string; label: string } | null = null;
     if (showGenericNavButton) {
       switch (family) {
         case 'PAYMENT':
-          navButtonLabel = '💳 Voir factures & paiements';
+          navButton = { emoji: '💳', label: t('notifications.navPayment') };
           break;
         case 'LOYALTY':
-          navButtonLabel = '⭐ Voir mes points fidélité';
+          navButton = { emoji: '⭐', label: t('notifications.navLoyalty') };
           break;
         case 'CART':
-          navButtonLabel = '🛒 Reprendre mon panier';
+          navButton = { emoji: '🛒', label: t('notifications.navCart') };
           break;
         case 'PROMOTION':
-          navButtonLabel = '🎉 Voir la promotion';
+          navButton = { emoji: '🎉', label: t('notifications.navPromotion') };
           break;
         case 'EPICERIE':
-          navButtonLabel = "🏪 Voir l'épicerie";
+          navButton = { emoji: '🏪', label: t('notifications.navEpicerie') };
           break;
         case 'CHAT':
-          navButtonLabel = '💬 Ouvrir';
+          navButton = { emoji: '💬', label: t('notifications.navChat') };
           break;
         default:
-          navButtonLabel = null;
+          navButton = null;
       }
     }
 
@@ -440,10 +446,7 @@ export default function NotificationsScreen() {
               <Text style={styles.notificationTitle}>{notification.titre}</Text>
               <Text style={styles.notificationMessage}>{notification.message}</Text>
               <Text style={styles.notificationTime}>
-                {new Date(notification.dateCreated).toLocaleTimeString('fr-FR', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
+                {formatTime(notification.dateCreated, language)}
               </Text>
             </View>
             <View
@@ -461,12 +464,16 @@ export default function NotificationsScreen() {
               <TouchableOpacity
                 style={styles.acceptButton}
                 onPress={() => handleAcceptInvitation(notification.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`${t('notifications.accept')} — ${notification.titre}`}
               >
                 <Text style={styles.acceptButtonText}>✓ {t('notifications.accept')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.rejectButton}
                 onPress={() => handleRejectInvitation(notification.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`${t('notifications.reject')} — ${notification.titre}`}
               >
                 <Text style={styles.rejectButtonText}>✕ {t('notifications.reject')}</Text>
               </TouchableOpacity>
@@ -477,19 +484,25 @@ export default function NotificationsScreen() {
                 <TouchableOpacity
                   style={styles.viewOrderButton}
                   onPress={() => router.push(`/(client)/(commandes)/${orderId}` as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('notifications.viewOrder')}
                 >
-                  <Text style={styles.viewOrderButtonText}>📦 Voir la commande</Text>
+                  <Text style={styles.viewOrderButtonText}>📦 {t('notifications.viewOrder')}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 style={styles.rateButton}
                 onPress={() => handleRateEpicier(notification.id)}
+                accessibilityRole="button"
+                accessibilityLabel={t('notifications.rateEpicier')}
               >
-                <Text style={styles.rateButtonText}>⭐ Noter l'épicier</Text>
+                <Text style={styles.rateButtonText}>⭐ {t('notifications.rateEpicier')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+                accessibilityRole="button"
+                accessibilityLabel={`${t('notifications.deleteNotification')} — ${notification.titre}`}
               >
                 <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
               </TouchableOpacity>
@@ -499,27 +512,35 @@ export default function NotificationsScreen() {
               <TouchableOpacity
                 style={styles.viewOrderButton}
                 onPress={() => router.push(`/(client)/(commandes)/${orderId}` as any)}
+                accessibilityRole="button"
+                accessibilityLabel={t('notifications.viewOrder')}
               >
-                <Text style={styles.viewOrderButtonText}>📦 Voir la commande</Text>
+                <Text style={styles.viewOrderButtonText}>📦 {t('notifications.viewOrder')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+                accessibilityRole="button"
+                accessibilityLabel={`${t('notifications.deleteNotification')} — ${notification.titre}`}
               >
                 <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
               </TouchableOpacity>
             </View>
-          ) : showGenericNavButton && navButtonLabel && deepLinkRoute ? (
+          ) : showGenericNavButton && navButton && deepLinkRoute ? (
             <View style={styles.ratingActions}>
               <TouchableOpacity
                 style={styles.viewOrderButton}
                 onPress={() => router.push(deepLinkRoute as any)}
+                accessibilityRole="button"
+                accessibilityLabel={navButton.label}
               >
-                <Text style={styles.viewOrderButtonText}>{navButtonLabel}</Text>
+                <Text style={styles.viewOrderButtonText}>{navButton.emoji} {navButton.label}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deleteButton}
                 onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+                accessibilityRole="button"
+                accessibilityLabel={`${t('notifications.deleteNotification')} — ${notification.titre}`}
               >
                 <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
               </TouchableOpacity>
@@ -528,6 +549,8 @@ export default function NotificationsScreen() {
             <TouchableOpacity
               style={styles.deleteButton}
               onPress={() => handleDeleteNotification(notification.id, notification.titre)}
+              accessibilityRole="button"
+              accessibilityLabel={`${t('notifications.deleteNotification')} — ${notification.titre}`}
             >
               <Text style={styles.deleteButtonText}>🗑️ {t('notifications.delete')}</Text>
             </TouchableOpacity>
@@ -561,7 +584,7 @@ export default function NotificationsScreen() {
               shadowRadius: 4,
               elevation: 1,
             }}>
-              <Skeleton variant="circle" width={42} height={42} style={{ marginRight: 12 }} />
+              <Skeleton variant="circle" width={42} height={42} style={{ marginEnd: 12 }} />
               <View style={{ flex: 1 }}>
                 <Skeleton variant="text" width="80%" style={{ marginBottom: 6 }} />
                 <Skeleton variant="text" width="95%" style={{ marginBottom: 4 }} />
@@ -646,6 +669,9 @@ export default function NotificationsScreen() {
                       key={star}
                       onPress={() => setSelectedRating(star)}
                       style={styles.starButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('notifications.starRating').replace('{{count}}', String(star))}
+                      accessibilityState={{ selected: star <= selectedRating }}
                     >
                       <Text style={styles.starIcon}>
                         {star <= selectedRating ? '⭐' : '☆'}
@@ -656,7 +682,7 @@ export default function NotificationsScreen() {
 
                 <TextInput
                   style={styles.ratingCommentInput}
-                  placeholder="Commentaire (optionnel)"
+                  placeholder={t('notifications.commentPlaceholder')}
                   placeholderTextColor="#999"
                   value={ratingComment}
                   onChangeText={setRatingComment}
@@ -759,7 +785,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginEnd: 12,
   },
   notificationIcon: {
     fontSize: 24,
@@ -789,7 +815,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
+    marginStart: 10,
   },
   notificationBadgeText: {
     color: '#fff',
@@ -806,7 +832,7 @@ const styles = StyleSheet.create({
     borderColor: '#ffcdd2',
   },
   deleteButtonText: {
-    color: '#d32f2f',
+    color: lightColors.danger,
     fontSize: 14,
     fontWeight: '600',
   },

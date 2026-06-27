@@ -1,5 +1,8 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
+// Rouge "danger" unifié sur la palette du design system (était #d32f2f).
+import { lightColors } from '../../src/theme/colors';
 import {
   ActivityIndicator,
   Alert,
@@ -757,7 +760,7 @@ const styles = StyleSheet.create({
   arrow: {
     fontSize: 24,
     color: '#4CAF50',
-    marginLeft: 12,
+    marginStart: 12,
   },
   buttonItem: {
     paddingHorizontal: 16,
@@ -776,7 +779,7 @@ const styles = StyleSheet.create({
   dangerButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#d32f2f',
+    color: lightColors.danger,
   },
   modalOverlay: {
     flex: 1,
@@ -855,7 +858,7 @@ const styles = StyleSheet.create({
   },
   warningText: {
     fontSize: 14,
-    color: '#d32f2f',
+    color: lightColors.danger,
     marginBottom: 16,
     textAlign: 'center',
     fontWeight: '500',

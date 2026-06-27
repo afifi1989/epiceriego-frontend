@@ -1,7 +1,9 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NotificationBadge } from '../../components/NotificationBadge';
 import { STORAGE_KEYS } from '../../src/constants/config';
@@ -9,6 +11,20 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import { NetworkProvider } from '../../src/context/NetworkContext';
 import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
+
+/**
+ * Icône vectorielle de tab : version pleine quand l'onglet est actif, outline
+ * sinon — teintée automatiquement par la tab bar (active/inactiveTintColor).
+ * Remplace les anciens emojis : rendu net à toutes les densités, contraste
+ * cohérent et état actif réellement visible.
+ */
+const tabIcon = (
+  outline: keyof typeof Ionicons.glyphMap,
+  filled: keyof typeof Ionicons.glyphMap,
+) =>
+  function TabIcon({ color, focused }: { color: string; focused: boolean }) {
+    return <Ionicons name={focused ? filled : outline} size={24} color={color} />;
+  };
 
 // Composant interne pour gérer le layout authentifié
 function ClientTabsContent() {
@@ -84,7 +100,7 @@ function ClientTabsContent() {
         name="home"
         options={{
           title: t('client.tabs.home'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏠</Text>,
+          tabBarIcon: tabIcon('home-outline', 'home'),
           headerShown: false,
         }}
       />
@@ -92,7 +108,7 @@ function ClientTabsContent() {
         name="epiceries"
         options={{
           title: t('client.tabs.epiceries'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🏪</Text>,
+          tabBarIcon: tabIcon('storefront-outline', 'storefront'),
           headerTitle: t('client.headers.epiceries'),
           headerRight: () => <NotificationBadge />,
         }}
@@ -101,7 +117,7 @@ function ClientTabsContent() {
         name="cartes"
         options={{
           title: t('cards.tabLabel'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🪪</Text>,
+          tabBarIcon: tabIcon('wallet-outline', 'wallet'),
           headerTitle: t('cards.headerTitle'),
           headerRight: () => <NotificationBadge />,
         }}
@@ -110,7 +126,7 @@ function ClientTabsContent() {
         name="cart"
         options={{
           title: t('client.tabs.cart'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>🛒</Text>,
+          tabBarIcon: tabIcon('cart-outline', 'cart'),
           headerTitle: t('client.headers.cart'),
           headerRight: () => <NotificationBadge />,
         }}
@@ -119,7 +135,7 @@ function ClientTabsContent() {
         name="favoris"
         options={{
           title: t('client.tabs.favorites'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>❤️</Text>,
+          tabBarIcon: tabIcon('heart-outline', 'heart'),
           headerTitle: t('client.headers.favorites'),
           headerRight: () => <NotificationBadge />,
         }}
@@ -128,7 +144,7 @@ function ClientTabsContent() {
         name="profil"
         options={{
           title: t('client.tabs.profile'),
-          tabBarIcon: () => <Text style={{ fontSize: 24 }}>👤</Text>,
+          tabBarIcon: tabIcon('person-outline', 'person'),
           headerTitle: t('client.headers.profile'),
           headerRight: () => <NotificationBadge />,
         }}

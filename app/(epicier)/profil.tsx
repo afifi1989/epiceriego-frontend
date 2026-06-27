@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -23,7 +25,7 @@ import { LoginResponse, User } from '../../src/type';
 
 // Configuration visuelle par rôle
 const ROLE_CONFIG: Record<string, { label: string; color: string; icon: string }> = {
-  owner:        { label: 'Propriétaire', color: '#2196F3', icon: '👑' },
+  owner:        { label: 'Propriétaire', color: Colors.primary, icon: '👑' },
   manager:      { label: 'Manager',      color: '#9C27B0', icon: '🔑' },
   gestionnaire: { label: 'Gestionnaire', color: '#FF9800', icon: '📋' },
   caissier:     { label: 'Caissier',     color: '#4CAF50', icon: '🏪' },
@@ -146,7 +148,7 @@ export default function ProfilScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -240,7 +242,7 @@ export default function ProfilScreen() {
             icon="⚙️"
             label="Paramètres"
             onPress={() => router.push('/(epicier)/parametres' as any)}
-            accent="#2196F3"
+            accent={Colors.primary}
           />
         )}
 
@@ -545,7 +547,7 @@ const styles = StyleSheet.create({
   eyeText: { fontSize: 18 },
 
   submitBtn: {
-    backgroundColor: '#2196F3', borderRadius: 12,
+    backgroundColor: Colors.primary, borderRadius: 12,
     height: 50, alignItems: 'center', justifyContent: 'center',
     marginTop: 8,
   },

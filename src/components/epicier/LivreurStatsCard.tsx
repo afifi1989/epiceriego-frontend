@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import { View, Text, StyleSheet } from 'react-native';
 
 interface LivreurStatsCardProps {
@@ -21,7 +22,7 @@ export const LivreurStatsCard = ({
         <View style={styles.statItem}>
           <Text style={styles.statNumber}>{totalAssigned}</Text>
           <Text style={styles.statLabel}>Assignés</Text>
-          <View style={[styles.statColor, { backgroundColor: '#2196F3' }]} />
+          <View style={[styles.statColor, { backgroundColor: Colors.primary }]} />
         </View>
 
         <View style={styles.statItem}>
@@ -76,7 +77,7 @@ const styles = StyleSheet.create({
   statNumber: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 4,
   },
   statLabel: {

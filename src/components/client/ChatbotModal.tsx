@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
   Text,
@@ -34,8 +35,29 @@ import {
 } from '../../services/clientPreferencesService';
 import { useRouter } from 'expo-router';
 import { useLanguage } from '../../context/LanguageContext';
+import { formatDate } from '../../utils/dateFormat';
 
 type SuggestionOption = ProductSuggestion['options'][number];
+
+// ── Persistance de session (audit UX sprint 4) ──────────────────────────────
+// Avant : fermer la modal (même par accident) perdait TOUTE la conversation,
+// y compris les ambiguïtés en cours de résolution. On persiste désormais la
+// session par (épicerie, client) avec une courte TTL : une réouverture rapide
+// reprend là où on en était ; au-delà, on repart d'un accueil propre (le
+// contexte produit est probablement périmé).
+
+/** Durée de vie d'une session de conversation interrompue. */
+const CHAT_SESSION_TTL_MS = 30 * 60 * 1000;
+
+const chatSessionKey = (epicerieId: number, clientId: number) =>
+  `@chatbot_session_${epicerieId}_${clientId}`;
+
+/** Forme sérialisée (les Date deviennent des ISO strings dans le JSON). */
+interface PersistedChatSession {
+  savedAt: number;
+  messages: (Omit<ChatMessageType, 'timestamp'> & { timestamp: string })[];
+  lastResponse: ChatbotResponse | null;
+}
 
 /**
  * Applique le profil d'achat du client a une reponse de parsing pour reduire
@@ -127,7 +149,7 @@ const applyPreferences = (
  * un placeholder emoji pour ne pas casser l'alignement des lignes.
  */
 const ProductThumbnail: React.FC<{ uri?: string; size?: number }> = ({ uri, size = 44 }) => {
-  const dims = { width: size, height: size, borderRadius: 6, marginRight: 10 };
+  const dims = { width: size, height: size, borderRadius: 6, marginEnd: 10 };
   if (uri) {
     return <Image source={{ uri }} style={dims} resizeMode="cover" />;
   }
@@ -182,18 +204,58 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
   const insets = useSafeAreaInsets();
   const currency = t('chatbot.currency');
 
-  // Initialize with welcome message
+  // À l'ouverture : restaure la session récente (< TTL) si elle existe, sinon
+  // message d'accueil neuf. Une fermeture accidentelle ne perd plus le fil.
   useEffect(() => {
-    if (visible && messages.length === 0) {
-      addMessage({
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: tFmt(t, 'chatbot.welcome', { epicerieName }),
-        timestamp: new Date(),
-      });
-    }
+    if (!visible || messages.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(chatSessionKey(epicerieId, clientId));
+        if (raw) {
+          const session: PersistedChatSession = JSON.parse(raw);
+          const isFresh = Date.now() - session.savedAt < CHAT_SESSION_TTL_MS;
+          if (isFresh && session.messages?.length > 0 && !cancelled) {
+            setMessages(session.messages.map((m) => ({
+              ...m,
+              timestamp: new Date(m.timestamp),
+            })));
+            setLastResponse(session.lastResponse ?? null);
+            return;
+          }
+        }
+      } catch {
+        // Session illisible/corrompue → on repart simplement de l'accueil.
+      }
+      if (!cancelled) {
+        addMessage({
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: tFmt(t, 'chatbot.welcome', { epicerieName }),
+          timestamp: new Date(),
+        });
+      }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, epicerieName, language]);
+
+  // Sauvegarde best-effort de la conversation à chaque évolution (messages ou
+  // panier en attente). Écriture asynchrone non bloquante ; jamais d'erreur
+  // remontée à l'utilisateur — la persistance est un confort, pas une feature.
+  useEffect(() => {
+    if (!visible || messages.length === 0) return;
+    const session: PersistedChatSession = {
+      savedAt: Date.now(),
+      messages: messages.map((m) => ({
+        ...m,
+        timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : String(m.timestamp),
+      })),
+      lastResponse,
+    };
+    AsyncStorage.setItem(chatSessionKey(epicerieId, clientId), JSON.stringify(session))
+      .catch(() => {});
+  }, [visible, messages, lastResponse, epicerieId, clientId]);
 
   // Fetch quick reorder suggestion en arrière-plan dès l'ouverture du chatbot.
   // Échec silencieux (pas d'historique, hors-ligne, etc.) — la fonctionnalité
@@ -318,7 +380,15 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
   // Add products to cart
   const handleAddToCart = () => {
     if (!lastResponse || lastResponse.produitsIdentifies.length === 0) {
-      Alert.alert(t('chatbot.noProducts'), t('chatbot.noProductsToAdd'));
+      // Feedback DANS la conversation plutôt qu'une Alert bloquante : c'est le
+      // pattern naturel d'un chat, et un toast serait invisible ici (le
+      // ToastProvider est monté sous la Modal native qui héberge le chatbot).
+      addMessage({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: t('chatbot.noProductsToAdd'),
+        timestamp: new Date(),
+      });
       return;
     }
 
@@ -507,7 +577,14 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
     if (!quickReorder) return;
     const availableItems = quickReorder.items.filter(i => i.available);
     if (availableItems.length === 0) {
-      Alert.alert(t('chatbot.noProducts'), t('chatbot.quickReorderEmptyAvailable'));
+      // Même logique que handleAddToCart : feedback in-chat, pas d'Alert.
+      addMessage({
+        id: (Date.now() + 5).toString(),
+        role: 'assistant',
+        content: t('chatbot.quickReorderEmptyAvailable'),
+        timestamp: new Date(),
+      });
+      setQuickReorder(null);
       return;
     }
     onAddToCart(availableItems.map(quickReorderItemToParsedProduct));
@@ -534,6 +611,9 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
           text: t('chatbot.clearConfirm'),
           style: 'destructive',
           onPress: () => {
+            // Purge aussi la session persistée — "vider" doit être définitif,
+            // pas restauré à la prochaine ouverture.
+            AsyncStorage.removeItem(chatSessionKey(epicerieId, clientId)).catch(() => {});
             setMessages([]);
             setLastResponse(null);
             // Re-add welcome message
@@ -601,12 +681,11 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
             <Text style={styles.quickReorderTitle}>{t('chatbot.quickReorderTitle')}</Text>
             <Text style={styles.quickReorderSubtitle}>
               {tFmt(t, 'chatbot.quickReorderSubtitle', {
-                // Locale dérivée de la langue active. TZ retombe sur fr-FR
-                // faute de support natif Intl pour le tamazight.
-                date: new Date(quickReorder.sourceOrderDate).toLocaleDateString(
-                  ({ fr: 'fr-FR', ar: 'ar-MA', en: 'en-US', tz: 'fr-FR' } as Record<string, string>)[language] ?? 'fr-FR',
-                  { day: 'numeric', month: 'long' },
-                ),
+                // Localisée selon la langue active (cf. src/utils/dateFormat —
+                // TZ retombe sur fr-FR faute de locale Intl tamazight).
+                date: formatDate(quickReorder.sourceOrderDate, language, {
+                  day: 'numeric', month: 'long',
+                }),
                 count: quickReorder.availableCount,
                 total: quickReorder.estimatedTotal.toFixed(2),
                 currency,
@@ -974,7 +1053,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F5F5',
   },
   loadingText: {
-    marginLeft: 8,
+    marginStart: 8,
     fontSize: 14,
     color: '#666',
     fontStyle: 'italic',
@@ -1024,7 +1103,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#F57C00',
-    marginLeft: 8,
+    marginStart: 8,
   },
   ambiguityHint: {
     fontSize: 12,
@@ -1060,7 +1139,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 15,
     maxHeight: 100,
-    marginRight: 8,
+    marginEnd: 8,
   },
   sendButton: {
     width: 44,
@@ -1112,7 +1191,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#1565C0',
-    marginLeft: 8,
+    marginStart: 8,
   },
   variantStockLow: {
     fontSize: 11,
@@ -1158,7 +1237,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#2E7D32',
-    marginLeft: 8,
+    marginStart: 8,
   },
   suggestionsContainer: {
     flexDirection: 'row',
@@ -1218,7 +1297,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#B39DDB',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginEnd: 10,
   },
   quickReorderMoreText: {
     fontSize: 13,

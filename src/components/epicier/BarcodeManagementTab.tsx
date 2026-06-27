@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 /**
  * Barcode Management Tab Component
  * Permet d'ajouter/modifier/supprimer les codes-barres d'un produit
@@ -166,7 +167,7 @@ export const BarcodeManagementTab: React.FC<Props> = ({ productId, onRefresh }) 
   if (isLoading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -187,7 +188,7 @@ export const BarcodeManagementTab: React.FC<Props> = ({ productId, onRefresh }) 
       case 'EAN13':
         return '#4CAF50';
       case 'INTERNAL':
-        return '#2196F3';
+        return Colors.primary;
       case 'UPC_A':
       case 'UPC_E':
         return '#FF9800';
@@ -288,7 +289,7 @@ export const BarcodeManagementTab: React.FC<Props> = ({ productId, onRefresh }) 
               {/* Tab Buttons */}
               <View style={styles.methodTabs}>
                 <TouchableOpacity style={styles.methodTab} disabled>
-                  <MaterialCommunityIcons name="keyboard" size={20} color="#2196F3" />
+                  <MaterialCommunityIcons name="keyboard" size={20} color={Colors.primary} />
                   <Text style={styles.methodTabText}>Saisie manuelle</Text>
                 </TouchableOpacity>
               </View>
@@ -419,10 +420,10 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#2196F3',
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -549,7 +550,7 @@ const styles = StyleSheet.create({
   methodTabText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#2196F3',
+    color: Colors.primary,
   },
   inputSection: {
     marginBottom: 20,
@@ -646,7 +647,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,

@@ -1,3 +1,4 @@
+import { Colors } from '../../../../constants/colors';
 /**
  * InfoTab — Onglet Infos de la fiche produit (épicier)
  *
@@ -11,7 +12,7 @@
  */
 
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -48,6 +49,13 @@ import { CategoryPickerModal } from '../../../../components/epicier/CategoryPick
 interface InfoTabProps {
   product: Product | null;
   onSaved: (product: Product) => void;
+  /**
+   * Notifie le parent qu'il existe des modifications non enregistrées.
+   * Permet à la fiche (onglets + bouton retour) de demander confirmation
+   * avant de quitter — sans ça, changer d'onglet perdait silencieusement
+   * un prix ou un nom modifié mais pas sauvegardé.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 // ─────────────────────────────────────────────
@@ -78,7 +86,7 @@ function initTranslations(product: Product | null): ProductTranslations {
 // Composant
 // ─────────────────────────────────────────────
 
-export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
+export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved, onDirtyChange }) => {
   const isEdit = !!product?.id;
 
   const [saving, setSaving]           = useState(false);
@@ -113,6 +121,25 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>(
     () => product?.tags?.map(t => t.id) ?? [],
   );
+
+  // ── Suivi des modifications non enregistrées ──────────────────────────────
+  // Snapshot sérialisé des champs persistables, comparé à une baseline prise
+  // au montage (les états initiaux dérivent du produit) et REPRISE après
+  // chaque sauvegarde réussie — en édition le composant n'est pas remonté
+  // (key parent = product.id), la baseline doit donc suivre.
+  const formSnapshot = useMemo(
+    () => JSON.stringify({ translations, prix, stock, categoryId, isAvailable, selectedTagIds }),
+    [translations, prix, stock, categoryId, isAvailable, selectedTagIds],
+  );
+  const baselineRef = useRef(formSnapshot);
+  /** URI de l'image déjà persistée — une nouvelle sélection rend dirty. */
+  const savedImageUriRef = useRef<string | null>(null);
+  const isDirty =
+    formSnapshot !== baselineRef.current
+    || (selectedImage?.uri ?? null) !== savedImageUriRef.current;
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   useEffect(() => {
     loadCategories();
@@ -289,6 +316,12 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
 
       }
 
+      // Sauvegarde réussie → l'état courant devient la nouvelle baseline
+      // (le formulaire n'est plus "dirty" tant qu'on ne retouche rien).
+      baselineRef.current = formSnapshot;
+      savedImageUriRef.current = selectedImage?.uri ?? null;
+      onDirtyChange?.(false);
+
       onSaved(savedProduct);
     } catch (err: any) {
       Alert.alert('Erreur', err.message || 'Impossible de sauvegarder');
@@ -377,7 +410,7 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
         <View style={styles.field}>
           <Text style={styles.label}>Catégorie</Text>
           {loadingCats ? (
-            <ActivityIndicator size="small" color="#2196F3" />
+            <ActivityIndicator size="small" color={Colors.primary} />
           ) : (
             <TouchableOpacity
               style={styles.categoryTrigger}
@@ -449,7 +482,7 @@ export const InfoTab: React.FC<InfoTabProps> = ({ product, onSaved }) => {
             value={isAvailable}
             onValueChange={setIsAvailable}
             trackColor={{ false: '#ccc', true: '#bbdefb' }}
-            thumbColor={isAvailable ? '#2196F3' : '#f4f3f4'}
+            thumbColor={isAvailable ? Colors.primary : '#f4f3f4'}
           />
         </View>
 
@@ -592,7 +625,7 @@ const styles = StyleSheet.create({
   tagChipLabel: { fontSize: 13, fontWeight: '600' },
 
   saveBtn: {
-    backgroundColor: '#2196F3', borderRadius: 12,
+    backgroundColor: Colors.primary, borderRadius: 12,
     paddingVertical: 16, alignItems: 'center',
   },
   saveBtnDisabled: { opacity: 0.6 },

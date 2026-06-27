@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -57,7 +58,7 @@ const styles = StyleSheet.create({
   },
   cta: {
     marginTop: 22,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,

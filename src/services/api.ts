@@ -12,6 +12,9 @@ import { authFeedbackBus } from './auth/authFeedbackBus';
 
 /** Détermine le namespace de cache à partir de l'URL */
 function resolveNamespace(url: string): CacheNamespace | null {
+  // Position temps réel du livreur : volatile par nature — ni mise en cache,
+  // ni fallback hors-ligne (une position périmée passerait pour fraîche).
+  if (url.includes('/tracking') || url.includes('/livreurs/location')) return null;
   if (url.includes('/pos-sessions') || url.includes('/cash-sessions')) return 'pos';
   if (url.includes('/products') || url.includes('/produits')) return 'products';
   if (url.includes('/orders')) return 'orders';

@@ -114,7 +114,7 @@ export const ProductSectionsView: React.FC<ProductSectionsViewProps> = ({
             keyExtractor={(item) => `sec-${section.categoryName}-${item.id}`}
             contentContainerStyle={styles.sectionListContent}
             renderItem={({ item }) => (
-              <View style={{ width: cardWidth, marginRight: 10 }}>
+              <View style={{ width: cardWidth, marginEnd: 10 }}>
                 {renderCard(item)}
               </View>
             )}
@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    paddingLeft: 10,
+    paddingStart: 10,
   },
   seeAllLabel: { fontSize: 13, fontWeight: '700' },
   seeAllChev: { fontSize: 20, fontWeight: '700', lineHeight: 20 },

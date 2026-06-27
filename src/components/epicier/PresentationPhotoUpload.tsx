@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import React, { useState } from 'react';
 import {
   View,
@@ -288,7 +289,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderWidth: 1,
     borderColor: '#1976D2',
   },
@@ -311,7 +312,7 @@ const styles = StyleSheet.create({
   infoBox: {
     backgroundColor: '#E3F2FD',
     borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
+    borderLeftColor: Colors.primary,
     padding: 12,
     borderRadius: 6,
     marginTop: 12,

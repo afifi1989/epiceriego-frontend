@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import React, { useCallback, useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet, Alert, ViewStyle } from 'react-native';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -72,6 +73,11 @@ export const ClientQrScanButton: React.FC<ClientQrScanButtonProps> = ({
         style={[styles.button, iconOnly && styles.iconOnlyBtn, style]}
         onPress={() => setScannerVisible(true)}
         activeOpacity={0.8}
+        // En mode icône seule la cible fait ~36px — hitSlop ramène la zone
+        // tactile au-dessus des 44px recommandés (usage comptoir, une main).
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel={t('loyaltyScan.buttonLabel')}
       >
         <MaterialCommunityIcons name="qrcode-scan" size={20} color="#fff" />
         {!iconOnly && <Text style={styles.label}>{t('loyaltyScan.buttonLabel')}</Text>}
@@ -94,7 +100,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,

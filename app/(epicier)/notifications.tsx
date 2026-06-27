@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Notifications épicier — centre de notifications moderne.
  *
@@ -275,7 +277,7 @@ export default function NotificationsEpicierScreen() {
       {/* Liste */}
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.center}>
@@ -293,7 +295,7 @@ export default function NotificationsEpicierScreen() {
           keyExtractor={g => g.label}
           contentContainerStyle={{ paddingBottom: 32 }}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#2196F3']} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Colors.primary]} />
           }
           renderItem={({ item: group }) => (
             <View>
@@ -386,7 +388,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-  chipActive: { backgroundColor: '#2196F3', borderColor: '#1976D2' },
+  chipActive: { backgroundColor: Colors.primary, borderColor: '#1976D2' },
   chipActiveAlert: { backgroundColor: '#EF4444', borderColor: '#dc2626' },
   chipLabel: { fontSize: 12, fontWeight: '700', color: '#4b5563' },
   chipLabelActive: { color: '#fff' },
@@ -440,7 +442,7 @@ const styles = StyleSheet.create({
   },
   cardUnread: {
     borderLeftWidth: 3,
-    borderLeftColor: '#2196F3',
+    borderLeftColor: Colors.primary,
     backgroundColor: '#f8fbff',
   },
   iconBox: {

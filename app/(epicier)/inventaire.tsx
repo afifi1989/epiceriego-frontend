@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Liste des sessions d'inventaire (S5) — écran stack, accessible depuis le dashboard.
  *
@@ -109,7 +111,7 @@ export default function InventaireListScreen() {
       </View>
 
       {loading
-        ? <View style={styles.centered}><ActivityIndicator size="large" color="#2196F3" /></View>
+        ? <View style={styles.centered}><ActivityIndicator size="large" color={Colors.primary} /></View>
         : (
           <ScrollView
             style={{ flex: 1 }}
@@ -217,7 +219,7 @@ const styles = StyleSheet.create({
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '800', color: '#333' },
   headerCta: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#2196F3', paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8
+    backgroundColor: Colors.primary, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8
   },
   headerCtaText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
@@ -264,7 +266,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#333'
   },
   submitBtn: {
-    backgroundColor: '#2196F3', borderRadius: 12,
+    backgroundColor: Colors.primary, borderRadius: 12,
     paddingVertical: 14, alignItems: 'center', marginTop: 16
   },
   submitText: { color: '#fff', fontSize: 15, fontWeight: '700' }

@@ -346,31 +346,33 @@ export const pushNotificationService = {
         return;
       }
 
-      // The deep-link routing in routing.ts is 100% client-centric (paths
-      // start with /(client)/...). Routing an EPICIER or LIVREUR there would
-      // bounce them through the client layout's auth guard and effectively
-      // log them out. Skip the navigation for non-client roles — they'll
-      // land on their default tab which is what they want.
+      // Le routing est role-aware (routing.ts) : CLIENT et LIVREUR ont
+      // chacun leurs résolveurs dans leur propre groupe de layout —
+      // traverser le layout d'un autre rôle ferait rebondir l'utilisateur
+      // sur le mauvais guard d'auth. Seul EPICIER reste sans deep-link
+      // (pas de résolveurs définis) : il atterrit sur son onglet par défaut.
       const role = await AsyncStorage.getItem(STORAGE_KEYS.ROLE);
-      if (role !== 'CLIENT') {
-        console.log(`[PushNotificationService] Role=${role}, skip client-only routing`);
+      if (role !== 'CLIENT' && role !== 'LIVREUR') {
+        console.log(`[PushNotificationService] Role=${role}, pas de deep-link configuré`);
         return;
       }
 
       const parsedData = parseNotificationData(data);
       const type = parsedData.type || parsedData.notificationType;
-      const route = resolveRoute(type, parsedData);
+      const route = resolveRoute(type, parsedData, role as 'CLIENT' | 'LIVREUR');
 
-      console.log(`[PushNotificationService] Route résolue: ${type} → ${route}`);
+      console.log(`[PushNotificationService] Route résolue (${role}): ${type} → ${route}`);
+
+      const fallbackRoute = role === 'LIVREUR' ? '/(livreur)/deliveries' : '/(client)/notifications';
 
       setTimeout(() => {
         try {
           router.push(route);
         } catch (e) {
           console.error('[PushNotificationService] Erreur navigation:', e);
-          // Fallback also stays inside the client space — only reachable here
-          // because the role guard above passed.
-          router.push('/(client)/notifications');
+          // Fallback dans l'espace du rôle courant — jamais de traversée
+          // de layout.
+          router.push(fallbackRoute);
         }
       }, 500);
     } catch (error) {

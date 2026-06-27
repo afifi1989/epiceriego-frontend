@@ -277,7 +277,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
     flex: 1,
-    marginRight: 12,
+    marginEnd: 12,
   },
   closeButton: {
     width: 44,

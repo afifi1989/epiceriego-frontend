@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
   },
   creditStatusSection: {
     borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
+    borderLeftColor: Colors.primary,
     paddingLeft: 12,
     paddingVertical: 8,
     marginBottom: 12,

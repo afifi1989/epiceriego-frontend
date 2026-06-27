@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 /**
  * SettingsSectionModal — Modal mobile qui héberge un step component
  * en mode "édition Settings" (pas en mode wizard).
@@ -124,7 +125,7 @@ export function SettingsSectionModal({
   );
 }
 
-const PRIMARY = '#2196F3';
+const PRIMARY = Colors.primary;
 const PRIMARY_DARK = '#1976D2';
 
 const styles = StyleSheet.create({

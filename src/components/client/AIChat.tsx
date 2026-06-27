@@ -482,7 +482,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    marginRight: 8,
+    marginEnd: 8,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
   selectedProductChipText: {
     fontSize: 12,
     color: '#2e7d32',
-    marginRight: 6,
+    marginEnd: 6,
   },
   removeProductButton: {
     fontSize: 18,

@@ -168,7 +168,7 @@ function formatCountdown(ms: number, t: (k: string) => string): string {
 const flashCardStyles = (theme: Theme) => StyleSheet.create({
   card: {
     width: 180,
-    marginRight: theme.spacing.md,
+    marginEnd: theme.spacing.md,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     overflow: 'hidden',

@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran Fidélité — Configuration du programme + catalogue de récompenses.
  */
@@ -170,7 +172,7 @@ export default function FideliteScreen() {
   const unitLabel = program?.programType === 'STAMPS' ? 'tampon(s)' : 'point(s)';
 
   if (loading) {
-    return <SafeAreaView style={s.safe}><View style={s.center}><ActivityIndicator size="large" color="#2196F3" /></View></SafeAreaView>;
+    return <SafeAreaView style={s.safe}><View style={s.center}><ActivityIndicator size="large" color={Colors.primary} /></View></SafeAreaView>;
   }
 
   return (
@@ -199,7 +201,7 @@ export default function FideliteScreen() {
         {stats && program?.isActive && (
           <View style={s.statsRow}>
             <View style={s.statCard}>
-              <Ionicons name="people" size={20} color="#2196F3" />
+              <Ionicons name="people" size={20} color={Colors.primary} />
               <Text style={s.statValue}>{stats.activeMembersCount}</Text>
               <Text style={s.statLabel}>Membres actifs</Text>
             </View>
@@ -243,7 +245,7 @@ export default function FideliteScreen() {
                 <Ionicons
                   name={type === 'POINTS' ? 'star' : 'card'}
                   size={18}
-                  color={program?.programType === type ? '#fff' : '#2196F3'}
+                  color={program?.programType === type ? '#fff' : Colors.primary}
                 />
                 <Text style={[s.typeBtnText, program?.programType === type && s.typeBtnTextActive]}>
                   {type === 'POINTS' ? 'Points' : 'Tampons'}
@@ -443,7 +445,7 @@ const s = StyleSheet.create({
     borderWidth: 1.5, borderColor: '#e0e0e0', backgroundColor: '#fff',
   },
   typeBtnActive: { backgroundColor: '#1565c0', borderColor: '#1565c0' },
-  typeBtnText: { fontSize: 13, fontWeight: '700', color: '#2196F3' },
+  typeBtnText: { fontSize: 13, fontWeight: '700', color: Colors.primary },
   typeBtnTextActive: { color: '#fff' },
 
   rateRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -453,13 +455,13 @@ const s = StyleSheet.create({
   switchLabel: { fontSize: 13, color: '#555', flex: 1, fontWeight: '500' },
 
   saveBtn: {
-    backgroundColor: '#2196F3', borderRadius: 12, paddingVertical: 14,
+    backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 14,
     alignItems: 'center', marginTop: 16,
   },
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
 
   addBtn: {
-    width: 34, height: 34, borderRadius: 10, backgroundColor: '#2196F3',
+    width: 34, height: 34, borderRadius: 10, backgroundColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
 
@@ -476,7 +478,7 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   rewardName: { fontSize: 14, fontWeight: '700', color: '#333' },
-  rewardCost: { fontSize: 12, color: '#2196F3', fontWeight: '600', marginTop: 2 },
+  rewardCost: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginTop: 2 },
   rewardDetail: { fontSize: 11, color: '#888', marginTop: 1 },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

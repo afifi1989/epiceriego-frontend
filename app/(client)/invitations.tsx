@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -16,10 +17,11 @@ import { clientManagementService } from '../../src/services/clientManagementServ
 import { ClientInvitation } from '../../src/type';
 import { Colors, FontSizes, Spacing } from '../../src/constants/colors';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { formatDate } from '../../src/utils/dateFormat';
 
 export default function ClientInvitationsScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [invitations, setInvitations] = useState<ClientInvitation[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -192,7 +194,7 @@ export default function ClientInvitationsScreen() {
           <View style={styles.invitationInfo}>
             <Text style={styles.storeName}>{item.epicerieName}</Text>
             <Text style={styles.invitationDate}>
-              {t('invitations.invitedOn')} {new Date(item.createdAt).toLocaleDateString('fr-FR')}
+              {t('invitations.invitedOn')} {formatDate(item.createdAt, language)}
             </Text>
           </View>
         </View>
@@ -326,7 +328,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5E9',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginEnd: 12,
   },
   storeIconText: {
     fontSize: 28,

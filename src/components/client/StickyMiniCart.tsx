@@ -205,7 +205,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingLeft: 8,
+    paddingStart: 8,
   },
   ctaLabel: { fontSize: 14, fontWeight: '700', letterSpacing: 0.2 },
   ctaChevron: { fontSize: 22, fontWeight: '700', lineHeight: 22 },

@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
@@ -149,7 +151,7 @@ export default function CodesPromosScreen() {
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -186,7 +188,7 @@ export default function CodesPromosScreen() {
         keyExtractor={(p) => String(p.id)}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#2196F3" />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primary} />
         }
         renderItem={({ item }) => (
           <PromoCodeCard
@@ -303,7 +305,7 @@ const styles = StyleSheet.create({
   tabBar: { backgroundColor: '#fff', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#e0e0e0', flexGrow: 0 },
   tabBarContent: { paddingVertical: 12, paddingHorizontal: 12, gap: 8 },
   tab: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 18, backgroundColor: '#f5f5f5' },
-  tabActive: { backgroundColor: '#2196F3' },
+  tabActive: { backgroundColor: Colors.primary },
   tabLabel: { fontSize: 13, color: '#666', fontWeight: '600' },
   tabLabelActive: { color: '#fff' },
 
@@ -340,7 +342,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 24, right: 20,
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
     elevation: 6,

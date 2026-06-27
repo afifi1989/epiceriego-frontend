@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Personnalisation visuelle de l'épicerie — version mobile épicier.
  *

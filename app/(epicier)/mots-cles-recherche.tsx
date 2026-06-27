@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Mots-clés de recherche (synonymes) — épicier mobile.
  *
@@ -202,7 +204,7 @@ export default function MotsClesRechercheScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -395,7 +397,7 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: '#f5f5f5', borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#222',
   },
-  addBtn: { backgroundColor: '#2196F3', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 },
+  addBtn: { backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   row: {
@@ -468,7 +470,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6,
     borderWidth: 1, borderColor: '#e0e0e0', backgroundColor: '#fafafa',
   },
-  langOptActive: { borderColor: '#2196F3', backgroundColor: '#E3F2FD' },
+  langOptActive: { borderColor: Colors.primary, backgroundColor: '#E3F2FD' },
   langOptText: { fontSize: 12, color: '#666' },
   langOptTextActive: { color: '#1976D2', fontWeight: '700' },
 
@@ -476,6 +478,6 @@ const styles = StyleSheet.create({
   modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   modalBtnCancel: { backgroundColor: '#f0f0f0' },
   modalBtnCancelText: { color: '#333', fontWeight: '600' },
-  modalBtnConfirm: { backgroundColor: '#2196F3' },
+  modalBtnConfirm: { backgroundColor: Colors.primary },
   modalBtnConfirmText: { color: '#fff', fontWeight: '700' },
 });

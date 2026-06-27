@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Fiche Produit Unifiée — Épicier
  *
@@ -18,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { productService } from '../../src/services/productService';
@@ -43,6 +45,30 @@ export default function FicheProduitScreen() {
   const [loading, setLoading] = useState(!!id);
   const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
   const [activeTab, setActiveTab] = useState(0);
+  /** Modifications non enregistrées dans l'onglet Infos (remonté par InfoTab).
+   *  Sert de garde : changer d'onglet ou fermer la fiche avec un formulaire
+   *  dirty perdait silencieusement la saisie (prix modifié, nom, photo…). */
+  const [infoDirty, setInfoDirty] = useState(false);
+
+  /** Garde commune onglets/retour : confirme avant de jeter une saisie. */
+  const confirmDiscardIfDirty = (proceed: () => void) => {
+    if (activeTab !== 0 || !infoDirty) {
+      proceed();
+      return;
+    }
+    Alert.alert(
+      'Modifications non enregistrées',
+      'Les changements de l\'onglet Infos seront perdus. Continuer ?',
+      [
+        { text: 'Rester', style: 'cancel' },
+        {
+          text: 'Quitter sans enregistrer',
+          style: 'destructive',
+          onPress: () => { setInfoDirty(false); proceed(); },
+        },
+      ],
+    );
+  };
   /** LoginResponse partagé aux onglets pour qu'ils dérivent leurs permissions
    *  via usePermissions(user). Chargé une fois au montage — sinon les onglets
    *  retombent sur le profil 'caissier' par défaut et masquent leurs actions. */
@@ -112,7 +138,7 @@ export default function FicheProduitScreen() {
           <Text style={styles.headerTitle}>Chargement...</Text>
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
+          <ActivityIndicator size="large" color={Colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -123,11 +149,18 @@ export default function FicheProduitScreen() {
 
       {/* ── En-tête ── */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => confirmDiscardIfDirty(() => router.back())}
+        >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {title}
+            {/* Point discret = saisie non enregistrée dans Infos */}
+            {infoDirty ? '  ●' : ''}
+          </Text>
           {currentProduct?.categoryName && (
             <Text style={styles.headerSub} numberOfLines={1}>{currentProduct.categoryName}</Text>
           )}
@@ -148,12 +181,21 @@ export default function FicheProduitScreen() {
       </View>
 
       {/* ── Onglets ── */}
-      <ProductTabs tabs={tabs} activeIndex={activeTab} onTabChange={setActiveTab} />
+      <ProductTabs
+        tabs={tabs}
+        activeIndex={activeTab}
+        onTabChange={(idx) => confirmDiscardIfDirty(() => setActiveTab(idx))}
+      />
 
       {/* ── Contenu de l'onglet actif ── */}
       <View style={styles.content}>
         {activeTab === 0 && (
-          <InfoTab key={currentProduct?.id ?? 'new'} product={currentProduct} onSaved={onInfoSaved} />
+          <InfoTab
+            key={currentProduct?.id ?? 'new'}
+            product={currentProduct}
+            onSaved={onInfoSaved}
+            onDirtyChange={setInfoDirty}
+          />
         )}
         {activeTab === 1 && currentProduct && (
           <VariantsTab product={currentProduct} user={loginData} onChanged={() => loadProduct(currentProduct.id)} />
@@ -171,10 +213,10 @@ export default function FicheProduitScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#2196F3' },
+  safeArea: { flex: 1, backgroundColor: Colors.primary },
 
   header: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,

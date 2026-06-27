@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 /**
  * CategoryPickerModal — Sélecteur de catégorie moderne avec recherche rapide.
  *
@@ -226,7 +227,7 @@ const styles = StyleSheet.create({
   },
   cancelText: {
     fontSize: 16,
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '500',
   },
   title: {
@@ -308,7 +309,7 @@ const styles = StyleSheet.create({
   },
   checkIcon: {
     fontSize: 20,
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '700',
     marginLeft: 12,
   },

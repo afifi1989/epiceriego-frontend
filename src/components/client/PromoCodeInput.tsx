@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
     color: '#e53935',
     fontSize: 12,
     marginTop: 6,
-    marginLeft: 4,
+    marginStart: 4,
   },
   appliedBox: {
     flexDirection: 'row',

@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Passants à convertir — épicier mobile
  *
@@ -147,7 +149,7 @@ export default function PassantsAConvertirScreen() {
   if (loading && !refreshing) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -174,7 +176,7 @@ export default function PassantsAConvertirScreen() {
         keyExtractor={(item) => item.receiptEmail}
         contentContainerStyle={{ padding: 16, paddingTop: 8 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2196F3" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
         }
         renderItem={({ item }) => (
           <View style={styles.row}>
@@ -329,7 +331,7 @@ const styles = StyleSheet.create({
   convertBtn: {
     paddingHorizontal: 14,
     paddingVertical: 9,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderRadius: 8,
   },
   convertBtnText: { color: '#fff', fontWeight: '700', fontSize: 12 },
@@ -369,6 +371,6 @@ const styles = StyleSheet.create({
   modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   modalBtnCancel: { backgroundColor: '#f0f0f0' },
   modalBtnCancelText: { color: '#333', fontWeight: '600' },
-  modalBtnConfirm: { backgroundColor: '#2196F3' },
+  modalBtnConfirm: { backgroundColor: Colors.primary },
   modalBtnConfirmText: { color: '#fff', fontWeight: '700' },
 });

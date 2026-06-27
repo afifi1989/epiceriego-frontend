@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran de comptage d'une session d'inventaire (S5).
  *
@@ -179,7 +181,7 @@ export default function InventorySessionScreen() {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Session…</Text>
         </View>
-        <View style={styles.centered}><ActivityIndicator size="large" color="#2196F3" /></View>
+        <View style={styles.centered}><ActivityIndicator size="large" color={Colors.primary} /></View>
       </SafeAreaView>
     );
   }
@@ -325,7 +327,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   progressBar: { height: 4, backgroundColor: '#eee' },
-  progressFill: { height: '100%', backgroundColor: '#2196F3' },
+  progressFill: { height: '100%', backgroundColor: Colors.primary },
 
   filtersRow: {
     flexDirection: 'row', gap: 8, padding: 10,
@@ -335,9 +337,9 @@ const styles = StyleSheet.create({
     flex: 1, paddingVertical: 7, borderRadius: 8,
     borderWidth: 1.5, borderColor: '#e0e0e0', alignItems: 'center', backgroundColor: '#fff'
   },
-  filterBtnActive: { borderColor: '#2196F3', backgroundColor: '#e3f2fd' },
+  filterBtnActive: { borderColor: Colors.primary, backgroundColor: '#e3f2fd' },
   filterText: { fontSize: 13, color: '#666', fontWeight: '600' },
-  filterTextActive: { color: '#2196F3', fontWeight: '800' },
+  filterTextActive: { color: Colors.primary, fontWeight: '800' },
 
   empty: { alignItems: 'center', padding: 40, gap: 8 },
   emptyText: { fontSize: 14, color: '#777' },

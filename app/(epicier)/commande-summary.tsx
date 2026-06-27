@@ -1,3 +1,4 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Écran de résumé de commande pour épicier
  * Affiche le récapitulatif final après préparation

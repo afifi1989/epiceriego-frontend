@@ -4,6 +4,8 @@ import { Image as ExpoImage } from 'expo-image';
 import QRCode from 'react-native-qrcode-svg';
 import { LoyaltyCard } from '../../services/loyaltyCardService';
 import { useLanguage } from '../../context/LanguageContext';
+import { Language } from '../../i18n/translations';
+import { formatDate } from '../../utils/dateFormat';
 import { tFmt } from '../../services/chatbotService';
 
 /**
@@ -34,9 +36,9 @@ export const LoyaltyCardVisual: React.FC<LoyaltyCardVisualProps> = ({
   qrSize = 220,
   style,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const tint = colorFromId(card.epicerieId);
-  const issuedDate = formatIssuedDate(card.issuedAt);
+  const issuedDate = formatIssuedDate(card.issuedAt, language);
 
   // Bascule vers les initiales si l'URL renvoie un 404 ou si le chargement
   // echoue (cas SSL/cert Android observe ailleurs dans le projet — cf.
@@ -159,15 +161,12 @@ const initials = (name: string): string => {
   return parts.map((p) => p.charAt(0).toUpperCase()).join('');
 };
 
-const formatIssuedDate = (iso: string): string => {
+// Date d'émission localisée selon la langue de l'app (et non la locale
+// système) — cohérent avec le reste des dates client (src/utils/dateFormat).
+const formatIssuedDate = (iso: string, language: Language): string => {
   if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString();
-  } catch {
-    return iso;
-  }
+  const formatted = formatDate(iso, language);
+  return formatted || iso;
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -198,7 +197,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    marginRight: 12,
+    marginEnd: 12,
     backgroundColor: 'rgba(255,255,255,0.25)',
   },
   logoFallback: {
@@ -227,7 +226,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 10,
-    marginLeft: 8,
+    marginStart: 8,
   },
   statusActive: {
     backgroundColor: 'rgba(255,255,255,0.25)',

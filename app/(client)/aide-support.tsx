@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -360,7 +361,7 @@ const styles = StyleSheet.create({
   },
   searchIcon: {
     fontSize: 16,
-    marginRight: 8,
+    marginEnd: 8,
   },
   searchInput: {
     flex: 1,
@@ -394,7 +395,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 16,
     padding: 18,
-    marginRight: 12,
+    marginEnd: 12,
     width: 110,
     alignItems: 'center',
     shadowColor: '#000',
@@ -437,12 +438,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
-    paddingLeft: 12,
+    paddingStart: 12,
     borderLeftWidth: 3,
   },
   categoryIcon: {
     fontSize: 20,
-    marginRight: 8,
+    marginEnd: 8,
   },
   categoryName: {
     fontSize: 15,
@@ -475,7 +476,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#222',
     flex: 1,
-    paddingRight: 10,
+    paddingEnd: 10,
     lineHeight: 20,
   },
   faqChevron: {
@@ -535,7 +536,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginEnd: 14,
   },
   contactIcon: {
     fontSize: 22,
@@ -562,7 +563,7 @@ const styles = StyleSheet.create({
   },
   reportIcon: {
     fontSize: 18,
-    marginRight: 8,
+    marginEnd: 8,
   },
   reportText: {
     fontSize: 14,

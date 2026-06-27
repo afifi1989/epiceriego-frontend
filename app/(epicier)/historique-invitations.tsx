@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState, useEffect } from 'react';
 import {
@@ -251,7 +253,7 @@ export default function HistoriqueInvitationsScreen() {
     if (!loading) return null;
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color="#2196F3" />
+        <ActivityIndicator size="small" color={Colors.primary} />
       </View>
     );
   };
@@ -259,7 +261,7 @@ export default function HistoriqueInvitationsScreen() {
   if (loading && page === 0) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Chargement...</Text>
       </View>
     );
@@ -327,7 +329,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   header: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     paddingHorizontal: 20,
     paddingVertical: 16,
     paddingTop: 20,
@@ -385,9 +387,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   filterButtonActive: {
-    backgroundColor: '#2196F3',
-    borderColor: '#2196F3',
-    shadowColor: '#2196F3',
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+    shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,

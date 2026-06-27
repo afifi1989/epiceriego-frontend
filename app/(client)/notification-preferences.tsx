@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 /**
  * Notification preferences — UX moderne et attractive.
  *

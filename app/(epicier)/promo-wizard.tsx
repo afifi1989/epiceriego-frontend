@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -207,7 +209,7 @@ export default function PromoWizardScreen() {
   if (bootstrapping) {
     return (
       <View style={styles.bootstrap}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -383,7 +385,7 @@ function StepInfos({
           activeOpacity={0.8}
         >
           {uploading
-            ? <ActivityIndicator color="#2196F3" />
+            ? <ActivityIndicator color={Colors.primary} />
             : <Text style={styles.imagePickerText}>＋  Choisir une image</Text>}
         </TouchableOpacity>
       )}
@@ -677,7 +679,7 @@ const styles = StyleSheet.create({
   },
   imagePickerText: {
     fontSize: 15,
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '600',
   },
   imagePreviewWrap: {
@@ -772,7 +774,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
   },
   retryMiniText: {
     color: '#1565C0',
@@ -824,7 +826,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnPrimary: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   btnPrimaryText: {
     color: '#fff',

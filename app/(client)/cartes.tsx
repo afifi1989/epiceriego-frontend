@@ -1,4 +1,7 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import React, { useCallback, useEffect, useState } from 'react';
+// Rouge "danger" unifié sur la palette du design system (était #B00020).
+import { lightColors } from '../../src/theme/colors';
 import {
   View,
   Text,
@@ -171,7 +174,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 14,
-    color: '#B00020',
+    color: lightColors.danger,
     textAlign: 'center',
     marginBottom: 16,
   },

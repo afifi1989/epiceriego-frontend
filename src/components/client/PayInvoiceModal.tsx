@@ -310,7 +310,7 @@ export const PayInvoiceModal: React.FC<PayInvoiceModalProps> = ({
                           size={24}
                           color={selectedCardId === card.id ? '#1565c0' : '#999'}
                         />
-                        <View style={{ flex: 1, marginLeft: 10 }}>
+                        <View style={{ flex: 1, marginStart: 10 }}>
                           <Text style={styles.savedCardNumber}>
                             **** **** **** {card.lastFourDigits}
                           </Text>
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginEnd: 14,
   },
   methodTitle: { fontSize: 15, fontWeight: '700', color: '#333' },
   methodSub: { fontSize: 12, color: '#888', marginTop: 2 },

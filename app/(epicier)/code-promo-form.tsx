@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -192,7 +194,7 @@ export default function CodePromoFormScreen() {
   if (loadingInitial) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -458,7 +460,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-  segmentBtnActive: { borderColor: '#2196F3', backgroundColor: '#e3f2fd' },
+  segmentBtnActive: { borderColor: Colors.primary, backgroundColor: '#e3f2fd' },
   segmentBtnText: { fontSize: 13, color: '#666', fontWeight: '600' },
   segmentBtnTextActive: { color: '#1565c0' },
 
@@ -478,7 +480,7 @@ const styles = StyleSheet.create({
 
   saveBtn: {
     marginTop: 24, paddingVertical: 14,
-    backgroundColor: '#2196F3', borderRadius: 10,
+    backgroundColor: Colors.primary, borderRadius: 10,
     alignItems: 'center',
   },
   saveBtnDisabled: { backgroundColor: '#90caf9' },

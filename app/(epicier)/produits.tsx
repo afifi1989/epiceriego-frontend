@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -27,17 +29,30 @@ import { formatPrice } from '../../src/utils/helpers';
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { PromoProductBadge } from '../../src/features/promotions/components';
 
+/** Délai d'inactivité avant d'appliquer la recherche texte (filtrage complet
+ *  du catalogue : sensible dès ~200 articles). */
+const SEARCH_DEBOUNCE_MS = 250;
+
 export default function ProduitsScreen() {
   const router = useRouter();
   const { currency } = useCurrency();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /** Échec du dernier chargement (réseau/cache vide). Sans lui, l'écran vide
+   *  affichait un trompeur "Aucun produit" — l'épicier croyait son catalogue
+   *  perdu — et hors-ligne sans cache, AUCUN feedback n'était donné. */
+  const [loadError, setLoadError] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [loginData, setLoginData] = useState<LoginResponse | null>(null);
   const { can } = usePermissions(loginData);
   // Filtres
   const [searchText, setSearchText] = useState('');
+  /** Recherche débouncée : le filtrage (nom + description sur tout le
+   *  catalogue) ne tourne plus à CHAQUE frappe mais 250ms après la dernière.
+   *  Les autres filtres (catégorie/tags/promo) restent instantanés — 1 tap
+   *  = 1 filtrage voulu. */
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [onlyPromo, setOnlyPromo] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -125,8 +140,10 @@ export default function ProduitsScreen() {
       if (data) {
         setProducts(data);
         setFilteredProducts(data);
+        setLoadError(false);
       }
     } catch (error) {
+      setLoadError(true);
       if (offlineService.isOnline()) {
         Alert.alert('Erreur', 'Impossible de charger les produits');
       }
@@ -136,16 +153,22 @@ export default function ProduitsScreen() {
     }
   };
 
+  // Débounce de la saisie recherche (annulé si l'utilisateur retape avant).
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchText), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [searchText]);
+
   // Appliquer les filtres
   useEffect(() => {
     applyFilters();
-  }, [searchText, selectedCategoryId, selectedTagIds, onlyPromo, products]);
+  }, [debouncedSearch, selectedCategoryId, selectedTagIds, onlyPromo, products]);
 
   const applyFilters = () => {
     let filtered = [...products];
 
-    if (searchText.trim()) {
-      const search = searchText.toLowerCase();
+    if (debouncedSearch.trim()) {
+      const search = debouncedSearch.toLowerCase();
       filtered = filtered.filter(product =>
         product.nom.toLowerCase().includes(search) ||
         product.description?.toLowerCase().includes(search)
@@ -173,6 +196,7 @@ export default function ProduitsScreen() {
 
   const resetFilters = () => {
     setSearchText('');
+    setDebouncedSearch(''); // immédiat — pas d'attente du debounce pour un reset
     setSelectedCategoryId(null);
     setSelectedTagIds([]);
   };
@@ -309,7 +333,7 @@ export default function ProduitsScreen() {
   if (loading) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -475,20 +499,48 @@ export default function ProduitsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyEmoji}>📦</Text>
-            <Text style={styles.emptyText}>
-              {hasActiveFilters ? 'Aucun produit trouvé' : 'Aucun produit'}
-            </Text>
-            <Text style={styles.emptySubtext}>
-              {hasActiveFilters ? 'Essayez de modifier vos filtres' : 'Ajoutez votre premier produit'}
-            </Text>
-          </View>
+          loadError ? (
+            // Échec de chargement ≠ catalogue vide : on le dit clairement,
+            // avec la cause (hors-ligne sans cache vs erreur serveur) et un
+            // vrai bouton Réessayer.
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyEmoji}>📡</Text>
+              <Text style={styles.emptyText}>Impossible de charger les produits</Text>
+              <Text style={styles.emptySubtext}>
+                {offlineService.isOnline()
+                  ? 'Vérifiez votre connexion puis réessayez'
+                  : 'Mode hors-ligne — aucune donnée en cache pour le moment'}
+              </Text>
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => { setLoading(true); loadProducts(); }}
+                accessibilityRole="button"
+                accessibilityLabel="Réessayer le chargement"
+              >
+                <Text style={styles.retryBtnText}>Réessayer</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyEmoji}>📦</Text>
+              <Text style={styles.emptyText}>
+                {hasActiveFilters ? 'Aucun produit trouvé' : 'Aucun produit'}
+              </Text>
+              <Text style={styles.emptySubtext}>
+                {hasActiveFilters ? 'Essayez de modifier vos filtres' : 'Ajoutez votre premier produit'}
+              </Text>
+            </View>
+          )
         }
       />
 
       {can('products:create') && (
-        <TouchableOpacity style={styles.fab} onPress={handleAddProduct}>
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={handleAddProduct}
+          accessibilityRole="button"
+          accessibilityLabel="Ajouter un produit"
+        >
           <Text style={styles.fabIcon}>➕</Text>
         </TouchableOpacity>
       )}
@@ -560,7 +612,7 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 4,
   },
   statLabel: {
@@ -626,7 +678,7 @@ const styles = StyleSheet.create({
   productPrice: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2196F3',
+    color: Colors.primary,
   },
   categoryContainer: {
     flexDirection: 'row',
@@ -714,7 +766,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   editBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   toggleBtn: {
     backgroundColor: '#FF9800',
@@ -741,6 +793,21 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 14,
     color: '#666',
+    textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 16,
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+  },
+  retryBtnText: {
+    color: Colors.primary,
+    fontWeight: '600',
+    fontSize: 14,
   },
   fab: {
     position: 'absolute',
@@ -749,7 +816,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -789,8 +856,8 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
   },
   categoryFilterButtonActive: {
-    backgroundColor: '#2196F3',
-    borderColor: '#2196F3',
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   categoryFilterIcon: {
     fontSize: 20,
@@ -812,7 +879,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 6,

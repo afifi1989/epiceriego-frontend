@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
 

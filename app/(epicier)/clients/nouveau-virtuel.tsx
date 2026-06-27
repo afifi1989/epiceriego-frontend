@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../../src/constants/colors';
 /**
  * Création / édition d'un client virtuel — UX moderne et attractive.
  *
@@ -31,7 +33,7 @@ import { STORAGE_KEYS } from '../../../src/constants/config';
 import { clientManagementService } from '../../../src/services/clientManagementService';
 import { ClientEpicerieRelation } from '../../../src/type';
 
-const PRIMARY = '#2196F3';
+const PRIMARY = Colors.primary;
 const ACCENT = '#FF9800'; // virtual / carnet
 const SUCCESS = '#4CAF50';
 const DANGER = '#F44336';

@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -12,10 +13,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { DeliveryTrackingCard } from '../../../src/components/client/DeliveryTrackingCard';
 import { Skeleton, useToast } from '../../../src/components/feedback';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { orderService } from '../../../src/services/orderService';
 import { Order } from '../../../src/type';
+import { formatDate } from '../../../src/utils/dateFormat';
 import { formatPrice, getStatusColor, getStatusLabel } from '../../../src/utils/helpers';
 
 // ─── Stepper d'avancement de commande ────────────────────────────────────────
@@ -212,7 +215,7 @@ const stepperStyles = StyleSheet.create({
 export default function OrderDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const toast = useToast();
 
   const [order, setOrder] = useState<Order | null>(null);
@@ -389,6 +392,18 @@ export default function OrderDetailsScreen() {
     );
   }
 
+  // V114 — État de paiement : badge + indice contextuel pour les commandes non payées.
+  const isOrderPaid = order.paymentStatus === 'PAID';
+  const paymentHint = !isOrderPaid
+    ? (order.paymentMethod === 'CASH'
+        ? (order.deliveryType === 'PICKUP'
+            ? t('orderDetail.paymentCashPickup')
+            : t('orderDetail.paymentCashDelivery'))
+        : order.paymentMethod === 'CLIENT_ACCOUNT'
+            ? t('orderDetail.paymentAccountUnpaid')
+            : null)
+    : null;
+
   return (
     <ScrollView style={styles.container}>
       {/* En-tête avec numéro de commande et statut */}
@@ -418,9 +433,21 @@ export default function OrderDetailsScreen() {
         <View style={styles.infoRow}>
           <Text style={styles.label}>{t('orders.date')}</Text>
           <Text style={styles.value}>
-            {new Date(order.createdAt).toLocaleDateString('fr-FR')}
+            {formatDate(order.createdAt, language)}
           </Text>
         </View>
+        {/* V114 — État de paiement */}
+        <View style={[styles.infoRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+          <Text style={styles.label}>{t('orderDetail.paymentTitle')}</Text>
+          <View style={[styles.payPill, isOrderPaid ? styles.payPillPaid : styles.payPillUnpaid]}>
+            <Text style={[styles.payPillText, isOrderPaid ? styles.payPillTextPaid : styles.payPillTextUnpaid]}>
+              {isOrderPaid ? `✓ ${t('orderDetail.paymentPaid')}` : t('orderDetail.paymentUnpaid')}
+            </Text>
+          </View>
+        </View>
+        {paymentHint ? (
+          <Text style={styles.paymentHint}>💵 {paymentHint}</Text>
+        ) : null}
       </View>
 
       {/* Informations de livraison / retrait */}
@@ -458,6 +485,13 @@ export default function OrderDetailsScreen() {
           )}
         </View>
       </View>
+
+      {/* Suivi en direct du livreur — uniquement pendant la livraison */}
+      {order.status === 'IN_DELIVERY' && order.deliveryType === 'HOME_DELIVERY' && (
+        <View style={styles.section}>
+          <DeliveryTrackingCard orderId={order.id} />
+        </View>
+      )}
 
       {/* Type de livraison et actions */}
       <View style={styles.section}>
@@ -678,7 +712,7 @@ const styles = StyleSheet.create({
   },
   deliveryTypeIcon: {
     fontSize: 32,
-    marginRight: 12,
+    marginEnd: 12,
   },
   deliveryTypeText: {
     flex: 1,
@@ -753,13 +787,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#4CAF50',
-    marginLeft: 10,
+    marginStart: 10,
   },
   errorText: {
     fontSize: 16,
     color: '#F44336',
     textAlign: 'center',
     marginTop: 20,
+  },
+  // V114 — Badge / indice de paiement
+  payPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  payPillPaid: {
+    backgroundColor: '#E8F5E9',
+  },
+  payPillUnpaid: {
+    backgroundColor: '#FFF3E0',
+  },
+  payPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  payPillTextPaid: {
+    color: '#2E7D32',
+  },
+  payPillTextUnpaid: {
+    color: '#E65100',
+  },
+  paymentHint: {
+    marginTop: 10,
+    fontSize: 13,
+    color: '#E65100',
+    fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,

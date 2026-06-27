@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -67,7 +68,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   optionSelected: {
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
     backgroundColor: '#E3F2FD',
   },
   radio: {
@@ -80,13 +81,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   radioSelected: {
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
   },
   radioInner: {
     width: 11,
     height: 11,
     borderRadius: 6,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   emoji: {
     fontSize: 26,

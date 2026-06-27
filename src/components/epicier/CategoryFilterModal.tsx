@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 /**
  * CategoryFilterModal — Sélecteur de catégorie pour filtrer une liste
  * de produits (POS, gestion produits).
@@ -36,7 +37,7 @@ interface Props {
   loading?: boolean;
 }
 
-const PRIMARY = '#2196F3';
+const PRIMARY = Colors.primary;
 
 export function CategoryFilterModal({
   visible,

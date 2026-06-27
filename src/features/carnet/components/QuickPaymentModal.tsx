@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 /**
  * QuickPaymentModal — Modal d'encaissement rapide (marquer factures comme payées)
  */
@@ -59,7 +60,7 @@ export function QuickPaymentModal({ visible, onClose, onSuccess, epicerieId, cli
 
         <View style={styles.body}>
           <View style={styles.clientRow}>
-            <Ionicons name="person" size={18} color="#2196F3" />
+            <Ionicons name="person" size={18} color={Colors.primary} />
             <Text style={styles.clientName}>{clientName}</Text>
           </View>
 

@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -120,32 +121,35 @@ export default function FacturesPaiementsScreen() {
       {/* Summary Cards */}
       <View style={styles.summarySection}>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>À payer</Text>
+          <Text style={styles.summaryLabel}>{t('invoices.toPay')}</Text>
           <Text style={[styles.summaryValue, { color: '#F44336' }]}>
             {totalUnpaid.toFixed(2)} DH
           </Text>
           <Text style={styles.summaryCount}>
-            {unpaidInvoices.length} facture{unpaidInvoices.length !== 1 ? 's' : ''}
+            {t(unpaidInvoices.length !== 1 ? 'invoices.invoiceCountPlural' : 'invoices.invoiceCount')
+              .replace('{{count}}', String(unpaidInvoices.length))}
           </Text>
         </View>
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Payé</Text>
+          <Text style={styles.summaryLabel}>{t('invoices.paid')}</Text>
           <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>
             {totalPaid.toFixed(2)} DH
           </Text>
           <Text style={styles.summaryCount}>
-            {allInvoices.filter(i => i.status === 'PAID').length} facture
-            {allInvoices.filter(i => i.status === 'PAID').length !== 1 ? 's' : ''}
+            {t(allInvoices.filter(i => i.status === 'PAID').length !== 1
+                ? 'invoices.invoiceCountPlural'
+                : 'invoices.invoiceCount')
+              .replace('{{count}}', String(allInvoices.filter(i => i.status === 'PAID').length))}
           </Text>
         </View>
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Avances</Text>
+          <Text style={styles.summaryLabel}>{t('invoices.advances')}</Text>
           <Text style={[styles.summaryValue, { color: '#2196F3' }]}>
             {(advances.availableBalance ?? 0).toFixed(2)} DH
           </Text>
-          <Text style={styles.summaryCount}>disponibles</Text>
+          <Text style={styles.summaryCount}>{t('invoices.available')}</Text>
         </View>
       </View>
 
@@ -167,10 +171,10 @@ export default function FacturesPaiementsScreen() {
               ]}
             >
               {tab === 'unpaid'
-                ? 'À payer'
+                ? t('invoices.toPay')
                 : tab === 'history'
-                  ? 'Historique'
-                  : 'Avances'}
+                  ? t('invoices.history')
+                  : t('invoices.advances')}
             </Text>
           </TouchableOpacity>
         ))}

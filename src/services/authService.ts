@@ -16,6 +16,7 @@ import {
 import { cartService } from './cartService';
 import { getDeviceContext } from './deviceService';
 import { setCachedUser } from '../hooks/useCurrentUser';
+import { locationTrackingService } from './locationTrackingService';
 import { pushNotificationService } from './pushNotificationService';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -61,6 +62,9 @@ async function persistSession(data: LoginResponse): Promise<void> {
 }
 
 async function wipeLocalSession(): Promise<void> {
+  // Coupe le tracking GPS arrière-plan : sans session, plus aucune position
+  // ne doit quitter l'appareil (et les PUT seraient des 401 inutiles).
+  await locationTrackingService.stopBackgroundTracking().catch(() => {});
   await cartService.clearCart().catch(() => {});
   await AsyncStorage.multiRemove([
     STORAGE_KEYS.TOKEN,

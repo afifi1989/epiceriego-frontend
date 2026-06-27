@@ -45,6 +45,9 @@ export const AvailabilityToggle = ({
               onValueChange={onToggle}
               trackColor={{ false: '#ddd', true: '#C7A9D4' }}
               thumbColor={isAvailable ? '#9C27B0' : '#999'}
+              accessibilityRole="switch"
+              accessibilityLabel={isAvailable ? 'En ligne — disponible pour les livraisons' : 'Hors ligne'}
+              accessibilityState={{ checked: isAvailable }}
             />
           )}
         </View>

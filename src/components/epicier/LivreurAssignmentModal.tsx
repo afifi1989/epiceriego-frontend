@@ -1,3 +1,4 @@
+import { Colors } from '../../constants/colors';
 import {
   Modal,
   View,
@@ -186,7 +187,7 @@ const styles = StyleSheet.create({
   },
   livreurItemSelected: {
     backgroundColor: '#E3F2FD',
-    borderColor: '#2196F3',
+    borderColor: Colors.primary,
   },
   livreurItemDisabled: {
     backgroundColor: '#f0f0f0',
@@ -203,8 +204,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   checkboxSelected: {
-    backgroundColor: '#2196F3',
-    borderColor: '#2196F3',
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   checkboxDisabled: {
     backgroundColor: '#e0e0e0',
@@ -289,7 +290,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   confirmButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   confirmButtonDisabled: {
     backgroundColor: '#ccc',

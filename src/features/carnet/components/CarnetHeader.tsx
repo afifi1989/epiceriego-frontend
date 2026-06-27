@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 /**
  * CarnetHeader — En-tête du carnet : avatar, nom, email, solde, badge crédit
  */
@@ -6,7 +7,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { CarnetResponse } from '../types';
 
-const BLUE = '#2196F3';
+const BLUE = Colors.primary;
 
 interface Props {
   carnet: CarnetResponse;

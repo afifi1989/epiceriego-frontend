@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -62,7 +63,7 @@ export function DashboardPromoWidget() {
   if (loading) {
     return (
       <View style={[styles.card, styles.loadingCard]}>
-        <ActivityIndicator size="small" color="#2196F3" />
+        <ActivityIndicator size="small" color={Colors.primary} />
       </View>
     );
   }
@@ -117,7 +118,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
     borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
+    borderLeftColor: Colors.primary,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,

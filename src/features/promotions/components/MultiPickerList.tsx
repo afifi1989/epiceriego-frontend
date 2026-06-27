@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -78,8 +79,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checkboxSelected: {
-    borderColor: '#2196F3',
-    backgroundColor: '#2196F3',
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
   },
   check: {
     color: '#fff',

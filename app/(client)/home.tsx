@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -15,7 +16,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { EpicerieCard } from '../../src/components/client/EpicerieCard';
 import { EpicerieStories } from '../../src/components/client/EpicerieStories';
 import { FlashDealsSection } from '../../src/components/client/FlashDealsSection';
 import { HomeCategories } from '../../src/components/client/HomeCategories';
@@ -57,7 +57,9 @@ export default function HomeScreen() {
   const [reordering, setReordering] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  // (userLocation supprimé — il n'alimentait que la section cards épiceries,
+  //  retirée par l'audit UX sprint 4 ; la géoloc reste utilisée ci-dessous
+  //  pour les promotions de proximité.)
 
   useEffect(() => {
     loadHomeData();
@@ -91,10 +93,6 @@ export default function HomeScreen() {
         try {
           const location = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
-          });
-          setUserLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
           });
           return (await promotionService.getNearbyPromotions(
             location.coords.latitude, location.coords.longitude, 5
@@ -228,6 +226,24 @@ export default function HomeScreen() {
   };
 
   /**
+   * Section "Pour vous" — fusion des anciennes sections « Tendances » et
+   * « Vus récemment » (audit UX sprint 4 : la home empilait 12+ sections).
+   * Le signal personnel (vus récemment) passe en premier, complété par les
+   * tendances globales, dédupliqué par id, plafonné à 6 produits.
+   */
+  const forYouProducts = useMemo(() => {
+    const seen = new Set<number>();
+    const merged: Product[] = [];
+    for (const product of [...recentlyViewed, ...trendingProducts]) {
+      if (seen.has(product.id)) continue;
+      seen.add(product.id);
+      merged.push(product);
+      if (merged.length >= 6) break;
+    }
+    return merged;
+  }, [recentlyViewed, trendingProducts]);
+
+  /**
    * Carte "Reprendre votre commande" — différenciateur 2026: 1 tap = panier
    * rempli avec la commande précédente. Affichée uniquement si on a une
    * commande rejouable récente.
@@ -266,66 +282,9 @@ export default function HomeScreen() {
     );
   };
 
-  const renderPromoBanner = () => {
-    if (promotions.length === 0) {
-      return null;
-    }
-
-    return (
-      <FlatList
-        horizontal
-        scrollEnabled
-        pagingEnabled
-        data={promotions}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.promoBanner}
-            activeOpacity={0.8}
-            onPress={() => {
-              router.push({
-                pathname: '/(client)/(epicerie)/[id]',
-                params: { id: item.epicerieId.toString() },
-              });
-            }}
-          >
-            <View style={styles.promoContent}>
-              {item.imageUrl ? (
-                <ExpoImage
-                  source={{ uri: item.imageUrl }}
-                  style={styles.promoImage}
-                  contentFit="cover"
-                  transition={200}
-                />
-              ) : (
-                <Text style={styles.promoEmoji}>🎉</Text>
-              )}
-              <View style={styles.promoText}>
-                <Text style={styles.promoTitle} numberOfLines={1}>
-                  {item.reductionPercentage}% {t('client.home.discount')}
-                </Text>
-                <Text style={styles.promoDesc} numberOfLines={1}>
-                  {item.titre}
-                </Text>
-                {item.epicerieName && (
-                  <Text style={styles.promoStore} numberOfLines={1}>
-                    @ {item.epicerieName}
-                  </Text>
-                )}
-              </View>
-            </View>
-            <View style={styles.promoButton}>
-              <Text style={styles.promoButtonText}>→</Text>
-            </View>
-          </TouchableOpacity>
-        )}
-        scrollEventThrottle={16}
-        showsHorizontalScrollIndicator={false}
-        snapToInterval={width - 30}
-        decelerationRate="fast"
-      />
-    );
-  };
+  // renderPromoBanner supprimé (audit UX sprint 4) : il consommait la MÊME
+  // liste `promotions` que FlashDealsSection — deux affichages des mêmes
+  // promos sur la même page. FlashDeals (compte à rebours) est conservée.
 
   const renderSearchBar = () => (
     <View style={styles.searchContainer}>
@@ -353,92 +312,34 @@ export default function HomeScreen() {
     </View>
   );
 
-  const renderPopularEpiceries = () =>
-    popularEpiceries.length > 0 ? (
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t('client.home.popularStores')}</Text>
-          <TouchableOpacity onPress={() => router.push('/(client)/epiceries')}>
-            <Text style={styles.seeAllLink}>{t('client.home.seeAll')}</Text>
-          </TouchableOpacity>
-        </View>
-        <FlatList
-          horizontal
-          scrollEnabled
-          data={popularEpiceries}
-          keyExtractor={(item) => item.id.toString()}
-          contentContainerStyle={{ paddingRight: theme.spacing.md }}
-          renderItem={({ item }) => (
-            <EpicerieCard
-              epicerie={item}
-              onPress={handleEpicerieTap}
-              userLocation={userLocation}
-              promotions={promotions}
-            />
-          )}
-          showsHorizontalScrollIndicator={false}
-        />
-      </View>
-    ) : null;
+  // renderPopularEpiceries supprimé (audit UX sprint 4) : la section cards
+  // affichait LES MÊMES épiceries que les Stories en haut de page. Le détail
+  // riche (distance, note, filtres) vit dans l'onglet Épiceries.
 
-  const renderTrendingProducts = () => (
-    trendingProducts.length > 0 && (
+  /** "Pour vous" — remplace « Tendances » + « Vus récemment » (cf. forYouProducts). */
+  const renderForYou = () => (
+    forYouProducts.length > 0 && (
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t('client.home.trending')}</Text>
-          <TouchableOpacity onPress={() => router.push('/(client)/epiceries')}>
+          <Text style={styles.sectionTitle}>{t('client.home.forYou')}</Text>
+          <TouchableOpacity
+            onPress={() => router.push('/(client)/epiceries')}
+            accessibilityRole="link"
+            accessibilityLabel={`${t('client.home.seeAll')} — ${t('client.home.forYou')}`}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Text style={styles.seeAllLink}>{t('client.home.seeAll')}</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.productsGrid}>
-          {trendingProducts.map((product) => (
+          {forYouProducts.map((product) => (
             <TouchableOpacity
               key={product.id}
               style={styles.productCard}
               onPress={() => handleProductTap(product)}
               activeOpacity={0.85}
-            >
-              {product.photoUrl ? (
-                <ExpoImage
-                  source={{ uri: product.photoUrl }}
-                  style={styles.productImage}
-                  contentFit="cover"
-                  transition={200}
-                />
-              ) : (
-                <View style={[styles.productImage, styles.productImagePlaceholder]}>
-                  <Text style={styles.placeholderEmoji}>📦</Text>
-                </View>
-              )}
-              <View style={styles.productInfo}>
-                <Text style={styles.productName} numberOfLines={2}>
-                  {product.nom}
-                </Text>
-                <Text style={styles.productStore} numberOfLines={1}>
-                  {product.epicerieNom}
-                </Text>
-                <Text style={styles.productPrice}>
-                  {product.prix ? `${product.prix.toFixed(2)} DH` : 'N/A'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    )
-  );
-
-  const renderRecentlyViewed = () => (
-    recentlyViewed.length > 0 && (
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('client.home.recentlyViewed')}</Text>
-        <View style={styles.productsGrid}>
-          {recentlyViewed.map((product) => (
-            <TouchableOpacity
-              key={product.id}
-              style={styles.productCard}
-              onPress={() => handleProductTap(product)}
-              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel={`${product.nom}${product.epicerieNom ? `, ${product.epicerieNom}` : ''}${product.prix ? `, ${product.prix.toFixed(2)} DH` : ''}`}
             >
               {product.photoUrl ? (
                 <ExpoImage
@@ -477,10 +378,10 @@ export default function HomeScreen() {
         {renderSearchBar()}
         <Skeleton variant="rect" height={90} style={{ marginHorizontal: 15, marginVertical: 15, borderRadius: 15 }} />
         <View style={styles.section}>
-          <Skeleton variant="text" width="40%" height={18} style={{ marginBottom: 12, marginLeft: 15 }} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 15 }}>
+          <Skeleton variant="text" width="40%" height={18} style={{ marginBottom: 12, marginStart: 15 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingStart: 15 }}>
             {[0, 1, 2, 3].map(i => (
-              <View key={i} style={{ width: 84, alignItems: 'center', marginRight: 12 }}>
+              <View key={i} style={{ width: 84, alignItems: 'center', marginEnd: 12 }}>
                 <Skeleton variant="circle" width={64} height={64} style={{ marginBottom: 8 }} />
                 <Skeleton variant="text" width={60} height={10} />
               </View>
@@ -488,8 +389,8 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
         <View style={styles.section}>
-          <Skeleton variant="text" width="50%" height={18} style={{ marginBottom: 12, marginLeft: 15 }} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingLeft: 15 }}>
+          <Skeleton variant="text" width="50%" height={18} style={{ marginBottom: 12, marginStart: 15 }} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingStart: 15 }}>
             {[0, 1, 2].map(i => (
               <View key={i} style={styles.epicerieCard}>
                 <Skeleton variant="rect" height={100} style={{ borderTopLeftRadius: 12, borderTopRightRadius: 12 }} />
@@ -535,19 +436,15 @@ export default function HomeScreen() {
       {/* Bundles featured cross-epicerie. Auto-masque si aucun epicier n'a
           encore flag un bundle comme featured. */}
       <BundleOfferCarousel mode="featured" limit={8} accent={theme.colors.brand} />
-      {renderPromoBanner()}
       {renderQuickReorder()}
       <HomeCategories
         onPress={handleCategoryTap}
         onSeeMore={handleSeeMoreCategories}
       />
-      {renderPopularEpiceries()}
-      {renderTrendingProducts()}
-      {renderRecentlyViewed()}
+      {renderForYou()}
 
-      {trendingProducts.length === 0 &&
-        popularEpiceries.length === 0 &&
-        recentlyViewed.length === 0 && (
+      {forYouProducts.length === 0 &&
+        popularEpiceries.length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateEmoji}>🏪</Text>
             <Text style={styles.emptyStateText}>
@@ -627,67 +524,6 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  promoBanner: {
-    backgroundColor: '#FF6B6B',
-    marginHorizontal: theme.spacing.lg,
-    marginVertical: theme.spacing.lg,
-    borderRadius: theme.radius.lg,
-    flexDirection: 'row',
-    padding: theme.spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: width - 30,
-    ...theme.shadows.md,
-  },
-  promoContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  promoImage: {
-    width: 60,
-    height: 60,
-    borderRadius: theme.radius.md,
-    marginRight: theme.spacing.md,
-    backgroundColor: theme.colors.surfaceMuted,
-  },
-  promoEmoji: {
-    fontSize: 40,
-    marginRight: theme.spacing.md,
-  },
-  promoText: {
-    flex: 1,
-  },
-  promoTitle: {
-    color: theme.colors.onBrand,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  promoDesc: {
-    color: theme.colors.onBrand,
-    fontSize: 13,
-    opacity: 0.9,
-    marginTop: 2,
-  },
-  promoStore: {
-    color: theme.colors.onBrand,
-    fontSize: 11,
-    opacity: 0.8,
-    marginTop: 4,
-  },
-  promoButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    width: 40,
-    height: 40,
-    borderRadius: theme.radius.pill,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  promoButtonText: {
-    color: theme.colors.onBrand,
-    fontSize: 20,
-    fontWeight: '700',
-  },
   searchContainer: {
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.sm,
@@ -705,7 +541,7 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
     ...theme.shadows.sm,
   },
   searchIcon: {
-    marginRight: theme.spacing.sm,
+    marginEnd: theme.spacing.sm,
   },
   searchInput: {
     flex: 1,
@@ -715,7 +551,7 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
   },
   clearButton: {
     padding: 4,
-    marginLeft: theme.spacing.xs,
+    marginStart: theme.spacing.xs,
   },
   section: {
     paddingHorizontal: theme.spacing.lg,
@@ -740,7 +576,7 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
   },
   epicerieCard: {
     width: EPICERIE_CARD_WIDTH,
-    marginRight: theme.spacing.md,
+    marginEnd: theme.spacing.md,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     overflow: 'hidden',

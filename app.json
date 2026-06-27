@@ -12,8 +12,9 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité.",
-        "UIUserInterfaceStyle": "Automatic"
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "AbridGO suit votre position pendant vos livraisons pour informer les clients, même quand l'application est en arrière-plan.",
+        "UIUserInterfaceStyle": "Automatic",
+        "UIBackgroundModes": ["location"]
       }
     },
     "android": {
@@ -30,8 +31,16 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS"
-      ]
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAnS7IY9oGcKWkK7prWt6eM4nmc4vIYFrQ"
+        }
+      }
     },
     "web": {
       "output": "static",
@@ -50,7 +59,10 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité."
+          "locationAlwaysAndWhenInUsePermission": "Cette application a besoin d'accéder à votre localisation pour trouver les épiceries à proximité.",
+          "locationAlwaysPermission": "AbridGO suit votre position pendant vos livraisons pour informer les clients, même quand l'application est en arrière-plan.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [
@@ -73,6 +85,7 @@
     },
     "extra": {
       "router": {},
+      "googleMapsApiKey": "AIzaSyAnS7IY9oGcKWkK7prWt6eM4nmc4vIYFrQ",
       "eas": {
         "projectId": "4f409006-d75c-40e6-bf15-e5c8a208710a"
       }

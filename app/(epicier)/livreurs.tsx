@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import {
   View,
   Text,
@@ -325,7 +327,7 @@ export default function LivreursScreen() {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Chargement des livreurs...</Text>
       </View>
     );
@@ -387,7 +389,7 @@ export default function LivreursScreen() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              colors={['#2196F3']}
+              colors={[Colors.primary]}
             />
           }
           ListEmptyComponent={renderEmptyUnassigned}
@@ -403,7 +405,7 @@ export default function LivreursScreen() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              colors={['#2196F3']}
+              colors={[Colors.primary]}
             />
           }
           ListEmptyComponent={renderEmptyAssigned}
@@ -418,7 +420,7 @@ export default function LivreursScreen() {
             <RefreshControl
               refreshing={isRefreshing}
               onRefresh={handleRefresh}
-              colors={['#2196F3']}
+              colors={[Colors.primary]}
             />
           }
           ListEmptyComponent={renderEmptyOrders}
@@ -551,7 +553,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabActive: {
-    borderBottomColor: '#2196F3',
+    borderBottomColor: Colors.primary,
   },
   tabText: {
     fontSize: 13,
@@ -559,7 +561,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tabTextActive: {
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '700',
   },
   listContent: {
@@ -656,7 +658,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   confirmBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
   },
   confirmBtnText: {
     color: '#fff',
@@ -718,7 +720,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   assignOrderBtn: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     marginHorizontal: 12,
     marginVertical: 10,
     paddingVertical: 10,

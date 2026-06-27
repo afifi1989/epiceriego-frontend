@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 /**
  * Écran Scanner QR — ÉPICIER
  * Scanne le QR Code d'un client pour valider un retrait en magasin (PICKUP).
@@ -18,7 +20,7 @@ import { QrCodeScanner } from '../../src/components/shared/QrCodeScanner';
 import { orderService } from '../../src/services/orderService';
 import { QrValidateResponse } from '../../src/type';
 
-const EPICIER_BLUE = '#2196F3';
+const EPICIER_BLUE = Colors.primary;
 
 export default function EpicierScanQrScreen() {
   const router = useRouter();

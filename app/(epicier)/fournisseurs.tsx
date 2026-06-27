@@ -1,3 +1,5 @@
+export { EpicierErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Colors } from '../../src/constants/colors';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
@@ -112,7 +114,7 @@ export default function FournisseursScreen() {
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }
@@ -124,7 +126,7 @@ export default function FournisseursScreen() {
         keyExtractor={(s) => String(s.id)}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#2196F3" />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.primary} />
         }
         ListHeaderComponent={
           <View>
@@ -135,7 +137,7 @@ export default function FournisseursScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.statsRow}
               >
-                <StatTile icon="🏪" label="Actifs" value={String(stats.activeSuppliersCount)} accent="#2196F3" />
+                <StatTile icon="🏪" label="Actifs" value={String(stats.activeSuppliersCount)} accent={Colors.primary} />
                 <StatTile icon="📦" label="Archivés" value={String(stats.archivedSuppliersCount)} accent="#9E9E9E" />
                 <StatTile icon="🚚" label="Réceptions 30j" value={String(stats.batchesReceived)} accent="#FF9800" />
                 <StatTile icon="💰" label="Dépense 30j" value={`${(stats.totalSpend ?? 0).toFixed(2)} DH`} accent="#4CAF50" />
@@ -298,7 +300,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e0e0e0',
   },
-  tabActive: { backgroundColor: '#2196F3', borderColor: '#2196F3' },
+  tabActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   tabLabel: { fontSize: 13, color: '#666', fontWeight: '600' },
   tabLabelActive: { color: '#fff' },
 
@@ -348,7 +350,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 24, right: 20,
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
     elevation: 6,

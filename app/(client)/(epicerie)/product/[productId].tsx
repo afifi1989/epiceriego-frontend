@@ -1,3 +1,4 @@
+export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -363,13 +364,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 4,
-    paddingRight: 8,
+    paddingEnd: 8,
     minWidth: 70,
   },
   backArrow: {
     color: '#fff',
     fontSize: 22,
-    marginRight: 4,
+    marginEnd: 4,
   },
   backLabel: {
     color: '#fff',
@@ -624,7 +625,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingVertical: 14,
     borderRadius: 12,
-    marginLeft: 12,
+    marginStart: 12,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#4CAF50',

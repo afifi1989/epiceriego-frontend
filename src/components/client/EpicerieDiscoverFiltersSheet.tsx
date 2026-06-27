@@ -133,7 +133,7 @@ export const EpicerieDiscoverFiltersSheet: React.FC<EpicerieDiscoverFiltersSheet
           {/* ── Ouvert maintenant ──────────────────────── */}
           <View style={styles.section}>
             <View style={styles.openRow}>
-              <View style={{ flex: 1, marginRight: 12 }}>
+              <View style={{ flex: 1, marginEnd: 12 }}>
                 <Text style={styles.sectionTitle}>{labels.openOnlyTitle}</Text>
                 <Text style={styles.sectionHint}>{labels.openOnlyHint}</Text>
               </View>

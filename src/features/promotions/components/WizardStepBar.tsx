@@ -1,3 +1,4 @@
+import { Colors } from '../../../constants/colors';
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -73,7 +74,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#4CAF50',
   },
   dotCurrent: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     width: 16,
     height: 16,
     borderRadius: 8,

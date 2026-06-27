@@ -1,5 +1,9 @@
 import { Stack } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+// Side-effect : enregistre la tâche de localisation arrière-plan du livreur
+// (TaskManager.defineTask doit s'exécuter au chargement du bundle, y compris
+// quand l'OS relance l'app en mode headless pour livrer des positions).
+import '../src/services/locationTrackingService';
 import { ReauthModal } from '../src/components/auth/ReauthModal';
 import {
   AuthFeedbackBridge,
