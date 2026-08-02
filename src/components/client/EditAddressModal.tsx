@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { GeocodingError, geocodingService } from '../../services/geocodingService';
 import { profileService } from '../../services/profileService';
 import { User } from '../../type';
 
@@ -50,6 +51,7 @@ export function EditAddressModal({
   const [longitude, setLongitude] = useState<number | null>(currentLongitude ?? null);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
 
   const resetAndClose = () => {
     setAddress(currentAddress ?? '');
@@ -57,7 +59,39 @@ export function EditAddressModal({
     setLongitude(currentLongitude ?? null);
     setSaving(false);
     setLocating(false);
+    setGeocoding(false);
     onClose();
+  };
+
+  /**
+   * Geocode l'adresse tapee via le backend (POST /api/geocode). Regle
+   * « GPS obligatoire pour la livraison par zone » : une adresse de profil
+   * qui porte lat/lng evite de redemander la position a chaque commande —
+   * le panier reutilise ces coordonnees via « Mon adresse ».
+   */
+  const handleLocateAddress = async () => {
+    const trimmed = address.trim();
+    if (!trimmed) {
+      Alert.alert('Erreur', "Saisissez d'abord une adresse a localiser.");
+      return;
+    }
+    setGeocoding(true);
+    try {
+      const result = await geocodingService.geocode(trimmed);
+      setLatitude(result.latitude);
+      setLongitude(result.longitude);
+      if (result.formattedAddress) setAddress(result.formattedAddress);
+    } catch (err: any) {
+      const unavailable = err instanceof GeocodingError && err.code === 'UNAVAILABLE';
+      Alert.alert(
+        'Localisation impossible',
+        unavailable
+          ? "Le service de localisation d'adresse est indisponible — utilisez « Utiliser ma position actuelle »."
+          : 'Adresse introuvable. Precisez la ville et le quartier, ou utilisez votre position actuelle.'
+      );
+    } finally {
+      setGeocoding(false);
+    }
   };
 
   const handleUseCurrentLocation = async () => {
@@ -118,13 +152,33 @@ export function EditAddressModal({
       return;
     }
     setSaving(true);
+
+    // Geocodage automatique a la saisie (best-effort) : si l'utilisateur n'a
+    // ni utilise sa position ni localise l'adresse, on tente de geocoder le
+    // texte pour que l'adresse enregistree porte TOUJOURS des coordonnees
+    // exploitables par la livraison par zones. En cas d'echec on sauvegarde
+    // quand meme (adresse declarative) — le panier redemandera une position.
+    let lat = latitude;
+    let lng = longitude;
+    if (lat == null || lng == null) {
+      try {
+        const result = await geocodingService.geocode(trimmed);
+        lat = result.latitude;
+        lng = result.longitude;
+        setLatitude(lat);
+        setLongitude(lng);
+      } catch {
+        // Service indisponible ou adresse introuvable : pas bloquant ici.
+      }
+    }
+
     try {
       const payload: Partial<User> = { adresse: trimmed };
       // On envoie lat/lng uniquement si on en a (sinon on ne touche pas a
       // ceux deja stockes cote backend — evite de ramener un user a 0,0).
-      if (latitude != null && longitude != null) {
-        payload.latitude = latitude;
-        payload.longitude = longitude;
+      if (lat != null && lng != null) {
+        payload.latitude = lat;
+        payload.longitude = lng;
       }
       const updated = await profileService.updateProfile(payload);
       onSuccess(updated);
@@ -179,7 +233,14 @@ export function EditAddressModal({
             <TextInput
               style={[styles.input, styles.inputMulti]}
               value={address}
-              onChangeText={setAddress}
+              onChangeText={(v) => {
+                setAddress(v);
+                // L'adresse a change : les anciennes coordonnees ne la
+                // decrivent plus — on les invalide pour forcer une nouvelle
+                // localisation (GPS, geocodage bouton, ou geocodage au save).
+                setLatitude(null);
+                setLongitude(null);
+              }}
               placeholder="Ex: 12 rue de la Paix, 75002 Paris"
               placeholderTextColor="#bbb"
               multiline
@@ -187,6 +248,21 @@ export function EditAddressModal({
               textAlignVertical="top"
               editable={!saving}
             />
+
+            <TouchableOpacity
+              style={[styles.locationBtn, (geocoding || saving) && styles.btnDisabled]}
+              onPress={handleLocateAddress}
+              disabled={geocoding || locating || saving}
+            >
+              {geocoding ? (
+                <ActivityIndicator color={GREEN} />
+              ) : (
+                <>
+                  <Ionicons name="map" size={18} color={GREEN} />
+                  <Text style={styles.locationBtnText}>Localiser cette adresse</Text>
+                </>
+              )}
+            </TouchableOpacity>
 
             {latitude != null && longitude != null && (
               <View style={styles.coordsBox}>

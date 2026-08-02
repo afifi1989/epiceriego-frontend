@@ -32,6 +32,72 @@ export const tFmt = (t: Translator, key: string, params?: Record<string, string 
   return interpolate(t(key), params);
 };
 
+/**
+ * Alias d'unités — miroir de `ProductMatchingService.UNIT_NORMALIZATION`.
+ * Ne sert qu'à retrouver l'unité canonique avant d'en déduire l'unité de base.
+ */
+const UNIT_ALIASES: Record<string, string> = {
+  kg: 'kg', kilogramme: 'kg', kilogrammes: 'kg', kgs: 'kg',
+  g: 'g', gramme: 'g', grammes: 'g', gs: 'g',
+  l: 'l', litre: 'l', litres: 'l',
+  ml: 'ml', millilitre: 'ml', millilitres: 'ml',
+  cl: 'cl', centilitre: 'cl', centilitres: 'cl',
+};
+
+/**
+ * Unité de base correspondant à une unité saisie — miroir EXACT de
+ * `ProductMatchingService.convertToBaseQuantity` : g→kg, ml/cl→L, cm→m.
+ * Toute unité hors barème (pièce, bouteille, boîte…) n'est pas convertie côté
+ * backend, donc son libellé reste valide tel quel.
+ */
+const baseUnitLabel = (unit: string): string => {
+  const normalized = UNIT_ALIASES[unit.toLowerCase().trim()] ?? unit.toLowerCase().trim();
+  switch (normalized) {
+    case 'g':
+    case 'kg':
+      return 'kg';
+    case 'ml':
+    case 'cl':
+    case 'l':
+      return 'L';
+    case 'cm':
+    case 'm':
+      return 'm';
+    default:
+      return unit.trim();
+  }
+};
+
+/** Nombre lisible : 3 décimales max (maille du stock backend), zéros inutiles retirés. */
+const formatNumber = (value: number): string =>
+  String(Math.round(value * 1000) / 1000);
+
+/**
+ * Couple (quantité, unité) COHÉRENT prêt à l'affichage.
+ *
+ * <p>C1 — le backend convertit `quantity` en unité de base pour tout item matché
+ * mais laisse `unit` sur l'unité saisie : afficher les deux bruts annoncerait
+ * « 0.5 g » pour 500 g (×1000 à l'envers). On réaligne donc l'unité sur la
+ * valeur plutôt que l'inverse — « 0.5 kg », juste et lisible.</p>
+ *
+ * <p>Les items NON matchés n'ont jamais été convertis : on les rend tels quels
+ * (« 500 g »). Passer TOUTES les listes par ce helper est ce qui garantit que
+ * les items matchés et non matchés d'un même message ne se contredisent pas.</p>
+ */
+export const formatParsedQuantity = (
+  product: Pick<ParsedProduct, 'quantity' | 'unit' | 'quantityInBaseUnit'>,
+): { quantity: string; unit: string } => {
+  const raw = Number(product?.quantity);
+  const unit = (product?.unit ?? '').trim();
+  if (!Number.isFinite(raw)) {
+    return { quantity: '', unit };
+  }
+  return {
+    quantity: formatNumber(raw),
+    unit: product?.quantityInBaseUnit === true ? baseUnitLabel(unit) : unit,
+  };
+};
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -65,8 +131,28 @@ export interface ProductOption {
 export interface ParsedProduct {
   productName: string;
   brand?: string;
+  /**
+   * Quantité demandée. ATTENTION — l'unité dépend de {@link quantityInBaseUnit} :
+   * - `quantityInBaseUnit === true`  → valeur en UNITÉ DE BASE catalogue (kg/L/m/pièces).
+   *   « 500 g » vaut `0.5`. C'est le cas de tout item matché depuis l'audit C1.
+   * - sinon → valeur brute telle que prononcée, exprimée dans {@link unit} (« 500 »).
+   *
+   * Ne jamais afficher cette valeur accolée à {@link unit} sans passer par
+   * {@link formatParsedQuantity}, sous peine d'annoncer « 0.5 g » pour 500 g.
+   */
   quantity: number;
+  /**
+   * Unité SAISIE par le client (« g », « ml », « bouteille »). Jamais réécrite
+   * par le backend, même après conversion de {@link quantity} — elle reste la
+   * trace de ce qui a été dit, pas l'unité de `quantity`.
+   */
   unit: string;
+  /**
+   * C1 — `true` quand {@link quantity} a été convertie en unité de base par
+   * `ProductMatchingService#matchProduct` (posé pour tout item matché, y compris
+   * quand il n'y avait rien à convertir). Absent/`false` = quantité brute LLM.
+   */
+  quantityInBaseUnit?: boolean;
   originalText?: string;
   confidence?: number;
   isMatched: boolean;
@@ -196,10 +282,9 @@ export const chatbotService = {
           price: product.matchedPrice?.toFixed(2) ?? '',
           currency,
         });
-        message += tFmt(t, 'chatbot.generated.quantityLine', {
-          quantity: product.quantity,
-          unit: product.unit,
-        });
+        // C1 — jamais `product.quantity` + `product.unit` bruts : pour un item
+        // matché la quantité est en unité de base et l'unité est celle saisie.
+        message += tFmt(t, 'chatbot.generated.quantityLine', formatParsedQuantity(product));
         if (product.matchedStock !== undefined) {
           message += tFmt(t, 'chatbot.generated.stockLine', { stock: product.matchedStock });
         }
@@ -256,11 +341,12 @@ export const chatbotService = {
     if (trulyUnmatched.length > 0) {
       message += tFmt(t, 'chatbot.generated.notFoundHeader', { count: trulyUnmatched.length });
       trulyUnmatched.forEach((product, index) => {
+        // Même helper que la liste des matchés : les deux listes d'un même
+        // message ne peuvent donc pas se contredire sur l'unité affichée.
         message += tFmt(t, 'chatbot.generated.notFoundLine', {
           index: index + 1,
           name: product.productName,
-          quantity: product.quantity,
-          unit: product.unit,
+          ...formatParsedQuantity(product),
         });
       });
 

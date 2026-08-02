@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { useLanguage } from '../../src/context/LanguageContext';
 import {
   CRITICAL_FAMILIES,
@@ -154,15 +155,18 @@ export default function NotificationPreferencesScreen() {
   const { t } = useLanguage();
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [updatingFamily, setUpdatingFamily] = useState<NotificationFamily | null>(null);
 
   const loadPreferences = useCallback(async () => {
     try {
       setLoading(true);
+      setError(false);
       const prefs = await notificationPreferencesService.get();
       setPreferences(prefs);
     } catch (error) {
       console.error('[NotifPrefs] Erreur chargement:', error);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -216,12 +220,17 @@ export default function NotificationPreferencesScreen() {
     return optionalItems.filter(f => preferences[f.family]).length;
   }, [preferences, optionalItems]);
 
-  if (loading || !preferences) {
+  if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={PRIMARY} />
       </View>
     );
+  }
+
+  // Erreur réseau: écran dédié avec « Réessayer » plutôt qu'un spinner infini.
+  if (error || !preferences) {
+    return <ScreenState variant="error" onRetry={loadPreferences} />;
   }
 
   return (

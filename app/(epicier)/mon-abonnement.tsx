@@ -29,6 +29,7 @@ import {
   type SubscriptionPlan,
   type SubscriptionSwitchPreview,
 } from '../../src/services/subscriptionService';
+import { PLAN_FEATURE_ROWS, planAccent, planHasFeature } from '../../src/utils/planLabels';
 
 const COLORS = {
   primary: '#2563EB',
@@ -46,15 +47,6 @@ const COLORS = {
   danger: '#EF4444',
   dangerSoft: '#FEE2E2',
 };
-
-function planAccent(code: string): { tint: string; soft: string } {
-  switch (code) {
-    case 'PRO':       return { tint: '#7C3AED', soft: '#F3E8FF' };
-    case 'PREMIUM':   return { tint: '#F59E0B', soft: '#FEF3C7' };
-    case 'ESSENTIEL': return { tint: '#0EA5E9', soft: '#E0F2FE' };
-    default:          return { tint: COLORS.textMuted, soft: '#F1F5F9' };
-  }
-}
 
 function formatPrice(plan: SubscriptionPlan): string {
   if (!plan.monthlyPrice || plan.monthlyPrice === 0) return 'Gratuit';
@@ -448,32 +440,29 @@ export default function MonAbonnementScreen() {
                   </Text>
                 </View>
 
-                {/* Features booléennes */}
+                {/* Features booléennes — itère sur la liste partagée
+                    PLAN_FEATURE_ROWS (inclut Fournisseurs) plutôt qu'un tableau
+                    codé en dur, pour rester aligné avec le type du plan. */}
                 <View style={styles.featList}>
-                  {[
-                    { label: 'WhatsApp Business', on: plan.hasWhatsapp },
-                    { label: 'Codes promo', on: plan.hasPromotions },
-                    { label: 'Stats avancées', on: plan.hasAdvancedStats },
-                    { label: 'Import CSV', on: plan.hasCsvImport },
-                    { label: 'Carte fidélité', on: plan.hasLoyalty },
-                    { label: 'Multi-épicerie', on: plan.hasMultiEpicerie },
-                    { label: 'Support prioritaire', on: plan.hasPrioritySupport },
-                  ].map((f, i) => (
-                    <View key={i} style={styles.featRow}>
-                      <Text style={[
-                        styles.featMark,
-                        !f.on && styles.featMarkOff,
-                      ]}>
-                        {f.on ? '✓' : '–'}
-                      </Text>
-                      <Text style={[
-                        styles.featLabel,
-                        !f.on && styles.featLabelOff,
-                      ]}>
-                        {f.label}
-                      </Text>
-                    </View>
-                  ))}
+                  {PLAN_FEATURE_ROWS.map((f) => {
+                    const on = planHasFeature(plan, f.key);
+                    return (
+                      <View key={f.key} style={styles.featRow}>
+                        <Text style={[
+                          styles.featMark,
+                          !on && styles.featMarkOff,
+                        ]}>
+                          {on ? '✓' : '–'}
+                        </Text>
+                        <Text style={[
+                          styles.featLabel,
+                          !on && styles.featLabelOff,
+                        ]}>
+                          {f.label}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
 
                 {/* CTA : "Demande envoyée" si pending sur ce plan, sinon bouton */}

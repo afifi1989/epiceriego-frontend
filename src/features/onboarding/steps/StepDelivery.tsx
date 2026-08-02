@@ -18,6 +18,7 @@
 
 import React, { forwardRef, useImperativeHandle, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   StyleSheet,
   Switch,
@@ -27,7 +28,15 @@ import {
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { useLanguage } from '../../../context/LanguageContext';
 import { epicerieService } from '../../../services/epicerieService';
+import {
+  GeocodingError,
+  geocodingService,
+  isValidLatitude,
+  isValidLongitude,
+} from '../../../services/geocodingService';
 import { colors, radii, space, typography } from '../theme';
 import type { StepHandle, StepProps } from './stepProps';
 
@@ -47,6 +56,7 @@ const STARTER_ZONES: DeliveryZone[] = [
 
 export const StepDelivery = forwardRef<StepHandle, StepProps>(
   function StepDelivery({ epicerie, busy }, ref) {
+    const { t } = useLanguage();
     const [mode, setMode] = useState<DeliveryMode>(
       () => (epicerie.deliveryMode as DeliveryMode | undefined) ?? 'ZONES',
     );
@@ -56,6 +66,99 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
     const [zones, setZones] = useState<DeliveryZone[]>(
       () => parseZones(epicerie.deliveryZones) ?? [...STARTER_ZONES],
     );
+
+    // ── Règle « coordonnées GPS obligatoires pour la livraison par zone » ──
+    // La configuration des zones est masquée tant que l'épicerie n'a pas de
+    // position valide. Capture hybride : GPS appareil, géocodage de l'adresse
+    // (backend Google), ou saisie manuelle — les trois écrivent les mêmes
+    // champs latitude/longitude puis sauvegardent immédiatement.
+    const [shopLat, setShopLat] = useState<number | null>(
+      () => (isValidLatitude(epicerie.latitude) ? epicerie.latitude! : null),
+    );
+    const [shopLng, setShopLng] = useState<number | null>(
+      () => (isValidLongitude(epicerie.longitude) ? epicerie.longitude! : null),
+    );
+    const [locating, setLocating] = useState(false);
+    const [geocoding, setGeocoding] = useState(false);
+    const [addressText, setAddressText] = useState<string>(
+      () => epicerie.adresse ?? '',
+    );
+    const [showManualCoords, setShowManualCoords] = useState(false);
+    const [manualLat, setManualLat] = useState('');
+    const [manualLng, setManualLng] = useState('');
+
+    const hasShopCoords = shopLat != null && shopLng != null;
+
+    /** Persiste la position boutique puis débloque la config des zones. */
+    const saveShopCoords = async (lat: number, lng: number): Promise<boolean> => {
+      if (!isValidLatitude(lat) || !isValidLongitude(lng)) {
+        Alert.alert(t('shopLocation.invalidCoordsTitle'), t('shopLocation.invalidCoordsBody'));
+        return false;
+      }
+      try {
+        await epicerieService.updateMyEpicerie({ latitude: lat, longitude: lng });
+        setShopLat(lat);
+        setShopLng(lng);
+        // Garde l'objet parent cohérent (le wizard/paramètres relisent
+        // epicerie.latitude pour les badges de complétion).
+        epicerie.latitude = lat;
+        epicerie.longitude = lng;
+        return true;
+      } catch (err: any) {
+        Alert.alert(t('common.error'), typeof err === 'string' ? err : t('shopLocation.saveFailed'));
+        return false;
+      }
+    };
+
+    /** Option 1 — GPS de l'appareil. */
+    const detectShopPosition = async () => {
+      setLocating(true);
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert(t('shopLocation.permissionDeniedTitle'), t('shopLocation.permissionDeniedBody'));
+          return;
+        }
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        await saveShopCoords(pos.coords.latitude, pos.coords.longitude);
+      } catch (err) {
+        console.warn('[StepDelivery] GPS detect failed:', err);
+        Alert.alert(t('common.error'), t('shopLocation.detectFailed'));
+      } finally {
+        setLocating(false);
+      }
+    };
+
+    /** Option 2 — géocodage de l'adresse tapée (backend Google). */
+    const locateShopAddress = async () => {
+      const address = addressText.trim();
+      if (!address) {
+        Alert.alert(t('common.error'), t('shopLocation.addressRequired'));
+        return;
+      }
+      setGeocoding(true);
+      try {
+        const result = await geocodingService.geocode(address);
+        await saveShopCoords(result.latitude, result.longitude);
+      } catch (err: any) {
+        const unavailable = err instanceof GeocodingError && err.code === 'UNAVAILABLE';
+        Alert.alert(
+          t('common.error'),
+          unavailable ? t('shopLocation.geocodeUnavailable') : t('shopLocation.geocodeFailed'),
+        );
+      } finally {
+        setGeocoding(false);
+      }
+    };
+
+    /** Option 3 — saisie manuelle lat/lng. */
+    const saveManualCoords = async () => {
+      const lat = parseFloat(manualLat.replace(',', '.'));
+      const lng = parseFloat(manualLng.replace(',', '.'));
+      await saveShopCoords(lat, lng);
+    };
 
     const currencySymbol = epicerie.currency?.symbol ?? '€';
 
@@ -117,6 +220,16 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
           }
         }
 
+        // Mode ZONES : coordonnées GPS de la boutique OBLIGATOIRES
+        // (aligné sur le backend, code stable SHOP_COORDINATES_REQUIRED).
+        if (!hasShopCoords) {
+          Alert.alert(
+            t('shopLocation.blockerTitle'),
+            t('shopLocation.zonesNeedCoords'),
+          );
+          return false;
+        }
+
         // Mode ZONES : validation locale alignée sur le backend.
         if (zones.length === 0) {
           Alert.alert('Aucune zone', 'Ajoutez au moins une zone de livraison.');
@@ -156,13 +269,19 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
         }));
 
         try {
+          // latitude/longitude re-envoyées avec les zones : le backend
+          // valide les deux dans le même payload (SHOP_COORDINATES_REQUIRED
+          // sinon), et cela protège contre un état serveur divergent.
           await epicerieService.updateMyEpicerie({
             deliveryMode: 'ZONES',
             deliveryZones: JSON.stringify(payload),
+            latitude: shopLat!,
+            longitude: shopLng!,
           });
           return true;
         } catch (err: any) {
-          Alert.alert('Erreur', err?.message ?? 'Sauvegarde impossible');
+          Alert.alert('Erreur',
+            (typeof err === 'string' ? err : err?.message) ?? 'Sauvegarde impossible');
           return false;
         }
       },
@@ -246,8 +365,109 @@ export const StepDelivery = forwardRef<StepHandle, StepProps>(
           </View>
         )}
 
-        {/* Mode ZONES : configuration multi-zones existante */}
-        {mode === 'ZONES' && <>
+        {/* Mode ZONES + coordonnées manquantes : BLOQUEUR.
+            La config des zones est masquée tant que la boutique n'a pas de
+            position GPS valide (règle « GPS obligatoire pour la livraison
+            par zone », validée côté backend via SHOP_COORDINATES_REQUIRED). */}
+        {mode === 'ZONES' && !hasShopCoords && (
+          <View style={styles.blockerCard}>
+            <View style={styles.blockerHead}>
+              <MaterialIcons name="location-off" size={22} color="#D84315" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.blockerTitle}>{t('shopLocation.blockerTitle')}</Text>
+                <Text style={styles.blockerBody}>{t('shopLocation.blockerBody')}</Text>
+              </View>
+            </View>
+
+            {/* Option 1 : GPS appareil */}
+            <TouchableOpacity
+              style={[styles.captureBtn, (locating || busy) && styles.captureBtnDisabled]}
+              onPress={detectShopPosition}
+              disabled={locating || geocoding || busy}
+              activeOpacity={0.8}
+            >
+              {locating
+                ? <ActivityIndicator size="small" color={colors.primary} />
+                : <MaterialIcons name="my-location" size={18} color={colors.primary} />}
+              <Text style={styles.captureBtnText}>{t('shopLocation.detectPosition')}</Text>
+            </TouchableOpacity>
+
+            {/* Option 2 : géocoder l'adresse tapée */}
+            <TextInput
+              style={styles.addressInput}
+              value={addressText}
+              onChangeText={setAddressText}
+              placeholder={t('shopLocation.addressPlaceholder')}
+              placeholderTextColor="#9aa3ad"
+              editable={!busy && !geocoding}
+            />
+            <TouchableOpacity
+              style={[styles.captureBtn, (geocoding || busy) && styles.captureBtnDisabled]}
+              onPress={locateShopAddress}
+              disabled={locating || geocoding || busy}
+              activeOpacity={0.8}
+            >
+              {geocoding
+                ? <ActivityIndicator size="small" color={colors.primary} />
+                : <MaterialIcons name="travel-explore" size={18} color={colors.primary} />}
+              <Text style={styles.captureBtnText}>{t('shopLocation.locateAddress')}</Text>
+            </TouchableOpacity>
+
+            {/* Option 3 : saisie manuelle */}
+            <TouchableOpacity
+              onPress={() => setShowManualCoords(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.manualToggle}>
+                {showManualCoords ? '▾ ' : '▸ '}{t('shopLocation.manualEntry')}
+              </Text>
+            </TouchableOpacity>
+            {showManualCoords && (
+              <View>
+                <View style={styles.manualRow}>
+                  <TextInput
+                    style={[styles.addressInput, styles.manualInput]}
+                    value={manualLat}
+                    onChangeText={setManualLat}
+                    placeholder="Latitude (ex : 33.5731)"
+                    placeholderTextColor="#9aa3ad"
+                    keyboardType="numbers-and-punctuation"
+                    editable={!busy}
+                  />
+                  <TextInput
+                    style={[styles.addressInput, styles.manualInput]}
+                    value={manualLng}
+                    onChangeText={setManualLng}
+                    placeholder="Longitude (ex : -7.5898)"
+                    placeholderTextColor="#9aa3ad"
+                    keyboardType="numbers-and-punctuation"
+                    editable={!busy}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[styles.captureBtn, busy && styles.captureBtnDisabled]}
+                  onPress={saveManualCoords}
+                  disabled={busy}
+                  activeOpacity={0.8}
+                >
+                  <MaterialIcons name="save" size={18} color={colors.primary} />
+                  <Text style={styles.captureBtnText}>{t('shopLocation.saveCoords')}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Mode ZONES : configuration multi-zones (uniquement si position OK) */}
+        {mode === 'ZONES' && hasShopCoords && <>
+
+        {/* Position confirmée — rappel discret */}
+        <View style={styles.coordsOkRow}>
+          <MaterialIcons name="check-circle" size={16} color={colors.success} />
+          <Text style={styles.coordsOkText}>
+            {t('shopLocation.coordsOk')} ({shopLat!.toFixed(4)}, {shopLng!.toFixed(4)})
+          </Text>
+        </View>
 
         {/* Liste des zones */}
         {zones.map((zone, index) => (
@@ -590,6 +810,85 @@ const styles = StyleSheet.create({
     ...typography.caption,
     fontSize: 12,
     color: colors.textMuted,
+  },
+
+  // ── Bloqueur localisation (mode ZONES sans coordonnées) ─────
+  blockerCard: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FFCC80',
+    borderRadius: radii.md,
+    padding: space.md,
+    marginBottom: space.md,
+    gap: space.sm,
+  },
+  blockerHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    marginBottom: 4,
+  },
+  blockerTitle: {
+    ...typography.bodyStrong,
+    fontSize: 14,
+    color: '#BF360C',
+    marginBottom: 2,
+  },
+  blockerBody: {
+    ...typography.caption,
+    fontSize: 12,
+    color: '#6D4C41',
+    lineHeight: 17,
+  },
+  captureBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radii.sm,
+    paddingVertical: 11,
+  },
+  captureBtnDisabled: { opacity: 0.5 },
+  captureBtnText: {
+    ...typography.bodyStrong,
+    fontSize: 13,
+    color: colors.primary,
+  },
+  addressInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: colors.text,
+    backgroundColor: colors.surface,
+  },
+  manualToggle: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.textMuted,
+    paddingVertical: 4,
+  },
+  manualRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginBottom: space.sm,
+  },
+  manualInput: { flex: 1 },
+  coordsOkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: space.sm,
+  },
+  coordsOkText: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.success,
   },
 
   // ── Mode picker (ZONES / FLAT_RATE / NONE) ──────────────────

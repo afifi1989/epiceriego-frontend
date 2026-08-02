@@ -12,40 +12,29 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { useLanguage } from '../../src/context/LanguageContext';
-import { authService } from '../../src/services/authService';
-import { clientManagementService } from '../../src/services/clientManagementService';
-import { creditPaymentService } from '../../src/services/creditPaymentService';
-import { epicerieService } from '../../src/services/epicerieService';
+import {
+  clientAccountService,
+  MyEpicerieAccount,
+} from '../../src/services/clientAccountService';
 import { Theme, useTheme } from '../../src/theme';
-import { ClientEpicerieRelation, Epicerie } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
 
-interface CarnetEntry {
-  relation: ClientEpicerieRelation;
-  epicerie: Epicerie | null;
-  creditInfo: {
-    allowCredit: boolean;
-    creditLimit: number;
-    balanceDue: number;
-    totalAdvances: number;
-    availableCredit: number;
-  };
-  /** Avances déposées (séparément de creditInfo pour clarté visuelle). */
-  totalAdvances: number;
-}
-
 /**
- * Page "Mon carnet" — vue par épicerie du crédit client.
+ * Page "Mon carnet" — le compte du client chez chaque épicerie, géré comme
+ * un compte bancaire.
  *
- * <p>Concept inspiré du carnet papier traditionnel marocain : l'épicier
- * tient un registre où il note les achats à crédit de chaque client.
- * Ici on donne au client une vue **transparente** sur sa propre situation
- * dans chaque épicerie où il a un compte.</p>
+ * <p>Pour chaque épicerie : le SOLDE du compte (avances nettes − dette,
+ * positif = en ma faveur), la dette, les avances déposées, l'argent gagné
+ * via la fidélité (cashback), et le crédit disponible. Tap → relevé
+ * d'écritures complet (achats, avances, paiements, gains fidélité) avec
+ * solde courant, comme un relevé bancaire.</p>
  *
- * <p>Pour chaque épicerie : statut autorisation crédit, plafond, dette
- * en cours, avances déposées, et crédit dispo. Tap → page factures pour
- * le détail des transactions.</p>
+ * <p>Un SEUL appel réseau (`/clients/me/accounts`) — remplace l'ancienne
+ * cascade relations + avances + N×(épicerie + crédit). Les identifiants
+ * sont dérivés du JWT côté serveur : aucune donnée d'un autre client ne
+ * peut être consultée.</p>
  */
 export default function MonCarnetScreen() {
   const { t } = useLanguage();
@@ -53,87 +42,34 @@ export default function MonCarnetScreen() {
   const theme = useTheme();
   const styles = makeStyles(theme);
 
-  const [entries, setEntries] = useState<CarnetEntry[]>([]);
+  const [accounts, setAccounts] = useState<MyEpicerieAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [totals, setTotals] = useState({
-    totalDispo: 0,
-    totalDette: 0,
-    totalAvances: 0,
-  });
 
   useFocusEffect(
     useCallback(() => {
-      loadCarnet();
+      loadAccounts();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
-  const loadCarnet = async () => {
+  const loadAccounts = async () => {
     try {
       setLoading(true);
-      const user = await authService.getCurrentUser();
-      if (!user?.userId) {
-        setEntries([]);
-        return;
-      }
-
-      // 1) Liste des relations client-épicerie (avec creditLimit + allowCredit)
-      const relations = await clientManagementService.getClientRelationships(user.userId);
-      // On filtre les relations non-acceptées : pas de carnet à montrer si la
-      // relation est PENDING / REVOKED.
-      const accepted = relations.filter((r) => r.status === 'ACCEPTED');
-
-      // 2) Avances globales (byStore) — donne nom épicerie sans extra appel
-      const advancesByStore: Record<number, number> = {};
-      try {
-        const adv = await creditPaymentService.getMyAdvances();
-        for (const s of adv.byStore) {
-          advancesByStore[s.epicerieId] = s.totalAdvances ?? 0;
+      setError(false);
+      const data = await clientAccountService.getMyAccounts();
+      // Actifs d'abord (solde décroissant), archivés en fin de liste.
+      data.sort((a, b) => {
+        if (a.relationStatus !== b.relationStatus) {
+          return a.relationStatus === 'ARCHIVED' ? 1 : -1;
         }
-      } catch (e) {
-        console.warn('[MonCarnet] advances fetch failed', e);
-      }
-
-      // 3) Pour chaque relation, on charge l'épicerie (logo + nom) ET le
-      //    crédit en parallèle. Les échecs partiels ne cassent pas la page.
-      const enriched = await Promise.all(
-        accepted.map(async (relation) => {
-          const [epicerie, creditInfo] = await Promise.all([
-            epicerieService
-              .getEpicerieById(relation.epicerieId)
-              .catch(() => null as Epicerie | null),
-            clientManagementService
-              .getCreditInfo(relation.epicerieId)
-              .catch(() => ({
-                allowCredit: false,
-                creditLimit: 0,
-                balanceDue: 0,
-                totalAdvances: 0,
-                availableCredit: 0,
-              })),
-          ]);
-          return {
-            relation,
-            epicerie,
-            creditInfo,
-            totalAdvances: advancesByStore[relation.epicerieId] ?? creditInfo.totalAdvances ?? 0,
-          };
-        })
-      );
-
-      // Tri : crédit dispo décroissant pour mettre en avant les épiceries où
-      // le client peut encore acheter.
-      enriched.sort((a, b) => b.creditInfo.availableCredit - a.creditInfo.availableCredit);
-      setEntries(enriched);
-
-      // Totaux globaux pour le header résumé
-      const totalDispo = enriched.reduce((s, e) => s + (e.creditInfo.availableCredit || 0), 0);
-      const totalDette = enriched.reduce((s, e) => s + (e.creditInfo.balanceDue || 0), 0);
-      const totalAvances = enriched.reduce((s, e) => s + (e.totalAdvances || 0), 0);
-      setTotals({ totalDispo, totalDette, totalAvances });
-    } catch (e) {
-      console.error('[MonCarnet] load failed', e);
+        return (b.accountBalance || 0) - (a.accountBalance || 0);
+      });
+      setAccounts(data);
+    } catch (e: any) {
+      console.error('[MonCarnet] load failed:', e?.message || e);
+      setError(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -142,8 +78,15 @@ export default function MonCarnetScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadCarnet();
+    loadAccounts();
   };
+
+  // Totaux du header — calculés localement à partir des comptes.
+  const totalMoney = accounts.reduce(
+    (s, a) => s + Math.max(0, a.accountBalance || 0), 0);
+  const totalDebt = accounts.reduce((s, a) => s + (a.totalDebt || 0), 0);
+  const totalCashback = accounts.reduce(
+    (s, a) => s + (a.totalCashbackEarned || 0), 0);
 
   // ── Loading ──────────────────────────────────────────────────────
   if (loading) {
@@ -154,8 +97,13 @@ export default function MonCarnetScreen() {
     );
   }
 
+  // ── Erreur réseau (aucune donnée chargée) ────────────────────────
+  if (error && accounts.length === 0) {
+    return <ScreenState variant="error" onRetry={loadAccounts} />;
+  }
+
   // ── Empty ────────────────────────────────────────────────────────
-  if (entries.length === 0) {
+  if (accounts.length === 0) {
     return (
       <ScrollView
         contentContainerStyle={styles.emptyContainer}
@@ -182,38 +130,45 @@ export default function MonCarnetScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       showsVerticalScrollIndicator={false}
     >
-      {/* Résumé global */}
+      {/* Résumé global — comme l'entête d'un relevé bancaire */}
       <View style={styles.summary}>
         <View style={styles.summaryCol}>
-          <Text style={styles.summaryLabel}>{t('carnet.totalDispo')}</Text>
+          <Text style={styles.summaryLabel}>{t('carnet.myMoney')}</Text>
           <Text style={[styles.summaryValue, { color: '#16a34a' }]}>
-            {formatPrice(totals.totalDispo)}
+            {formatPrice(totalMoney)}
           </Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryCol}>
           <Text style={styles.summaryLabel}>{t('carnet.totalDette')}</Text>
-          <Text style={[styles.summaryValue, { color: totals.totalDette > 0 ? '#dc2626' : '#52525b' }]}>
-            {formatPrice(totals.totalDette)}
+          <Text style={[styles.summaryValue, { color: totalDebt > 0 ? '#dc2626' : '#52525b' }]}>
+            {formatPrice(totalDebt)}
           </Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryCol}>
-          <Text style={styles.summaryLabel}>{t('carnet.totalAvances')}</Text>
-          <Text style={styles.summaryValue}>{formatPrice(totals.totalAvances)}</Text>
+          <Text style={styles.summaryLabel}>{t('carnet.fidelityEarned')}</Text>
+          <Text style={[styles.summaryValue, { color: '#9333ea' }]}>
+            {formatPrice(totalCashback)}
+          </Text>
         </View>
       </View>
 
       <Text style={styles.sectionTitle}>{t('carnet.myStores')}</Text>
 
-      {entries.map((entry) => (
-        <CarnetCard
-          key={entry.relation.epicerieId}
-          entry={entry}
-          onPress={() => router.push({
-            pathname: '/(client)/factures-paiements',
-            params: { epicerieId: entry.relation.epicerieId.toString() },
-          })}
+      {accounts.map((account) => (
+        <AccountCard
+          key={account.epicerieId}
+          account={account}
+          onPress={() =>
+            router.push({
+              pathname: '/(client)/carnet-releve',
+              params: {
+                epicerieId: account.epicerieId.toString(),
+                epicerieName: account.epicerieName,
+              },
+            })
+          }
           theme={theme}
           t={t}
         />
@@ -225,48 +180,38 @@ export default function MonCarnetScreen() {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// CarnetCard — carte par épicerie
+// AccountCard — le compte chez une épicerie, façon compte bancaire
 // ──────────────────────────────────────────────────────────────────
 
-interface CarnetCardProps {
-  entry: CarnetEntry;
+interface AccountCardProps {
+  account: MyEpicerieAccount;
   onPress: () => void;
   theme: Theme;
   t: (key: string) => string;
 }
 
-const CarnetCard: React.FC<CarnetCardProps> = ({ entry, onPress, theme, t }) => {
+const AccountCard: React.FC<AccountCardProps> = ({ account, onPress, theme, t }) => {
   const styles = makeStyles(theme);
-  const { relation, epicerie, creditInfo, totalAdvances } = entry;
-
-  const limit = creditInfo.creditLimit || 0;
-  const effective = Math.max(limit, totalAdvances);
-  const used = effective - creditInfo.availableCredit;
-  const usedPct = effective > 0 ? Math.min(100, Math.max(0, (used / effective) * 100)) : 0;
-
-  const statusColor = !creditInfo.allowCredit
-    ? '#9ca3af'
-    : creditInfo.availableCredit > 0
-      ? '#16a34a'
-      : '#dc2626';
-  const statusLabel = !creditInfo.allowCredit
-    ? t('carnet.creditDisabled')
-    : creditInfo.availableCredit > 0
-      ? t('carnet.creditAvailable')
-      : t('carnet.creditExhausted');
+  const archived = account.relationStatus === 'ARCHIVED';
+  const balance = account.accountBalance || 0;
+  const inMyFavor = balance >= 0;
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[styles.card, archived && styles.cardArchived]}
       onPress={onPress}
       activeOpacity={0.92}
       accessibilityRole="button"
-      accessibilityLabel={`${epicerie?.nomEpicerie || `Épicerie #${relation.epicerieId}`} — ${statusLabel}`}
+      accessibilityLabel={`${account.epicerieName} — ${t('carnet.balance')} ${formatPrice(balance)}`}
     >
       {/* Bandeau supérieur : logo + nom + statut */}
       <View style={styles.cardTop}>
-        {epicerie?.photoUrl ? (
-          <ExpoImage source={{ uri: epicerie.photoUrl }} style={styles.cardLogo} contentFit="cover" />
+        {account.epiceriePhotoUrl ? (
+          <ExpoImage
+            source={{ uri: account.epiceriePhotoUrl }}
+            style={styles.cardLogo}
+            contentFit="cover"
+          />
         ) : (
           <View style={[styles.cardLogo, styles.cardLogoFallback]}>
             <Text style={styles.cardLogoEmoji}>🏪</Text>
@@ -274,65 +219,76 @@ const CarnetCard: React.FC<CarnetCardProps> = ({ entry, onPress, theme, t }) => 
         )}
         <View style={styles.cardHeaderText}>
           <Text style={styles.cardName} numberOfLines={1}>
-            {epicerie?.nomEpicerie || `Épicerie #${relation.epicerieId}`}
+            {account.epicerieName}
           </Text>
-          {epicerie?.adresse ? (
+          {account.epicerieAddress ? (
             <Text style={styles.cardAddress} numberOfLines={1}>
-              📍 {epicerie.adresse}
+              📍 {account.epicerieAddress}
             </Text>
           ) : null}
         </View>
-        <View style={[styles.statusPill, { backgroundColor: statusColor + '20' }]}>
-          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-          <Text style={[styles.statusText, { color: statusColor }]}>{statusLabel}</Text>
-        </View>
-      </View>
-
-      {/* Bloc crédit : barre + chiffres */}
-      {creditInfo.allowCredit ? (
-        <View style={styles.creditBlock}>
-          <View style={styles.creditHeader}>
-            <Text style={styles.creditHeaderLabel}>{t('carnet.creditAvailable')}</Text>
-            <Text style={styles.creditHeaderValue}>
-              {formatPrice(creditInfo.availableCredit)}
+        {archived ? (
+          <View style={[styles.statusPill, { backgroundColor: '#9ca3af20' }]}>
+            <View style={[styles.statusDot, { backgroundColor: '#9ca3af' }]} />
+            <Text style={[styles.statusText, { color: '#6b7280' }]}>
+              {t('carnet.archived')}
             </Text>
           </View>
+        ) : null}
+      </View>
 
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${usedPct}%`, backgroundColor: usedPct >= 90 ? '#dc2626' : usedPct >= 70 ? '#f59e0b' : theme.colors.brand }]} />
-          </View>
-
-          <View style={styles.creditDetails}>
-            <View style={styles.creditDetailItem}>
-              <Text style={styles.creditDetailLabel}>{t('carnet.plafond')}</Text>
-              <Text style={styles.creditDetailValue}>{formatPrice(effective)}</Text>
-            </View>
-            <View style={styles.creditDetailItem}>
-              <Text style={styles.creditDetailLabel}>{t('carnet.dette')}</Text>
-              <Text style={[styles.creditDetailValue, creditInfo.balanceDue > 0 && { color: '#dc2626' }]}>
-                {formatPrice(creditInfo.balanceDue)}
-              </Text>
-            </View>
-            {totalAdvances > 0 && (
-              <View style={styles.creditDetailItem}>
-                <Text style={styles.creditDetailLabel}>{t('carnet.avances')}</Text>
-                <Text style={[styles.creditDetailValue, { color: '#0ea5e9' }]}>
-                  {formatPrice(totalAdvances)}
-                </Text>
-              </View>
-            )}
-          </View>
+      {/* Solde du compte — la ligne maîtresse du relevé */}
+      <View style={styles.balanceBlock}>
+        <View>
+          <Text style={styles.balanceLabel}>{t('carnet.balance')}</Text>
+          <Text style={styles.balanceHint}>
+            {inMyFavor ? t('carnet.inMyFavor') : t('carnet.iOwe')}
+          </Text>
         </View>
-      ) : (
-        <View style={styles.disabledBlock}>
-          <Text style={styles.disabledText}>{t('carnet.creditNotActivated')}</Text>
-        </View>
-      )}
+        <Text
+          style={[
+            styles.balanceValue,
+            { color: inMyFavor ? '#16a34a' : '#dc2626' },
+          ]}
+        >
+          {formatPrice(Math.abs(balance))}
+        </Text>
+      </View>
 
-      {/* CTA Footer */}
+      {/* Détails : dette / avances / gains fidélité / crédit dispo */}
+      <View style={styles.detailsRow}>
+        <View style={styles.detailItem}>
+          <Text style={styles.detailLabel}>{t('carnet.dette')}</Text>
+          <Text style={[styles.detailValue, account.totalDebt > 0 && { color: '#dc2626' }]}>
+            {formatPrice(account.totalDebt || 0)}
+          </Text>
+        </View>
+        <View style={styles.detailItem}>
+          <Text style={styles.detailLabel}>{t('carnet.avances')}</Text>
+          <Text style={[styles.detailValue, { color: '#0ea5e9' }]}>
+            {formatPrice(account.totalAdvances || 0)}
+          </Text>
+        </View>
+        <View style={styles.detailItem}>
+          <Text style={styles.detailLabel}>{t('carnet.fidelityEarned')}</Text>
+          <Text style={[styles.detailValue, { color: '#9333ea' }]}>
+            {formatPrice(account.totalCashbackEarned || 0)}
+          </Text>
+        </View>
+        {!archived && (
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>{t('carnet.totalDispo')}</Text>
+            <Text style={[styles.detailValue, { color: '#16a34a' }]}>
+              {formatPrice(account.availableCredit || 0)}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* CTA Footer → relevé d'écritures */}
       <View style={styles.cardFooter}>
         <Text style={[styles.cardFooterText, { color: theme.colors.brand }]}>
-          {t('carnet.seeHistory')}
+          {t('carnet.seeStatement')}
         </Text>
         <Ionicons name="chevron-forward" size={18} color={theme.colors.brand} />
       </View>
@@ -450,6 +406,9 @@ const makeStyles = (theme: Theme) =>
       shadowRadius: 4,
       elevation: 2,
     },
+    cardArchived: {
+      opacity: 0.75,
+    },
     cardTop: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -499,67 +458,51 @@ const makeStyles = (theme: Theme) =>
       fontSize: 10.5,
       fontWeight: '700',
     },
-    // ── Credit block ─────────────────────────────────────────
-    creditBlock: {
-      padding: 12,
-      backgroundColor: '#fafafa',
-      borderRadius: 10,
-    },
-    creditHeader: {
+    // ── Balance block ─────────────────────────────────────────
+    balanceBlock: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 8,
+      padding: 12,
+      backgroundColor: '#fafafa',
+      borderRadius: 10,
+      marginBottom: 10,
     },
-    creditHeaderLabel: {
+    balanceLabel: {
       fontSize: 12,
       color: '#52525b',
       fontWeight: '600',
     },
-    creditHeaderValue: {
-      fontSize: 18,
+    balanceHint: {
+      fontSize: 10.5,
+      color: '#a1a1aa',
+      marginTop: 2,
+    },
+    balanceValue: {
+      fontSize: 22,
       fontWeight: '800',
-      color: '#16a34a',
     },
-    progressTrack: {
-      height: 6,
-      backgroundColor: '#e5e7eb',
-      borderRadius: 3,
-      marginBottom: 12,
-      overflow: 'hidden',
-    },
-    progressFill: {
-      height: '100%',
-      borderRadius: 3,
-    },
-    creditDetails: {
+    // ── Details ─────────────────────────────────────────
+    detailsRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: 8,
     },
-    creditDetailItem: {
+    detailItem: {
       alignItems: 'flex-start',
+      minWidth: 70,
     },
-    creditDetailLabel: {
+    detailLabel: {
       fontSize: 10.5,
       color: '#71717a',
       fontWeight: '600',
       marginBottom: 2,
     },
-    creditDetailValue: {
+    detailValue: {
       fontSize: 13,
       fontWeight: '700',
       color: '#18181b',
-    },
-    disabledBlock: {
-      padding: 12,
-      backgroundColor: '#f4f4f5',
-      borderRadius: 10,
-      alignItems: 'center',
-    },
-    disabledText: {
-      fontSize: 12,
-      color: '#71717a',
-      fontWeight: '600',
     },
     // ── Footer CTA ───────────────────────────────────────────
     cardFooter: {

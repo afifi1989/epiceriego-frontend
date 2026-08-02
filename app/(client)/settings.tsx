@@ -1,8 +1,7 @@
 export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-// Rouge "danger" unifié sur la palette du design system (était #d32f2f).
-import { lightColors } from '../../src/theme/colors';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useTheme, useThemeControl, type Theme } from '../../src/theme';
 import {
   ActivityIndicator,
   Alert,
@@ -41,13 +40,16 @@ const TIMEZONE_OPTIONS = [
 ];
 
 const CURRENCY_OPTIONS = [
-  { label: 'EUR (DH)', value: 'EUR' },
+  { label: 'EUR (€)', value: 'EUR' },
   { label: 'MAD (DH)', value: 'MAD' },
 ];
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { t, language, setLanguage } = useLanguage();
+  const theme = useTheme();
+  const { isDark, setDarkMode } = useThemeControl();
+  const styles = useMemo(() => makeStyles(theme), [theme]);
 
   // États pour les notifications
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -288,8 +290,8 @@ export default function SettingsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={theme.colors.brand} />
       </View>
     );
   }
@@ -330,7 +332,7 @@ export default function SettingsScreen() {
                 'Gérer chaque catégorie de notification (commandes, promos, fidélité…)'}
             </Text>
           </View>
-          <Text style={{ fontSize: 18, color: '#999' }}>›</Text>
+          <Text style={{ fontSize: 18, color: theme.colors.textMuted }}>›</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -343,7 +345,7 @@ export default function SettingsScreen() {
               Vérifier permissions, token Expo et enregistrement backend
             </Text>
           </View>
-          <Text style={{ fontSize: 18, color: '#999' }}>›</Text>
+          <Text style={{ fontSize: 18, color: theme.colors.textMuted }}>›</Text>
         </TouchableOpacity>
 
         <View style={styles.settingItem}>
@@ -413,6 +415,21 @@ export default function SettingsScreen() {
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
 
+        {/* Devise */}
+        <TouchableOpacity
+          style={styles.settingItem}
+          onPress={() => setShowCurrencyModal(true)}
+        >
+          <View style={styles.settingLabel}>
+            <Text style={styles.settingText}>{t('settings.currency')}</Text>
+            <Text style={styles.settingDescription}>
+              {CURRENCY_OPTIONS.find((c) => c.value === preferences.currency)?.label ??
+                preferences.currency}
+            </Text>
+          </View>
+          <Text style={styles.arrow}>›</Text>
+        </TouchableOpacity>
+
         {/* Fuseau horaire */}
         <TouchableOpacity
           style={styles.settingItem}
@@ -425,15 +442,19 @@ export default function SettingsScreen() {
           <Text style={styles.arrow}>›</Text>
         </TouchableOpacity>
 
-        {/* Mode sombre */}
+        {/* Mode sombre — pilote réellement le thème (ThemeProvider) en plus
+            de persister la préférence côté backend. */}
         <View style={styles.settingItem}>
           <View style={styles.settingLabel}>
             <Text style={styles.settingText}>{t('settings.darkMode')}</Text>
             <Text style={styles.settingDescription}>{t('settings.enableDarkMode')}</Text>
           </View>
           <Switch
-            value={preferences.darkMode}
-            onValueChange={(value) => handlePreferenceChange('darkMode', value)}
+            value={isDark}
+            onValueChange={(value) => {
+              setDarkMode(value);
+              handlePreferenceChange('darkMode', value);
+            }}
             disabled={isSaving}
           />
         </View>
@@ -465,7 +486,7 @@ export default function SettingsScreen() {
           disabled={checkingDebt}
         >
           {checkingDebt ? (
-            <ActivityIndicator size="small" color="#d32f2f" />
+            <ActivityIndicator size="small" color={theme.colors.danger} />
           ) : (
             <Text style={styles.dangerButtonText}>{t('settings.deleteAccount')}</Text>
           )}
@@ -592,7 +613,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.currentPassword')}
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={passwordForm.currentPassword}
               onChangeText={(text) =>
@@ -604,7 +625,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.newPassword')}
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={passwordForm.newPassword}
               onChangeText={(text) =>
@@ -616,7 +637,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.confirmPassword')}
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={passwordForm.confirmPassword}
               onChangeText={(text) =>
@@ -658,7 +679,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.yourPassword')}
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.colors.textMuted}
               secureTextEntry
               value={deleteForm.password}
               onChangeText={(text) => setDeleteForm({ ...deleteForm, password: text })}
@@ -668,7 +689,7 @@ export default function SettingsScreen() {
             <TextInput
               style={styles.input}
               placeholder={t('settings.typeDeleteConfirmation')}
-              placeholderTextColor="#999"
+              placeholderTextColor={theme.colors.textMuted}
               value={deleteForm.confirmation}
               onChangeText={(text) =>
                 setDeleteForm({ ...deleteForm, confirmation: text })
@@ -702,165 +723,176 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  section: {
-    marginBottom: 20,
-    backgroundColor: '#fff',
-    marginHorizontal: 10,
-    marginTop: 10,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#f9f9f9',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  settingItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  settingLabel: {
-    flex: 1,
-  },
-  settingText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  settingDescription: {
-    fontSize: 13,
-    color: '#999',
-  },
-  arrow: {
-    fontSize: 24,
-    color: '#4CAF50',
-    marginStart: 12,
-  },
-  buttonItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  buttonItemText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#4CAF50',
-  },
-  dangerButton: {
-    backgroundColor: '#ffebee',
-  },
-  dangerButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: lightColors.danger,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 40,
-    maxHeight: '80%',
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  modalOption: {
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    borderRadius: 6,
-    marginBottom: 6,
-  },
-  modalOptionActive: {
-    backgroundColor: '#e8f5e9',
-  },
-  modalOptionText: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500',
-  },
-  modalOptionTextActive: {
-    color: '#4CAF50',
-    fontWeight: '700',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 12,
-    fontSize: 14,
-    color: '#333',
-  },
-  confirmButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  confirmButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  closeButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  warningText: {
-    fontSize: 14,
-    color: lightColors.danger,
-    marginBottom: 16,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-});
+/**
+ * Styles dépendants du thème. Recréés à chaque changement de thème via
+ * `useMemo` — permet au mode sombre de s'appliquer réellement à cet écran.
+ */
+const makeStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    loadingContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.background,
+    },
+    header: {
+      backgroundColor: theme.colors.brand,
+      paddingVertical: 20,
+      paddingHorizontal: 16,
+    },
+    headerTitle: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: theme.colors.onBrand,
+    },
+    section: {
+      marginBottom: 20,
+      backgroundColor: theme.colors.surface,
+      marginHorizontal: 10,
+      marginTop: 10,
+      borderRadius: 8,
+      overflow: 'hidden',
+    },
+    sectionTitle: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: theme.colors.textPrimary,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.colors.surfaceMuted,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    settingItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    settingLabel: {
+      flex: 1,
+    },
+    settingText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.colors.textPrimary,
+      marginBottom: 4,
+    },
+    settingDescription: {
+      fontSize: 13,
+      color: theme.colors.textMuted,
+    },
+    arrow: {
+      fontSize: 24,
+      color: theme.colors.brand,
+      marginStart: 12,
+    },
+    buttonItem: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+    },
+    buttonItemText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.colors.brand,
+    },
+    dangerButton: {
+      backgroundColor: theme.colors.dangerSubtle,
+    },
+    dangerButtonText: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: theme.colors.danger,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: theme.colors.overlay,
+      justifyContent: 'flex-end',
+    },
+    modalContent: {
+      backgroundColor: theme.colors.surface,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      paddingHorizontal: 16,
+      paddingTop: 20,
+      paddingBottom: 40,
+      maxHeight: '80%',
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      color: theme.colors.textPrimary,
+      marginBottom: 16,
+      textAlign: 'center',
+    },
+    modalOption: {
+      paddingVertical: 14,
+      paddingHorizontal: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.border,
+      borderRadius: 6,
+      marginBottom: 6,
+    },
+    modalOptionActive: {
+      backgroundColor: theme.colors.brandSubtle,
+    },
+    modalOptionText: {
+      fontSize: 15,
+      color: theme.colors.textSecondary,
+      fontWeight: '500',
+    },
+    modalOptionTextActive: {
+      color: theme.colors.brand,
+      fontWeight: '700',
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: 12,
+      fontSize: 14,
+      color: theme.colors.textPrimary,
+    },
+    confirmButton: {
+      backgroundColor: theme.colors.brand,
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    confirmButtonText: {
+      color: theme.colors.onBrand,
+      fontSize: 16,
+      fontWeight: 'bold',
+    },
+    closeButton: {
+      paddingVertical: 12,
+      borderRadius: 8,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+    },
+    closeButtonText: {
+      color: theme.colors.textSecondary,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    warningText: {
+      fontSize: 14,
+      color: theme.colors.danger,
+      marginBottom: 16,
+      textAlign: 'center',
+      fontWeight: '500',
+    },
+  });

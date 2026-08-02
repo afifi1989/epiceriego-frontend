@@ -29,6 +29,7 @@ export type PromoCodeRejectionReason =
   | 'FIRST_ORDER_ONLY'
   | 'MIN_AMOUNT_NOT_MET'
   | 'WRONG_CHANNEL'
+  | 'NOT_STACKABLE_WITH_PROMOTION'
   | 'INVALID';
 
 export type PromoCodeChannel = 'APP' | 'POS' | 'BOTH';
@@ -40,6 +41,14 @@ export interface ValidatePromoCodeRequest {
   subtotal: number;
   /** Defaut: APP cote client. Le POS epicier envoie 'POS'. */
   channel?: PromoCodeChannel;
+  /**
+   * True si le panier contient au moins un article deja remise par une
+   * promotion produit. Permet au backend de refuser en preview un code
+   * {@code stackableWithPromotions=false} (reason NOT_STACKABLE_WITH_PROMOTION),
+   * au lieu de laisser afficher une remise qui serait rejetee au checkout.
+   * Optionnel : omis => le backend considere false (compat ascendante).
+   */
+  cartHasPromoItems?: boolean;
 }
 
 export interface ValidatePromoCodeResponse {
@@ -79,9 +88,15 @@ export const promoCodeService = {
     req: ValidatePromoCodeRequest
   ): Promise<ValidatePromoCodeResponse> => {
     try {
+      // Timeout COURT dédié (12 s) : la validation d'un code promo ne doit
+      // jamais faire tourner le spinner pendant les 180 s du timeout global
+      // (calibré pour le chatbot LLM). Passé ce délai, on échoue vite pour
+      // que le caissier poursuive la vente sans code. Surcharge le timeout
+      // de l'instance axios uniquement pour cet appel.
       const response = await api.post<ValidatePromoCodeResponse>(
         '/promo-codes/validate',
-        req
+        req,
+        { timeout: 12000 }
       );
       return response.data;
     } catch (error: any) {
@@ -139,6 +154,12 @@ export interface PromoCodeDTO {
   /** {@code maxUses - usesCount}. null si maxUses est null. */
   remainingUses?: number | null;
   firstOrderOnly: boolean;
+  /**
+   * Cumulable avec les promotions produit. Defaut backend = true. Si false, le
+   * code est refuse (PROMO_CODE_REJECTED:NOT_STACKABLE_WITH_PROMOTION) quand le
+   * panier contient au moins un article deja remise par une promotion.
+   */
+  stackableWithPromotions: boolean;
   channel: PromoCodeChannel;
   isActive: boolean;
   /** Helper UI : true si actif + dans la fenetre + quota non atteint. */
@@ -159,6 +180,8 @@ export interface CreatePromoCodeRequest {
   maxUses?: number | null;
   maxUsesPerUser?: number | null;
   firstOrderOnly?: boolean;
+  /** Cumulable avec les promotions produit. Defaut backend = true. */
+  stackableWithPromotions?: boolean;
   channel?: PromoCodeChannel;
   isActive?: boolean;
 }

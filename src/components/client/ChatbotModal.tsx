@@ -555,7 +555,15 @@ export const ChatbotModal: React.FC<ChatbotModalProps> = ({
    */
   const quickReorderItemToParsedProduct = (item: QuickReorderItem): ParsedProduct => ({
     productName: item.productName,
+    // `QuickReorderItem.quantity` est en unité de base (recopie de
+    // OrderItem.baseQuantity) : on pose le flag pour que `onAddToCart` applique
+    // le même traitement qu'à un item matché par le NLU (requestedQuantity en
+    // unité de base, `quantite` arrondi au supérieur).
     quantity: item.quantity,
+    quantityInBaseUnit: true,
+    // NB : `unit` porte ici le libellé de VARIANTE (« 500g »), pas une unité de
+    // mesure — il ne sert que de repli à `matchedUnitLabel`. Ces items ne
+    // passent jamais par generateResponseMessage (rendu par la card dédiée).
     unit: item.unitLabel || 'pièce',
     isMatched: true,
     matchedProductId: item.productId ?? undefined,

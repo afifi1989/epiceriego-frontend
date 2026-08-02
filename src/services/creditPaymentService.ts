@@ -71,12 +71,14 @@ export const creditPaymentService = {
    */
   getMyAdvances: async (): Promise<{
     totalAdvances: number;
+    totalCashback: number;
     availableBalance: number;
     usedBalance: number;
     byStore: {
       epicerieId: number;
       epicerieName: string;
       totalAdvances: number;
+      totalCashback: number;
       availableBalance: number;
       usedBalance: number;
     }[];
@@ -94,12 +96,14 @@ export const creditPaymentService = {
       // Handle different response formats
       const defaultResult = {
         totalAdvances: 0,
+        totalCashback: 0,
         availableBalance: 0,
         usedBalance: 0,
         byStore: [] as Array<{
           epicerieId: number;
           epicerieName: string;
           totalAdvances: number;
+          totalCashback: number;
           availableBalance: number;
           usedBalance: number;
         }>,
@@ -115,6 +119,7 @@ export const creditPaymentService = {
       if ('totalAdvances' in response.data || 'byStore' in response.data) {
         return {
           totalAdvances: response.data.totalAdvances || 0,
+          totalCashback: response.data.totalCashback || 0,
           availableBalance: response.data.availableBalance || 0,
           usedBalance: response.data.usedBalance || 0,
           byStore: Array.isArray(response.data.byStore) ? response.data.byStore : [],

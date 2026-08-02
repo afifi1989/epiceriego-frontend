@@ -31,6 +31,12 @@ export interface ProductSectionsViewProps {
   accentColor: string;
   /** Largeur d'une card horizontale (par défaut 160px — compact mais lisible). */
   cardWidth?: number;
+  /**
+   * Enregistre le nœud natif d'une section (indexé par categoryId) pour
+   * permettre au parent de scroller vers un rayon (measureLayout). Appelé avec
+   * `null` au démontage de la section.
+   */
+  registerSection?: (categoryId: number | undefined, node: View | null) => void;
   /** Labels traduits. */
   labels: {
     seeAll: string;
@@ -53,6 +59,7 @@ export const ProductSectionsView: React.FC<ProductSectionsViewProps> = ({
   accentColor,
   cardWidth = 160,
   labels,
+  registerSection,
 }) => {
   // Group products by category. Preserve insertion order (donc l'ordre de
   // pagination backend) — pas de tri alphabétique pour éviter des sauts
@@ -78,6 +85,7 @@ export const ProductSectionsView: React.FC<ProductSectionsViewProps> = ({
   if (sections.length === 0) {
     return (
       <View style={styles.empty}>
+        <Text style={styles.emptyEmoji}>🧺</Text>
         <Text style={styles.emptyText}>{labels.emptyState}</Text>
       </View>
     );
@@ -86,7 +94,11 @@ export const ProductSectionsView: React.FC<ProductSectionsViewProps> = ({
   return (
     <View>
       {sections.map((section) => (
-        <View key={section.categoryName} style={styles.section}>
+        <View
+          key={section.categoryName}
+          style={styles.section}
+          ref={registerSection ? (node) => registerSection(section.categoryId, node) : undefined}
+        >
           {/* Header de section — nom + lien "Voir tout" si callback fourni */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle} numberOfLines={1}>
@@ -158,7 +170,9 @@ const styles = StyleSheet.create({
   },
   empty: {
     paddingVertical: 60,
+    paddingHorizontal: 24,
     alignItems: 'center',
   },
-  emptyText: { fontSize: 14, color: '#999' },
+  emptyEmoji: { fontSize: 40, marginBottom: 10 },
+  emptyText: { fontSize: 15, fontWeight: '600', color: '#666', textAlign: 'center', lineHeight: 21 },
 });

@@ -101,6 +101,8 @@ export default function FideliteScreen() {
         pointsExpiryDays: program.pointsExpiryDays,
         minOrderAmount: program.minOrderAmount,
         earnOnCreditOrders: program.earnOnCreditOrders,
+        cashbackEnabled: program.cashbackEnabled,
+        cashbackPercent: program.cashbackPercent,
       });
       setProgram(updated);
       Alert.alert('Enregistre', 'Configuration mise a jour.');
@@ -291,6 +293,41 @@ export default function FideliteScreen() {
               trackColor={{ true: '#4CAF50' }}
             />
           </View>
+
+          {/* ── Cashback (crédit monétaire sur le compte client) ───────── */}
+          <View style={s.switchRow}>
+            <Text style={s.switchLabel}>Cashback — créditer de l'argent sur le compte client</Text>
+            <Switch
+              value={program?.cashbackEnabled ?? false}
+              onValueChange={v => setProgram(p => p ? { ...p, cashbackEnabled: v } : p)}
+              trackColor={{ true: '#4CAF50' }}
+            />
+          </View>
+          {program?.cashbackEnabled && (
+            <>
+              <Text style={s.label}>Pourcentage de cashback</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  style={[s.input, { flex: 1 }]}
+                  value={program?.cashbackPercent != null ? String(program.cashbackPercent) : ''}
+                  onChangeText={t => {
+                    const n = parseFloat(t.replace(',', '.'));
+                    const clamped = Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+                    setProgram(p => p ? { ...p, cashbackPercent: clamped } : p);
+                  }}
+                  placeholder="Ex : 2"
+                  placeholderTextColor="#bbb"
+                  keyboardType="decimal-pad"
+                />
+                <Text style={s.rateText}>%</Text>
+              </View>
+              <Text style={s.hint}>
+                Le client gagne ce % du montant en argent, crédité sur son compte de VOTRE
+                boutique — utilisable pour payer ses prochaines commandes. Aucun cashback sur
+                les commandes déjà payées avec le compte.
+              </Text>
+            </>
+          )}
 
           <TouchableOpacity
             style={[s.saveBtn, saving && { opacity: 0.6 }]}

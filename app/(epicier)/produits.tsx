@@ -19,11 +19,12 @@ import {
 import { CategoryFilterModal } from '../../src/components/epicier/CategoryFilterModal';
 import { categoryService, Category as ApiCategory } from '../../src/services/categoryService';
 import { usePermissions } from '../../src/hooks/usePermissions';
+import { useSubscription } from '../../src/hooks/useSubscription';
+import { useLanguage } from '../../src/context/LanguageContext';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { epicerieService } from '../../src/services/epicerieService';
 import { productService } from '../../src/services/productService';
 import { tagService } from '../../src/services/tagService';
-import { offlineService } from '../../src/services/offline';
 import { Epicerie, LoginResponse, Product, Tag } from '../../src/type';
 import { formatPrice } from '../../src/utils/helpers';
 import { useCurrency } from '../../src/context/CurrencyContext';
@@ -46,6 +47,8 @@ export default function ProduitsScreen() {
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [loginData, setLoginData] = useState<LoginResponse | null>(null);
   const { can } = usePermissions(loginData);
+  const { getQuotaMax } = useSubscription();
+  const { t } = useLanguage();
   // Filtres
   const [searchText, setSearchText] = useState('');
   /** Recherche débouncée : le filtrage (nom + description sur tout le
@@ -76,11 +79,7 @@ export default function ProduitsScreen() {
   const loadCategories = async () => {
     setCategoriesLoading(true);
     try {
-      const myEpicerie = await offlineService.fetchWithCache<Epicerie>({
-        namespace: 'epicerie',
-        key: 'my-epicerie',
-        fetcher: () => epicerieService.getMyEpicerie(),
-      });
+      const myEpicerie = await epicerieService.getMyEpicerie();
       if (!myEpicerie) return;
       // Taxonomie plateforme filtrée sur le type de la boutique (imposée par la
       // plateforme, pas dérivée des produits déjà présents). Fallback arbre actif.
@@ -106,11 +105,7 @@ export default function ProduitsScreen() {
 
   const loadTags = async () => {
     try {
-      const data = await offlineService.fetchWithCache<Tag[]>({
-        namespace: 'tags',
-        key: 'products_fr',
-        fetcher: () => tagService.getForProductsFr(),
-      });
+      const data = await tagService.getForProductsFr();
       if (data) setAvailableTags(data);
     } catch (e: any) {
       console.error('[Produits] ERREUR loadTags:', e?.message);
@@ -125,18 +120,9 @@ export default function ProduitsScreen() {
 
   const loadProducts = async () => {
     try {
-      const myEpicerie = await offlineService.fetchWithCache<Epicerie>({
-        namespace: 'epicerie',
-        key: 'my-epicerie',
-        fetcher: () => epicerieService.getMyEpicerie(),
-      });
+      const myEpicerie = await epicerieService.getMyEpicerie();
       if (!myEpicerie) throw new Error('Aucune donnée épicerie');
-      const data = await offlineService.fetchWithCache<Product[]>({
-        namespace: 'products',
-        key: `epicerie_${myEpicerie.id}`,
-        fetcher: () => productService.getProductsByEpicerie(myEpicerie.id, true, true),
-        forceRefresh: refreshing,
-      });
+      const data = await productService.getProductsByEpicerie(myEpicerie.id, true, true);
       if (data) {
         setProducts(data);
         setFilteredProducts(data);
@@ -144,9 +130,7 @@ export default function ProduitsScreen() {
       }
     } catch (error) {
       setLoadError(true);
-      if (offlineService.isOnline()) {
-        Alert.alert('Erreur', 'Impossible de charger les produits');
-      }
+      Alert.alert('Erreur', 'Impossible de charger les produits');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -358,6 +342,25 @@ export default function ProduitsScreen() {
         <Text style={offresLinkStyles.arrow}>›</Text>
       </TouchableOpacity>
 
+      {/* Entrée « Ajouter depuis le catalogue » : liste le catalogue seed et
+          importe la sélection (produits déjà présents grisés). Gardée par la
+          permission de création — au retour, la liste se rafraîchit via
+          useFocusEffect. */}
+      {can('products:create') && (
+        <TouchableOpacity
+          style={catalogueLinkStyles.bar}
+          onPress={() => router.push('/(epicier)/importer-catalogue')}
+          activeOpacity={0.85}
+        >
+          <Text style={catalogueLinkStyles.icon}>📚</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={catalogueLinkStyles.title}>{t('catalogueImport.entryTitle')}</Text>
+            <Text style={catalogueLinkStyles.subtitle}>{t('catalogueImport.entrySubtitle')}</Text>
+          </View>
+          <Text style={catalogueLinkStyles.arrow}>›</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Bannière « à approvisionner » : produits importés/brouillon sans stock.
           Mène à l'écran de saisie de stock en masse. Auto-masquée si count=0. */}
       {(() => {
@@ -403,6 +406,25 @@ export default function ProduitsScreen() {
           <Text style={styles.statLabel}>Stock bas</Text>
         </View>
       </View>
+
+      {/* Quota produits du plan : usage « X / max » + pré-avertissement quand
+          on approche (≥ 90%). Masqué si le plan est illimité (max == null). */}
+      {(() => {
+        const maxProducts = getQuotaMax('maxProducts');
+        if (maxProducts == null) return null;
+        const used = products.length;
+        const nearLimit = maxProducts > 0 && used >= maxProducts * 0.9;
+        return (
+          <View style={[quotaStyles.bar, nearLimit && quotaStyles.barWarn]}>
+            <Text style={[quotaStyles.text, nearLimit && quotaStyles.textWarn]}>
+              📦 {t('apiErrors.quotaProducts', { used, max: maxProducts })}
+            </Text>
+            {nearLimit && (
+              <Text style={quotaStyles.warn}>{t('apiErrors.quotaNearLimit')}</Text>
+            )}
+          </View>
+        );
+      })()}
 
       {/* Barre de recherche */}
       <View style={styles.searchContainer}>
@@ -507,9 +529,7 @@ export default function ProduitsScreen() {
               <Text style={styles.emptyEmoji}>📡</Text>
               <Text style={styles.emptyText}>Impossible de charger les produits</Text>
               <Text style={styles.emptySubtext}>
-                {offlineService.isOnline()
-                  ? 'Vérifiez votre connexion puis réessayez'
-                  : 'Mode hors-ligne — aucune donnée en cache pour le moment'}
+                Vérifiez votre connexion puis réessayez
               </Text>
               <TouchableOpacity
                 style={styles.retryBtn}
@@ -934,6 +954,32 @@ const offresLinkStyles = StyleSheet.create({
   arrow: { fontSize: 20, color: '#BDBDBD', fontWeight: '600' },
 });
 
+// Style local pour l'entree « Ajouter depuis le catalogue » (accent bleu marque).
+const catalogueLinkStyles = StyleSheet.create({
+  bar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.primary,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  icon: { fontSize: 22 },
+  title: { fontSize: 14, fontWeight: '700', color: '#212121' },
+  subtitle: { fontSize: 12, color: '#757575', marginTop: 2 },
+  arrow: { fontSize: 20, color: '#BDBDBD', fontWeight: '600' },
+});
+
 const stockBannerStyles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
@@ -952,4 +998,24 @@ const stockBannerStyles = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '800', color: '#78350F' },
   subtitle: { fontSize: 12, color: '#92400E', marginTop: 2 },
   arrow: { fontSize: 20, color: '#B45309', fontWeight: '700' },
+});
+
+// Bandeau quota produits (usage plan). Neutre par défaut, ambré près de la limite.
+const quotaStyles = StyleSheet.create({
+  bar: {
+    backgroundColor: '#F1F5F9',
+    marginHorizontal: 15,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  barWarn: {
+    backgroundColor: '#FEF3C7',
+    borderLeftWidth: 3,
+    borderLeftColor: '#F59E0B',
+  },
+  text: { fontSize: 13, fontWeight: '700', color: '#475569' },
+  textWarn: { color: '#92400E' },
+  warn: { fontSize: 12, color: '#92400E', marginTop: 2 },
 });

@@ -1,6 +1,29 @@
 /**
- * Product service for epicier (shop owner)
- * Handles all product-related API calls
+ * ⚠️ SERVICE LEGACY — NE PAS UTILISER DANS DU NOUVEAU CODE (R5)
+ * ============================================================
+ * Ancienne couche produit « épicier » basée sur les endpoints `/produits/*`
+ * (modèle legacy : `uniteVente` PIECE/KILOGRAM/GRAM, stock ABSOLU, DTO plat).
+ *
+ * Elle coexiste — et fait DOUBLON — avec la couche moderne :
+ *   - productService  (`/products/*`)                → CRUD produit + variantes/units
+ *   - unitService     (`/products/{id}/units`)       → unités de vente / variantes
+ *   - stockService    (`/epiceries/{id}/stock` …)    → mouvements de stock (delta)
+ *
+ * ÉTAT DES LIEUX (audit R5) : ce service n'a plus AUCUN consommateur vivant.
+ * Ses deux seuls importeurs restants sont eux-mêmes du code mort :
+ *   - src/hooks/useProducts.ts                          (hook jamais monté)
+ *   - src/components/epicier/BarcodeManagementTab.tsx   (remplacé par BarcodesTab)
+ * → fichier candidat à la SUPPRESSION une fois les branches worktree fusionnées.
+ *
+ * CODES-BARRES : l'endpoint CRUD `/produits/{id}/barcodes` reste le canal barcode
+ * OFFICIEL côté backend (contrôleur legacy). Il n'est PAS déprécié — mais il est
+ * désormais consommé DIRECTEMENT via `api` par le composant moderne
+ * `src/features/products/components/tabs/BarcodesTab.tsx` (qui gère en plus le
+ * `unitId` / rattachement à la variante). Les méthodes barcode de CE service
+ * (getProductBarcodes / addProductBarcode / deleteProductBarcode) sont donc
+ * redondantes et, en prime, obsolètes (elles ignorent `unitId`).
+ *
+ * @deprecated Utiliser productService / unitService / stockService.
  */
 
 import api from './api';

@@ -52,6 +52,14 @@ export interface PromoCodeInputProps {
   /** Subtotal panier hors livraison, dans la devise de l'epicerie. */
   subtotal: number;
 
+  /**
+   * True si le panier contient au moins un article deja remise par une promotion
+   * produit. Transmis a /promo-codes/validate pour que la preview reflete le refus
+   * d'un code non cumulable (NOT_STACKABLE_WITH_PROMOTION) au lieu d'afficher une
+   * fausse remise. Defaut: false.
+   */
+  cartHasPromoItems?: boolean;
+
   /** Defaut: 'APP'. Le POS epicier envoie 'POS'. */
   channel?: PromoCodeChannel;
 
@@ -79,6 +87,7 @@ export default function PromoCodeInput(props: PromoCodeInputProps) {
   const {
     epicerieId,
     subtotal,
+    cartHasPromoItems = false,
     channel = 'APP',
     value,
     onApplied,
@@ -106,6 +115,7 @@ export default function PromoCodeInput(props: PromoCodeInputProps) {
           epicerieId,
           code: value.code,
           subtotal,
+          cartHasPromoItems,
           channel,
         });
         if (!resp.valid) {
@@ -123,8 +133,10 @@ export default function PromoCodeInput(props: PromoCodeInputProps) {
     return () => {
       if (revalidateTimerRef.current) clearTimeout(revalidateTimerRef.current);
     };
+    // Re-valide aussi quand la composition promo du panier change (un article
+    // remise ajoute/retire peut basculer un code non cumulable valide -> refuse).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subtotal]);
+  }, [subtotal, cartHasPromoItems]);
 
   const handleApply = useCallback(async () => {
     const trimmed = inputCode.trim();
@@ -136,6 +148,7 @@ export default function PromoCodeInput(props: PromoCodeInputProps) {
         epicerieId,
         code: trimmed,
         subtotal,
+        cartHasPromoItems,
         channel,
       });
       if (resp.valid) {
@@ -149,7 +162,7 @@ export default function PromoCodeInput(props: PromoCodeInputProps) {
     } finally {
       setLoading(false);
     }
-  }, [inputCode, epicerieId, subtotal, channel, onApplied]);
+  }, [inputCode, epicerieId, subtotal, cartHasPromoItems, channel, onApplied]);
 
   const handleRemove = useCallback(() => {
     setErrorReason(null);

@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
+  Animated,
   Pressable,
   StyleSheet,
   Text,
@@ -67,15 +68,30 @@ export const InlineQuantitySelector: React.FC<InlineQuantitySelectorProps> = ({
   const atMax = maxQuantity != null && currentQuantity >= maxQuantity;
   const compact = size === 'compact';
 
+  // Scale-pop du "+" : petit rebond au tap pour matérialiser l'ajout (délice
+  // à l'ajout, pairé avec le pulse du badge mini-cart). useNativeDriver → 60fps.
+  const popScale = useRef(new Animated.Value(1)).current;
+  const triggerPop = () => {
+    popScale.setValue(1);
+    Animated.sequence([
+      Animated.spring(popScale, { toValue: 1.35, useNativeDriver: true, friction: 4, tension: 160 }),
+      Animated.spring(popScale, { toValue: 1, useNativeDriver: true, friction: 5, tension: 160 }),
+    ]).start();
+  };
+
   // Tap "+" : si variantes → ouvre la modal ; sinon ajoute direct (sauf si
   // disabled ou stock atteint).
   const handlePlus = () => {
     if (disabled) return;
     if (hasVariants && onAddVariant) {
+      triggerPop();
       onAddVariant();
       return;
     }
-    if (!atMax) onIncrement();
+    if (!atMax) {
+      triggerPop();
+      onIncrement();
+    }
   };
 
   // ─── Avant 1er ajout : bouton "+" simple ────────────────────────────────
@@ -94,12 +110,12 @@ export const InlineQuantitySelector: React.FC<InlineQuantitySelectorProps> = ({
         accessibilityLabel="Ajouter au panier"
         hitSlop={6}
       >
-        <Text style={[
+        <Animated.Text style={[
           compact ? styles.singleBtnIconCompact : styles.singleBtnIcon,
-          { color: textColor },
+          { color: textColor, transform: [{ scale: popScale }] },
         ]}>
           +
-        </Text>
+        </Animated.Text>
       </Pressable>
     );
   }
@@ -158,12 +174,12 @@ export const InlineQuantitySelector: React.FC<InlineQuantitySelectorProps> = ({
         accessibilityLabel={atMax ? 'Quantité maximale atteinte' : 'Augmenter la quantité'}
         hitSlop={6}
       >
-        <Text style={[
+        <Animated.Text style={[
           compact ? styles.pillBtnLabelCompact : styles.pillBtnLabel,
-          { color: textColor, opacity: plusDisabled ? 0.4 : 1 },
+          { color: textColor, opacity: plusDisabled ? 0.4 : 1, transform: [{ scale: popScale }] },
         ]}>
           +
-        </Text>
+        </Animated.Text>
       </Pressable>
     </View>
   );
@@ -200,8 +216,8 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 36,
-    borderRadius: 18,
+    height: 40,
+    borderRadius: 20,
     paddingHorizontal: 2,
     shadowOpacity: 0.16,
     shadowRadius: 4,
@@ -211,8 +227,8 @@ const styles = StyleSheet.create({
   pillCompact: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 32,
-    borderRadius: 16,
+    height: 36,
+    borderRadius: 18,
     paddingHorizontal: 2,
     shadowOpacity: 0.14,
     shadowRadius: 3,
@@ -220,16 +236,16 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   pillBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pillBtnCompact: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },

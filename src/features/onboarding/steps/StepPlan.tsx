@@ -26,6 +26,7 @@ import {
   type SubscriptionPlan,
 } from '../../../services/subscriptionService';
 import { colors, radii, space, typography } from '../theme';
+import { planAccent } from '../../../utils/planLabels';
 import type { StepHandle, StepProps } from './stepProps';
 
 /** Quotas affichés sur chaque carte (libellé court + valeur formatée). */
@@ -43,15 +44,6 @@ function formatQuota(n: number | null | undefined, suffix: string): string {
 function formatPrice(plan: SubscriptionPlan): string {
   if (!plan.monthlyPrice || plan.monthlyPrice === 0) return 'Gratuit';
   return `${plan.monthlyPrice} DH/mois`;
-}
-
-function planAccent(code: string): { tint: string; soft: string } {
-  switch (code) {
-    case 'PRO':       return { tint: '#7C3AED', soft: '#F3E8FF' }; // violet (recommandé)
-    case 'PREMIUM':   return { tint: '#F59E0B', soft: '#FEF3C7' }; // gold
-    case 'ESSENTIEL': return { tint: '#0EA5E9', soft: '#E0F2FE' }; // cyan
-    default:          return { tint: colors.textMuted, soft: '#F1F5F9' }; // découverte / autre
-  }
 }
 
 function buildQuotaLines(plan: SubscriptionPlan): QuotaLine[] {

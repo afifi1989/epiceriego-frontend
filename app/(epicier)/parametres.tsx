@@ -22,6 +22,8 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { usePermissions, Feature } from '../../src/hooks/usePermissions';
+import { useSubscription, type SubscriptionFeature } from '../../src/hooks/useSubscription';
+import { ProBadgeInline } from '../../src/components/epicier/ProGate';
 import { LoginResponse } from '../../src/type';
 
 interface SettingCard {
@@ -33,12 +35,19 @@ interface SettingCard {
   route: string;
   /** Permission requise pour afficher la carte. undefined = visible pour tous. */
   feature?: Feature;
+  /**
+   * Feature payante requise (plan). Si définie et absente du plan : la carte
+   * affiche un badge « PRO 🔒 » et le tap redirige vers l'upsell au lieu
+   * d'ouvrir l'écran verrouillé. Indépendant de `feature` (permission collab).
+   */
+  proFeature?: SubscriptionFeature;
 }
 
 export default function ParametresHubScreen() {
   const router = useRouter();
   const [loginData, setLoginData] = useState<LoginResponse | null>(null);
   const { can } = usePermissions(loginData);
+  const { hasFeature } = useSubscription();
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.USER).then(raw => {
@@ -84,6 +93,15 @@ export default function ParametresHubScreen() {
       feature: 'settings:edit',
     },
     {
+      icon: '🗄️',
+      iconColor: '#2C7BD0',
+      bg: '#E3F0FB',
+      title: 'Caisses',
+      description: 'Gérer vos registres (multi-caisse) et la caisse de ce poste',
+      route: '/(epicier)/caisses',
+      feature: 'settings:edit',
+    },
+    {
       icon: '💬',
       iconColor: '#25D366',
       bg: '#E0F7E9',
@@ -91,6 +109,7 @@ export default function ParametresHubScreen() {
       description: 'Activation, message de bienvenue, auto-accept',
       route: '/(epicier)/whatsapp-settings',
       feature: 'settings:edit',
+      proFeature: 'hasWhatsapp',
     },
     {
       icon: '⭐',
@@ -100,6 +119,7 @@ export default function ParametresHubScreen() {
       description: 'Points, tampons, récompenses clients',
       route: '/(epicier)/fidelite',
       feature: 'settings:edit',
+      proFeature: 'hasLoyalty',
     },
     {
       icon: '🔍',
@@ -155,23 +175,35 @@ export default function ParametresHubScreen() {
           </View>
         ) : (
           <View style={styles.grid}>
-            {visibleCards.map(card => (
-              <TouchableOpacity
-                key={card.route}
-                style={styles.card}
-                onPress={() => router.push(card.route as any)}
-                activeOpacity={0.85}
-              >
-                <View style={[styles.iconBox, { backgroundColor: card.bg }]}>
-                  <Text style={styles.icon}>{card.icon}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.cardTitle}>{card.title}</Text>
-                  <Text style={styles.cardDescription}>{card.description}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#bdbdbd" />
-              </TouchableOpacity>
-            ))}
+            {visibleCards.map(card => {
+              // Verrou plan : la carte reste visible (découverte de la feature)
+              // mais le tap redirige vers l'upsell tant que le plan ne l'inclut pas.
+              const locked = !!card.proFeature && !hasFeature(card.proFeature);
+              return (
+                <TouchableOpacity
+                  key={card.route}
+                  style={styles.card}
+                  onPress={() =>
+                    locked
+                      ? router.push('/(epicier)/mon-abonnement')
+                      : router.push(card.route as any)
+                  }
+                  activeOpacity={0.85}
+                >
+                  <View style={[styles.iconBox, { backgroundColor: card.bg }]}>
+                    <Text style={styles.icon}>{card.icon}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.cardTitleRow}>
+                      <Text style={styles.cardTitle}>{card.title}</Text>
+                      {card.proFeature && <ProBadgeInline feature={card.proFeature} />}
+                    </View>
+                    <Text style={styles.cardDescription}>{card.description}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#bdbdbd" />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 
@@ -234,11 +266,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   icon: { fontSize: 22 },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
   cardTitle: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1f2937',
-    marginBottom: 2,
   },
   cardDescription: {
     fontSize: 12,

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { ClientEpicerieRelation } from '../../type';
 import { Colors, FontSizes, Spacing } from '../../constants/colors';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface ClientCardProps {
   client: ClientEpicerieRelation & {
@@ -28,6 +29,11 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onRemove,
   showActions = true,
 }) => {
+  const { t } = useLanguage();
+  // Un client ARCHIVED (relation clôturée) est en LECTURE SEULE : aucune
+  // action de gestion (retrait, crédit…) ne doit être proposée depuis la carte.
+  const isArchived = client.status === 'ARCHIVED';
+
   const getCreditStatusColor = () => {
     if (!client.allowCredit) return '#F44336';
     if (!client.creditLimit) return '#FF9800';
@@ -67,7 +73,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({
                   ? '#E8F5E9'
                   : client.status === 'PENDING'
                     ? '#FFF3E0'
-                    : '#FFEBEE',
+                    : isArchived
+                      ? '#ECEFF1'
+                      : '#FFEBEE',
             },
           ]}
         >
@@ -80,7 +88,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({
                     ? '#4CAF50'
                     : client.status === 'PENDING'
                       ? '#FF9800'
-                      : '#F44336',
+                      : isArchived
+                        ? '#607D8B'
+                        : '#F44336',
               },
             ]}
           >
@@ -88,7 +98,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({
               ? 'Accepté'
               : client.status === 'PENDING'
                 ? 'En attente'
-                : 'Rejeté'}
+                : isArchived
+                  ? t('clientsArchive.statusArchived')
+                  : 'Rejeté'}
           </Text>
         </View>
       </View>
@@ -136,8 +148,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
         </Text>
       </View>
 
-      {/* Actions */}
-      {showActions && (onEditCredit || onRemove) && (
+      {/* Actions — jamais rendues pour un client archivé (lecture seule) */}
+      {showActions && !isArchived && (onEditCredit || onRemove) && (
         <View style={styles.actionsSection}>
           {onEditCredit && (
             <TouchableOpacity

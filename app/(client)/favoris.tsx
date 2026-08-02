@@ -1,7 +1,7 @@
 export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   RefreshControl,
@@ -28,6 +28,9 @@ export default function FavorisScreen() {
   const [favorites, setFavorites] = useState<Epicerie[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Le skeleton ne doit s'afficher qu'au 1er chargement. Aux focus suivants,
+  // on rafraîchit silencieusement (les données déjà à l'écran restent visibles).
+  const hasLoadedRef = useRef(false);
 
   const styles = useMemo(() => makeStyles(theme), [theme]);
 
@@ -56,6 +59,7 @@ export default function FavorisScreen() {
       console.error('[FavorisScreen] loadFavorites failed:', error);
       toast.error(t('common.error'), t('favorites.loadError'));
     } finally {
+      hasLoadedRef.current = true;
       setLoading(false);
       setRefreshing(false);
     }
@@ -63,7 +67,10 @@ export default function FavorisScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
+      // 1er chargement: skeleton. Focus suivants: refresh silencieux.
+      if (!hasLoadedRef.current) {
+        setLoading(true);
+      }
       loadFavorites();
     }, [loadFavorites])
   );

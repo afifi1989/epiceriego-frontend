@@ -22,11 +22,11 @@ import {
   View,
 } from 'react-native';
 import { usePermissions } from '../../src/hooks/usePermissions';
+import { useSubscription, type SubscriptionFeature } from '../../src/hooks/useSubscription';
+import { ProBadgeInline } from '../../src/components/epicier/ProGate';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
-import { offlineService } from '../../src/services/offline';
-import { useNetwork } from '../../src/context/NetworkContext';
 import { Epicerie, LoginResponse, Order, Product } from '../../src/type';
 import { onboardingService } from '../../src/services/onboardingService';
 import { productService } from '../../src/services/productService';
@@ -55,8 +55,14 @@ export default function EpicierDashboardScreen() {
   });
   // Produits importés/brouillon sans stock → rappel « à approvisionner ».
   const [draftToStockCount, setDraftToStockCount] = useState(0);
-  const { can } = usePermissions(loginData);
-  const { isOnline } = useNetwork();
+  const { can, profile } = usePermissions(loginData);
+  const { hasFeature } = useSubscription();
+  const canSuperviseCaisses = profile === 'owner' || profile === 'manager';
+  // Verrou plan : redirige vers l'upsell quand la feature payante manque.
+  // Combiné EN PLUS des gardes de permission collaborateur (les deux conditions).
+  const goUpsell = () => router.push('/(epicier)/mon-abonnement');
+  const openOrUpsell = (feature: SubscriptionFeature, route: string) =>
+    hasFeature(feature) ? router.push(route as any) : goUpsell();
   // Modale "Plus d'actions" : regroupe les raccourcis secondaires pour ne
   // pas saturer le dashboard. La grille principale ne montre que les 6
   // actions les plus utilisees.
@@ -101,23 +107,15 @@ export default function EpicierDashboardScreen() {
     try {
       setLoading(true);
 
-      // Charger les infos de l'épicerie (cache 30 min, dispo offline)
-      const epicerieData = await offlineService.fetchWithCache<Epicerie>({
-        namespace: 'epicerie',
-        key: 'my-epicerie',
-        fetcher: () => epicerieService.getMyEpicerie(),
-      });
+      // Charger les infos de l'épicerie (temps réel)
+      const epicerieData = await epicerieService.getMyEpicerie();
       if (epicerieData) setEpicerie(epicerieData);
 
       // Comptage des produits brouillon sans stock (rappel d'approvisionnement).
-      // Non bloquant : best-effort, réutilise le cache produits de l'écran Produits.
+      // Non bloquant : best-effort.
       if (epicerieData) {
         try {
-          const prods = await offlineService.fetchWithCache<Product[]>({
-            namespace: 'products',
-            key: `epicerie_${epicerieData.id}`,
-            fetcher: () => productService.getProductsByEpicerie(epicerieData.id, false, true),
-          });
+          const prods = await productService.getProductsByEpicerie(epicerieData.id, false, true);
           if (prods) {
             const stockOf = (p: Product) =>
               (p.units && p.units.length) ? p.units.reduce((s, u) => s + (u.stock ?? 0), 0) : (p.stock ?? 0);
@@ -126,12 +124,8 @@ export default function EpicierDashboardScreen() {
         } catch { /* non bloquant */ }
       }
 
-      // Charger les commandes (cache 5 min, dispo offline)
-      const ordersData = await offlineService.fetchWithCache<Order[]>({
-        namespace: 'orders',
-        key: 'epicerie-orders',
-        fetcher: () => orderService.getEpicerieOrders(),
-      });
+      // Charger les commandes (temps réel)
+      const ordersData = await orderService.getEpicerieOrders();
       if (ordersData) {
         setOrders(ordersData);
 
@@ -153,10 +147,7 @@ export default function EpicierDashboardScreen() {
       }
 
     } catch (error) {
-      // Seulement alerter si on est online (offline = données du cache)
-      if (offlineService.isOnline()) {
-        Alert.alert('Erreur', 'Impossible de charger les données');
-      }
+      Alert.alert('Erreur', 'Impossible de charger les données');
       console.error('Erreur dashboard:', error);
     } finally {
       setLoading(false);
@@ -224,12 +215,15 @@ export default function EpicierDashboardScreen() {
     accent,
     onPress,
     highlight = false,
+    proFeature,
   }: {
     emoji: string;
     label: string;
     accent: string;
     onPress: () => void;
     highlight?: boolean;
+    /** Si défini et hors plan : affiche le badge « PRO 🔒 » (auto-masqué sinon). */
+    proFeature?: SubscriptionFeature;
   }) => (
     <TouchableOpacity
       style={[styles.tile, { borderLeftColor: accent }, highlight && styles.tileHighlight]}
@@ -239,7 +233,10 @@ export default function EpicierDashboardScreen() {
       <View style={[styles.tileIconWrap, { backgroundColor: accent + '1A' }]}>
         <Text style={styles.tileEmoji}>{emoji}</Text>
       </View>
-      <Text style={styles.tileLabel}>{label}</Text>
+      <View style={styles.tileLabelRow}>
+        <Text style={styles.tileLabel}>{label}</Text>
+        {proFeature && <ProBadgeInline feature={proFeature} />}
+      </View>
     </TouchableOpacity>
   );
 
@@ -338,7 +335,8 @@ export default function EpicierDashboardScreen() {
               emoji="🎉"
               label="Promotions"
               accent="#EC4899"
-              onPress={() => router.push('/(epicier)/promotions')}
+              proFeature="hasPromotions"
+              onPress={() => openOrUpsell('hasPromotions', '/(epicier)/promotions')}
             />
           )}
           {can('settings:edit') && (
@@ -349,12 +347,22 @@ export default function EpicierDashboardScreen() {
               onPress={() => router.push('/(epicier)/cash-session' as any)}
             />
           )}
-          {/* Offres & paniers — pas de garde permission (découverte) */}
+          {canSuperviseCaisses && (
+            <Tile
+              emoji="🖥️"
+              label="Supervision caisses"
+              accent="#0EA5E9"
+              onPress={() => router.push('/(epicier)/supervision-caisses' as any)}
+            />
+          )}
+          {/* Offres & paniers — pas de garde permission (découverte), mais
+              feature payante : badge PRO 🔒 + upsell si hors plan. */}
           <Tile
             emoji="🎁"
             label="Offres & paniers"
             accent="#9333EA"
-            onPress={() => router.push('/(epicier)/offres-paniers')}
+            proFeature="hasBundleOffers"
+            onPress={() => openOrUpsell('hasBundleOffers', '/(epicier)/offres-paniers')}
           />
           {/* Plus — ouvre la modale avec les raccourcis secondaires */}
           <Tile
@@ -371,14 +379,17 @@ export default function EpicierDashboardScreen() {
       {can('stats:view') && (
         <TouchableOpacity
           style={styles.statsLink}
-          onPress={() => router.push('/(epicier)/statistiques')}
+          onPress={() => openOrUpsell('hasAdvancedStats', '/(epicier)/statistiques')}
           activeOpacity={0.85}
         >
           <View style={styles.statsLinkIcon}>
             <Text style={{ fontSize: 22 }}>📊</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.statsLinkTitle}>Statistiques</Text>
+            <View style={styles.tileLabelRow}>
+              <Text style={styles.statsLinkTitle}>Statistiques</Text>
+              <ProBadgeInline feature="hasAdvancedStats" />
+            </View>
             <Text style={styles.statsLinkSub}>
               Chiffre d'affaires, top produits, clients…
             </Text>
@@ -543,19 +554,21 @@ export default function EpicierDashboardScreen() {
               {can('promoCodes:manage') && (
                 <TouchableOpacity
                   style={moreStyles.item}
-                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/codes-promos' as any); }}
+                  onPress={() => { setShowMoreActions(false); openOrUpsell('hasPromotions', '/(epicier)/codes-promos'); }}
                 >
                   <Text style={moreStyles.emoji}>🎟️</Text>
                   <Text style={moreStyles.label}>Codes promos</Text>
+                  <ProBadgeInline feature="hasPromotions" />
                 </TouchableOpacity>
               )}
               {can('suppliers:manage') && (
                 <TouchableOpacity
                   style={moreStyles.item}
-                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/fournisseurs' as any); }}
+                  onPress={() => { setShowMoreActions(false); openOrUpsell('hasSuppliers', '/(epicier)/fournisseurs'); }}
                 >
                   <Text style={moreStyles.emoji}>🏪</Text>
                   <Text style={moreStyles.label}>Fournisseurs</Text>
+                  <ProBadgeInline feature="hasSuppliers" />
                 </TouchableOpacity>
               )}
               {can('stock:view') && (
@@ -588,10 +601,11 @@ export default function EpicierDashboardScreen() {
               {can('settings:edit') && (
                 <TouchableOpacity
                   style={moreStyles.item}
-                  onPress={() => { setShowMoreActions(false); router.push('/(epicier)/fidelite' as any); }}
+                  onPress={() => { setShowMoreActions(false); openOrUpsell('hasLoyalty', '/(epicier)/fidelite'); }}
                 >
                   <Text style={moreStyles.emoji}>⭐</Text>
                   <Text style={moreStyles.label}>Fidélité</Text>
+                  <ProBadgeInline feature="hasLoyalty" />
                 </TouchableOpacity>
               )}
             </View>
@@ -778,6 +792,12 @@ const styles = StyleSheet.create({
   },
   tileEmoji: {
     fontSize: 24,
+  },
+  tileLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
   },
   tileLabel: {
     fontSize: 14,

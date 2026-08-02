@@ -19,6 +19,8 @@ export type CashDrawerStatus = 'OPEN' | 'CLOSED';
 export interface CashDrawerSessionResponse {
   id: number;
   epicerieId: number;
+  /** Caisse (registre) propriétaire de la session — multi-caisse. */
+  caisseId?: number | null;
   openedBy: number;
   closedBy?: number | null;
   status: CashDrawerStatus;
@@ -79,20 +81,23 @@ const getEpicerieId = async (): Promise<number> => {
 };
 
 export const cashSessionService = {
-  async open(request: OpenCashSessionRequest): Promise<CashDrawerSessionResponse> {
+  /** Ouvre une session sur la caisse indiquée (null -> caisse par défaut). */
+  async open(request: OpenCashSessionRequest, caisseId?: number | null): Promise<CashDrawerSessionResponse> {
     const eid = await getEpicerieId();
     const response = await api.post<CashDrawerSessionResponse>(
-      `/epiceries/${eid}/cash-sessions/open`, request
+      `/epiceries/${eid}/cash-sessions/open`, request,
+      { params: caisseId != null ? { caisseId } : {} }
     );
     return response.data;
   },
 
-  /** Retourne null si aucune session ouverte. */
-  async getCurrent(): Promise<CashDrawerSessionResponse | null> {
+  /** Session ouverte courante. caisseId null -> caisse par défaut de l'épicerie. */
+  async getCurrent(caisseId?: number | null): Promise<CashDrawerSessionResponse | null> {
     const eid = await getEpicerieId();
     try {
       const response = await api.get<CashDrawerSessionResponse>(
-        `/epiceries/${eid}/cash-sessions/current`
+        `/epiceries/${eid}/cash-sessions/current`,
+        { params: caisseId != null ? { caisseId } : {} }
       );
       return response.status === 204 ? null : response.data;
     } catch (e: any) {
@@ -118,7 +123,7 @@ export const cashSessionService = {
     return response.data;
   },
 
-  async list(status?: CashDrawerStatus, page = 0, size = 20): Promise<{
+  async list(status?: CashDrawerStatus, page = 0, size = 20, caisseId?: number | null): Promise<{
     content: CashDrawerSessionResponse[];
     totalElements: number;
     totalPages: number;
@@ -129,6 +134,7 @@ export const cashSessionService = {
     const eid = await getEpicerieId();
     const params: Record<string, string | number> = { page, size };
     if (status) params['status'] = status;
+    if (caisseId != null) params['caisseId'] = caisseId;
     const response = await api.get(`/epiceries/${eid}/cash-sessions`, { params });
     return response.data;
   },

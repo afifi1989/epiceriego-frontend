@@ -8,8 +8,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NotificationBadge } from '../../components/NotificationBadge';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { useLanguage } from '../../src/context/LanguageContext';
-import { NetworkProvider } from '../../src/context/NetworkContext';
-import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 
 /**
@@ -156,6 +154,22 @@ function ClientTabsContent() {
         }}
       />
       <Tabs.Screen
+        name="search"
+        options={{
+          href: null,
+          headerTitle: t('client.search.headerTitle') || 'Recherche',
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+      <Tabs.Screen
+        name="order-confirmation"
+        options={{
+          href: null,
+          headerShown: false,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
               name="aide-support"
               options={{
                 href: null,
@@ -222,6 +236,15 @@ function ClientTabsContent() {
         options={{
           href: null,
           headerTitle: t('client.headers.myCarnet') || 'Mon carnet',
+          headerRight: () => <NotificationBadge />,
+        }}
+      />
+
+      <Tabs.Screen
+        name="carnet-releve"
+        options={{
+          href: null,
+          headerTitle: t('carnet.statementTitle') || 'Relevé de compte',
           headerRight: () => <NotificationBadge />,
         }}
       />
@@ -324,11 +347,8 @@ export default function ClientLayout() {
 
   // ✅ Afficher le contenu authentifié
   return (
-    <NetworkProvider>
-      <View style={{ flex: 1 }}>
-        <OfflineBanner />
-        <ClientTabsContent />
-      </View>
-    </NetworkProvider>
+    <View style={{ flex: 1 }}>
+      <ClientTabsContent />
+    </View>
   );
 }

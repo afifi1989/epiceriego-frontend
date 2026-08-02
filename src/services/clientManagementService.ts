@@ -1,10 +1,37 @@
 import {
   ClientAccount,
+  ClientDuplicateResponse,
   ClientEpicerieRelation,
   ClientInvitation,
 } from '../type';
 import api from './api';
 import { authService } from './authService';
+
+/**
+ * Détecte un 409 CLIENT_DUPLICATE et le relance sous forme d'erreur structurée
+ * (Error avec `.clientDuplicate = ClientDuplicateResponse`) pour que l'écran
+ * puisse ouvrir la modal de confirmation au lieu d'afficher l'erreur générique.
+ * Renvoie `false` si ce n'est pas un doublon (le caller poursuit son catch).
+ */
+function throwIfClientDuplicate(error: any): void {
+  if (
+    error?.response?.status === 409 &&
+    error.response?.data?.code === 'CLIENT_DUPLICATE'
+  ) {
+    const e: any = new Error('CLIENT_DUPLICATE');
+    e.clientDuplicate = error.response.data as ClientDuplicateResponse;
+    throw e;
+  }
+}
+
+/** Éligibilité à la clôture d'un client (miroir de ClientDeletionEligibilityDTO). */
+export interface DeletionEligibility {
+  code: string;                 // 'OK' | 'ACCOUNT_NOT_SETTLED'
+  canDelete: boolean;
+  totalDebtUnpaid: number;
+  refundableAdvance: number;
+  requiredActions: string[];    // 'SETTLE_DEBT' | 'REFUND_ADVANCE'
+}
 
 /**
  * Client Management Service
@@ -18,49 +45,16 @@ export const clientManagementService = {
    */
   getClientInvitations: async (epicerieId: number): Promise<ClientInvitation[]> => {
     try {
-      const response = await api.get<any>(
+      const response = await api.get<ClientInvitation[]>(
         `/epiceries/${epicerieId}/clients/invitations`
       );
-
-      console.log('[ClientManagementService] ========================================');
-      console.log('[ClientManagementService] GET /epiceries/' + epicerieId + '/clients/invitations');
-      console.log('[ClientManagementService] Response status:', response.status);
-      console.log('[ClientManagementService] Response type:', typeof response.data);
-      console.log('[ClientManagementService] Is Array:', Array.isArray(response.data));
-      console.log('[ClientManagementService] Raw response:', JSON.stringify(response.data, null, 2));
-      console.log('[ClientManagementService] ========================================');
-
-      // Handle different response formats
-      let invitations: ClientInvitation[] = [];
-
-      if (Array.isArray(response.data)) {
-        invitations = response.data;
-      } else if (response.data?.content) {
-        // Paginated response
-        invitations = response.data.content;
-      } else if (response.data?.data) {
-        // Wrapped response
-        invitations = response.data.data;
-      } else if (response.data) {
-        // Try to extract from response object
-        const keys = Object.keys(response.data);
-        console.log('[ClientManagementService] Response keys:', keys);
-
-        // If there's a key that looks like it contains the data
-        const dataKey = keys.find(k =>
-          k.includes('invitation') ||
-          k.includes('data') ||
-          k.includes('content')
-        );
-
-        if (dataKey && Array.isArray(response.data[dataKey])) {
-          invitations = response.data[dataKey];
-        }
-      }
-
-      console.log('[ClientManagementService] Processed invitations:', invitations.length);
-      return invitations;
+      // Le backend renvoie un tableau ; on tolère une éventuelle enveloppe.
+      const data: any = response.data;
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.content)) return data.content;
+      return [];
     } catch (error: any) {
+      // Ne JAMAIS logger le corps de la réponse : données financières.
       console.error('[ClientManagementService] Error getting invitations:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération des invitations';
     }
@@ -76,37 +70,42 @@ export const clientManagementService = {
   sendClientInvitationByEmail: async (
     epicerieId: number,
     clientEmail: string,
-    clientName: string
+    clientName: string,
+    confirmMerge: boolean = false
   ): Promise<ClientInvitation> => {
     try {
       const response = await api.post<ClientInvitation>(
         `/epiceries/${epicerieId}/clients/invite`,
-        { clientEmail, clientName }
+        { clientEmail, clientName, confirmMerge }
       );
       return response.data;
     } catch (error: any) {
+      // 409 CLIENT_DUPLICATE (confirmAction LINK) : on remonte le corps structuré
+      // pour que l'écran affiche la modal de confirmation (existing vs incoming).
+      throwIfClientDuplicate(error);
       console.error('[ClientManagementService] Error sending invitation:', error.message);
       throw error.response?.data?.message || 'Erreur lors de l\'envoi de l\'invitation';
     }
   },
 
   /**
-   * Send an invitation to a client to join the epicerie by ID (deprecated, use sendClientInvitationByEmail)
-   * @param epicerieId ID of the epicerie
-   * @param clientId ID of the client to invite
-   * @returns Created invitation
+   * Send an invitation to a client by account ID (résultat de recherche).
+   * Le backend re-valide la cible (compte CLIENT réel) — serveur autoritaire.
+   * Gère le 409 CLIENT_DUPLICATE comme l'invitation par email.
    */
   sendClientInvitation: async (
     epicerieId: number,
-    clientId: number
+    clientId: number,
+    confirmMerge: boolean = false
   ): Promise<ClientInvitation> => {
     try {
       const response = await api.post<ClientInvitation>(
         `/epiceries/${epicerieId}/clients/invite`,
-        { clientId }
+        { clientId, confirmMerge }
       );
       return response.data;
     } catch (error: any) {
+      throwIfClientDuplicate(error);
       console.error('[ClientManagementService] Error sending invitation:', error.message);
       throw error.response?.data?.message || 'Erreur lors de l\'envoi de l\'invitation';
     }
@@ -121,15 +120,19 @@ export const clientManagementService = {
    */
   createVirtualClient: async (
     epicerieId: number,
-    payload: { name: string; phone?: string; email?: string }
+    payload: { name: string; phone?: string; email?: string },
+    confirmMerge: boolean = false
   ): Promise<ClientEpicerieRelation> => {
     try {
       const response = await api.post<ClientEpicerieRelation>(
         `/epiceries/${epicerieId}/clients/virtual`,
-        payload
+        { ...payload, confirmMerge }
       );
       return response.data;
     } catch (error: any) {
+      // 409 CLIENT_DUPLICATE (confirmAction MERGE) : on remonte le corps structuré
+      // pour que l'écran affiche la modal de confirmation (existing vs incoming).
+      throwIfClientDuplicate(error);
       console.error('[ClientManagementService] Error creating virtual client:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la création du client virtuel';
     }
@@ -213,23 +216,18 @@ export const clientManagementService = {
   },
 
   /**
-   * Get all clients of an epicerie with pagination
-   * @param epicerieId ID of the epicerie
-   * @param page Page number (0-indexed)
-   * @param size Items per page
-   * @returns List of client relationships
+   * Get all clients of an epicerie.
+   * NB : l'endpoint n'est PAS paginé côté backend — ne pas envoyer de
+   * page/size trompeurs (ils étaient ignorés).
    */
   getEpicerieClients: async (
-    epicerieId: number,
-    page: number = 0,
-    size: number = 20
+    epicerieId: number
   ): Promise<ClientEpicerieRelation[]> => {
     try {
-      const response = await api.get<any>(
-        `/epiceries/${epicerieId}/clients`,
-        { params: { page, size } }
+      const response = await api.get<ClientEpicerieRelation[]>(
+        `/epiceries/${epicerieId}/clients`
       );
-      return response.data.content || response.data || [];
+      return response.data || [];
     } catch (error: any) {
       console.error('[ClientManagementService] Error getting clients:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération des clients';
@@ -312,9 +310,55 @@ export const clientManagementService = {
     try {
       await api.delete(`/epiceries/${epicerieId}/clients/${clientId}`);
     } catch (error: any) {
+      // 409 = compte non soldé : on remonte l'éligibilité structurée au caller
+      // pour qu'il propose la régularisation (remboursement / règlement dette).
+      if (error?.response?.status === 409 && error.response?.data) {
+        const e: any = new Error('ACCOUNT_NOT_SETTLED');
+        e.eligibility = error.response.data as DeletionEligibility;
+        throw e;
+      }
       console.error('[ClientManagementService] Error removing client:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la suppression du client';
     }
+  },
+
+  /** Pré-vérifie si le client peut être retiré (sinon, actions requises). */
+  getDeletionEligibility: async (
+    epicerieId: number,
+    clientId: number
+  ): Promise<DeletionEligibility> => {
+    const res = await api.get(
+      `/epiceries/${epicerieId}/clients/${clientId}/deletion-eligibility`
+    );
+    return res.data;
+  },
+
+  /** Montant d'avance encore remboursable pour ce client. */
+  getRefundableAdvance: async (
+    epicerieId: number,
+    clientId: number
+  ): Promise<number> => {
+    const res = await api.get(
+      `/epiceries/${epicerieId}/clients/${clientId}/advances/refundable`
+    );
+    return res.data?.refundable ?? 0;
+  },
+
+  /** Envoie au client un rappel de règlement de sa dette (email + in-app + push). */
+  sendDebtReminder: async (epicerieId: number, clientId: number): Promise<void> => {
+    await api.post(`/epiceries/${epicerieId}/clients/${clientId}/debt-reminder`, {});
+  },
+
+  /** Rembourse une avance au client (écrit une ligne REFUND au carnet). */
+  refundAdvance: async (
+    epicerieId: number,
+    clientId: number,
+    payload: { amount: number; paymentMethod?: string; reference?: string; notes?: string }
+  ): Promise<void> => {
+    await api.post(
+      `/epiceries/${epicerieId}/clients/${clientId}/advances/refund`,
+      payload
+    );
   },
 
   /**
@@ -387,6 +431,31 @@ export const clientManagementService = {
   },
 
   /**
+   * Get the ARCHIVED (closed) clients of an epicerie, with their account
+   * information. Même forme que {@link getClientsWithAccounts} (status='ARCHIVED').
+   *
+   * <p>Chargé à la demande depuis l'onglet « Archivés » de la liste clients :
+   * ces relations sont clôturées et consultables en LECTURE SEULE (aucune
+   * action de gestion possible).</p>
+   *
+   * @param epicerieId ID of the epicerie
+   * @returns List of archived clients with their account info
+   */
+  getArchivedClients: async (
+    epicerieId: number
+  ): Promise<(ClientEpicerieRelation & ClientAccount)[]> => {
+    try {
+      const response = await api.get<(ClientEpicerieRelation & ClientAccount)[]>(
+        `/epiceries/${epicerieId}/clients/archived`
+      );
+      return response.data || [];
+    } catch (error: any) {
+      console.error('[ClientManagementService] Error getting archived clients:', error.message);
+      throw error.response?.data?.message || 'Erreur lors de la récupération des clients archivés';
+    }
+  },
+
+  /**
    * Search clients by name or email for an epicerie
    * @param epicerieId ID of the epicerie
    * @param searchTerm Search term
@@ -399,7 +468,9 @@ export const clientManagementService = {
     try {
       const response = await api.get<ClientEpicerieRelation[]>(
         `/epiceries/${epicerieId}/clients/search`,
-        { params: { q: searchTerm } }
+        // Le backend attend `query` (@RequestParam String query) — `q` était
+        // silencieusement ignoré et la recherche serveur ne fonctionnait pas.
+        { params: { query: searchTerm } }
       );
       return response.data || [];
     } catch (error: any) {
@@ -437,20 +508,18 @@ export const clientManagementService = {
     try {
       // Get current user
       const currentUser = await authService.getCurrentUser();
-      console.log('[getCreditInfo] Current user:', currentUser);
       if (!currentUser || !currentUser.userId) {
         throw new Error('User not authenticated');
       }
 
       // Get client relationships to check if credit is allowed
       const relationships = await clientManagementService.getClientRelationships(currentUser.userId);
-      console.log('[getCreditInfo] All relationships count:', relationships.length);
 
       const relationship = relationships.find(r => r.epicerieId === epicerieId);
-      console.log('[getCreditInfo] Found relationship for epicerie', epicerieId, ':', relationship);
 
-      if (!relationship || !relationship.allowCredit) {
-        console.log('[getCreditInfo] Credit not allowed. Relationship:', relationship);
+      // Sans relation du tout → impossible d'utiliser le compte (le backend
+      // renverrait NOT_REGISTERED_CLIENT). On coupe court.
+      if (!relationship) {
         return {
           allowCredit: false,
           creditLimit: 0,
@@ -460,52 +529,46 @@ export const clientManagementService = {
         };
       }
 
-      // Use creditLimit from relationship as source of truth
-      const creditLimit = relationship.creditLimit || 0;
-      console.log('[getCreditInfo] Credit limit from relationship:', creditLimit);
+      const allowCredit = !!relationship.allowCredit;
 
-      // Try to get client account for balanceDue and totalAdvances
+      // ALIGNÉ SUR LE BACKEND : le plafond n'est pris en compte que si le crédit
+      // est EXPLICITEMENT accordé (allowCredit + plafond saisi). Sinon plafond=0
+      // → le client ne peut dépenser que ses AVANCES (dépôts + cashback), jamais
+      // emprunter. On calcule donc toujours le disponible, même sans crédit.
+      const grantedLimit = allowCredit && relationship.creditLimit
+        ? relationship.creditLimit
+        : 0;
+
+      // Solde du compte (balanceDue net + avances) via l'endpoint self-service
+      // `/clients/me/epiceries/{id}/account` (pas de permission épicier requise).
       let balanceDue = 0;
       let totalAdvances = 0;
-
       try {
-        // ⚠ Utilise l'endpoint self-service `/clients/me/epiceries/{id}/account`
-        // qui ne nécessite pas la permission épicier CLIENT_VIEW. L'ancien
-        // appel à getClientAccount(epicerieId, clientId) renvoyait 403
-        // ("Consultation des clients non autorisée") pour les rôles CLIENT.
         const account = await clientManagementService.getMyClientAccount(epicerieId);
-        console.log('[getCreditInfo] Client account loaded:', account);
-
-        // Use account values if available, otherwise use defaults
         balanceDue = account.balanceDue || 0;
         totalAdvances = account.totalAdvances || 0;
       } catch (accountError: any) {
         console.warn('[getCreditInfo] Could not get client account, using defaults:', accountError?.message || accountError);
-        // Continue with default values (balanceDue = 0, totalAdvances = 0)
       }
 
-      // NOTE: account.balanceDue from API = totalDebt - totalAdvances (NET balance)
-      // We need rawDebt = raw unpaid invoices = balanceDue + totalAdvances
+      // account.balanceDue = totalDebt - totalAdvances (NET) → rawDebt = totalDebt.
       const rawDebt = balanceDue + totalAdvances;
 
-      // availableCredit = max(creditLimit, totalAdvances) - rawDebt
-      // - If advance > creditLimit : effective ceiling = totalAdvances
-      // - If advance <= creditLimit : effective ceiling = creditLimit
-      const effectiveLimit = Math.max(creditLimit, totalAdvances);
-      const availableCredit = effectiveLimit - rawDebt;
-      console.log('[getCreditInfo] rawDebt:', rawDebt, '| effectiveLimit:', effectiveLimit, '| availableCredit:', availableCredit);
+      // availableCredit = max(plafond accordé, avances) - dette brute.
+      // Cashback-only (allowCredit=false) : plafond=0 → dispo = avances - dette.
+      const effectiveLimit = Math.max(grantedLimit, totalAdvances);
+      const availableCredit = Math.max(0, effectiveLimit - rawDebt);
 
       return {
-        allowCredit: true,
-        creditLimit: creditLimit,
-        balanceDue: balanceDue,
-        totalAdvances: totalAdvances,
-        availableCredit: Math.max(0, availableCredit), // Ensure non-negative
+        allowCredit,
+        creditLimit: grantedLimit,
+        balanceDue,
+        totalAdvances,
+        availableCredit,
       };
     } catch (error: any) {
-      console.error('[ClientManagementService] Error getting credit info:', error);
-      console.error('[ClientManagementService] Error message:', error.message);
-      console.error('[ClientManagementService] Error response:', error.response?.data);
+      // Message seul — jamais le corps de la réponse (données financières).
+      console.error('[ClientManagementService] Error getting credit info:', error.message);
       throw error.response?.data?.message || 'Erreur lors de la récupération des informations de crédit';
     }
   },
@@ -519,11 +582,8 @@ export const clientManagementService = {
   canAffordOrder: async (epicerieId: number, orderAmount: number): Promise<boolean> => {
     try {
       const creditInfo = await clientManagementService.getCreditInfo(epicerieId);
-
-      if (!creditInfo.allowCredit) {
-        return false;
-      }
-
+      // On se base sur le disponible réel (avances/cashback inclus), pas sur
+      // allowCredit : un client peut payer avec son propre solde sans crédit accordé.
       return creditInfo.availableCredit >= orderAmount;
     } catch (error: any) {
       console.error('[ClientManagementService] Error checking credit affordability:', error.message);

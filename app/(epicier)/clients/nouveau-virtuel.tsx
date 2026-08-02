@@ -31,7 +31,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { STORAGE_KEYS } from '../../../src/constants/config';
 import { clientManagementService } from '../../../src/services/clientManagementService';
-import { ClientEpicerieRelation } from '../../../src/type';
+import { ClientDuplicateResponse, ClientEpicerieRelation } from '../../../src/type';
+import { ClientDuplicateModal } from '../../../src/components/epicier/ClientDuplicateModal';
 
 const PRIMARY = Colors.primary;
 const ACCENT = '#FF9800'; // virtual / carnet
@@ -56,6 +57,9 @@ export default function NouveauClientVirtuelScreen() {
   const [email, setEmail] = useState(params.email ?? '');
   const [saving, setSaving] = useState(false);
   const [focused, setFocused] = useState<'name' | 'phone' | 'email' | null>(null);
+  // Conflit 409 CLIENT_DUPLICATE (confirmAction MERGE) — modal de confirmation.
+  const [duplicate, setDuplicate] = useState<ClientDuplicateResponse | null>(null);
+  const [confirmingMerge, setConfirmingMerge] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.USER).then(raw => {
@@ -82,6 +86,25 @@ export default function NouveauClientVirtuelScreen() {
     .map(s => s[0]?.toUpperCase() ?? '')
     .join('') || '?';
 
+  // Feedback de succès de création (partagé entre création directe et fusion 409).
+  const onCreateSuccess = (relation: ClientEpicerieRelation) => {
+    Alert.alert(
+      'Client créé',
+      `${relation.clientNom} est maintenant dans votre carnet.`,
+      [
+        {
+          text: 'Voir le carnet',
+          onPress: () =>
+            router.replace({
+              pathname: '/(epicier)/carnet-client',
+              params: { id: String(relation.clientId) },
+            }),
+        },
+        { text: 'Retour', onPress: () => router.back(), style: 'cancel' },
+      ]
+    );
+  };
+
   const handleSubmit = async () => {
     if (!isFormValid || !epicerieId) return;
 
@@ -93,9 +116,8 @@ export default function NouveauClientVirtuelScreen() {
         email: trimmedEmail || undefined,
       };
 
-      let relation: ClientEpicerieRelation;
       if (isEditMode && editingClientId !== null) {
-        relation = await clientManagementService.updateVirtualClient(
+        const relation = await clientManagementService.updateVirtualClient(
           epicerieId,
           editingClientId,
           payload
@@ -104,25 +126,15 @@ export default function NouveauClientVirtuelScreen() {
           { text: 'OK', onPress: () => router.back() },
         ]);
       } else {
-        relation = await clientManagementService.createVirtualClient(epicerieId, payload);
-        Alert.alert(
-          'Client créé',
-          `${relation.clientNom} est maintenant dans votre carnet.`,
-          [
-            {
-              text: 'Voir le carnet',
-              onPress: () =>
-                router.replace({
-                  pathname: '/(epicier)/carnet-client',
-                  params: { id: String(relation.clientId) },
-                }),
-            },
-            { text: 'Retour', onPress: () => router.back(), style: 'cancel' },
-          ]
-        );
+        const relation = await clientManagementService.createVirtualClient(epicerieId, payload);
+        onCreateSuccess(relation);
       }
     } catch (error: any) {
-      if (!error?.__subscriptionGateHandled) {
+      // 409 CLIENT_DUPLICATE → on ouvre la modal de confirmation au lieu de
+      // l'erreur générique. Le serveur renvoie existing vs incoming + motif.
+      if (error?.clientDuplicate) {
+        setDuplicate(error.clientDuplicate as ClientDuplicateResponse);
+      } else if (!error?.__subscriptionGateHandled) {
         Alert.alert(
           'Erreur',
           error?.response?.data?.message
@@ -135,6 +147,35 @@ export default function NouveauClientVirtuelScreen() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Confirmation de la fusion : rejoue POST /virtual avec confirmMerge:true.
+  const handleConfirmMerge = async () => {
+    if (!epicerieId) return;
+    setConfirmingMerge(true);
+    try {
+      const relation = await clientManagementService.createVirtualClient(
+        epicerieId,
+        {
+          name: trimmedName,
+          phone: trimmedPhone || undefined,
+          email: trimmedEmail || undefined,
+        },
+        true
+      );
+      setDuplicate(null);
+      onCreateSuccess(relation);
+    } catch (error: any) {
+      if (!error?.__subscriptionGateHandled) {
+        Alert.alert(
+          'Erreur',
+          error?.response?.data?.message
+            ?? (typeof error === 'string' ? error : 'Impossible de rattacher le client')
+        );
+      }
+    } finally {
+      setConfirmingMerge(false);
     }
   };
 
@@ -310,6 +351,15 @@ export default function NouveauClientVirtuelScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ─── Conflit de doublon client (409 CLIENT_DUPLICATE) ─── */}
+      <ClientDuplicateModal
+        visible={duplicate !== null}
+        data={duplicate}
+        confirming={confirmingMerge}
+        onCancel={() => setDuplicate(null)}
+        onConfirm={handleConfirmMerge}
+      />
     </SafeAreaView>
   );
 }

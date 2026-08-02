@@ -12,7 +12,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -23,8 +22,10 @@ import { HomeHeader } from '../../src/components/client/HomeHeader';
 import { BundleOfferCarousel } from '../../src/components/client/BundleOfferCarousel';
 import { OngoingOrderCard } from '../../src/components/client/OngoingOrderCard';
 import { Skeleton, useToast } from '../../src/components/feedback';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { CategorySuggestion } from '../../src/services/categoryService';
 import { useLanguage } from '../../src/context/LanguageContext';
+import { useCurrency } from '../../src/context/CurrencyContext';
 import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
 import { productService } from '../../src/services/productService';
@@ -44,11 +45,11 @@ const EPICERIE_CARD_WIDTH = width * 0.45;
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
+  const { format } = useCurrency();
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const toast = useToast();
-  const [searchText, setSearchText] = useState('');
   const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
   const [popularEpiceries, setPopularEpiceries] = useState<Epicerie[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
@@ -57,13 +58,19 @@ export default function HomeScreen() {
   const [reordering, setReordering] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   // (userLocation supprimé — il n'alimentait que la section cards épiceries,
   //  retirée par l'audit UX sprint 4 ; la géoloc reste utilisée ci-dessous
   //  pour les promotions de proximité.)
 
   useEffect(() => {
     loadHomeData();
-  }, [language]);
+    // Chargement au mount uniquement. On NE dépend PAS de `language` : les
+    // libellés viennent de t() (re-render au changement de langue) et les
+    // données produits/épiceries ne sont pas localisées côté client, donc un
+    // refetch réseau à chaque bascule de langue serait inutile.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Charge les 4 sections en parallèle (avant: séquentiellement → temps total
@@ -73,6 +80,7 @@ export default function HomeScreen() {
    */
   const loadHomeData = async () => {
     try {
+      setLoadFailed(false);
       const trendingPromise = productService.getTrendingProducts(6)
         .then(p => p || [])
         .catch(() => [] as Product[]);
@@ -91,6 +99,15 @@ export default function HomeScreen() {
 
       const promotionsPromise = (async () => {
         try {
+          // Vérifier la permission AVANT getCurrentPositionAsync (comme les
+          // écrans epiceries/search) : sinon getCurrentPositionAsync déclenche
+          // un prompt de permission au démarrage de la home, non sollicité.
+          // Sans permission accordée → on retombe sur les promos des épiceries
+          // favorites plutôt que de demander l'accès.
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status !== 'granted') {
+            return (await promotionService.getFavoriteEpiceriesPromotions()) || [];
+          }
           const location = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
           });
@@ -117,10 +134,20 @@ export default function HomeScreen() {
       setLastOrder(last);
     } catch (error) {
       console.error('Error loading home data:', error);
-      toast.error(t('common.error'), 'Impossible de charger les données');
+      setLoadFailed(true);
+      toast.error(t('common.error'), t('client.home.loadError'));
     } finally {
       setInitialLoading(false);
     }
+  };
+
+  /**
+   * Retry après un échec de chargement global : on réaffiche le skeleton puis
+   * on relance loadHomeData (qui remet loadFailed à false en cas de succès).
+   */
+  const handleRetry = () => {
+    setInitialLoading(true);
+    loadHomeData();
   };
 
   const handleRefresh = async () => {
@@ -162,8 +189,8 @@ export default function HomeScreen() {
         return;
       }
       const detail = result.skipped > 0
-        ? `${result.added} article(s) • ${result.skipped} indispo`
-        : `${result.added} article(s)`;
+        ? t('client.home.reorderDetailSkipped', { added: result.added, skipped: result.skipped })
+        : t('client.home.reorderDetail', { added: result.added });
       toast.success(t('orders.reorderSuccess') || 'Panier rempli', detail);
       router.push('/(client)/cart');
     } catch (error) {
@@ -191,13 +218,13 @@ export default function HomeScreen() {
     return join(t('common.monthsAgoPrefix'), m, m === 1 ? t('common.month') : t('common.months'));
   };
 
+  /**
+   * Ouvre l'écran de recherche dédié (produits + épiceries). La saisie se fait
+   * sur l'écran cible (focus auto) — la barre de la home devient un vrai point
+   * d'entrée de recherche, plus un champ inerte qui ne filtrait rien sur place.
+   */
   const handleSearch = () => {
-    if (searchText.trim()) {
-      router.push({
-        pathname: '/(client)/epiceries',
-        params: { search: searchText },
-      });
-    }
+    router.push('/(client)/search');
   };
 
   const handleCategoryTap = (category: CategorySuggestion) => {
@@ -257,7 +284,7 @@ export default function HomeScreen() {
         disabled={reordering}
         activeOpacity={0.85}
         accessibilityRole="button"
-        accessibilityLabel={`Recommander chez ${lastOrder.epicerieNom}`}
+        accessibilityLabel={t('client.home.reorderA11y', { store: lastOrder.epicerieNom })}
       >
         <View style={styles.reorderIconBox}>
           <Ionicons name="repeat" size={22} color={theme.colors.onBrand} />
@@ -286,29 +313,29 @@ export default function HomeScreen() {
   // liste `promotions` que FlashDealsSection — deux affichages des mêmes
   // promos sur la même page. FlashDeals (compte à rebours) est conservée.
 
+  /**
+   * Barre de recherche de la home : désormais un VRAI point d'entrée. Un tap
+   * ouvre l'écran de recherche dédié (produits + épiceries) au lieu de filtrer
+   * en place. On rend un bouton plutôt qu'un champ pour que toute la surface
+   * soit cliquable et que la saisie se fasse sur l'écran cible (focus auto).
+   */
   const renderSearchBar = () => (
     <View style={styles.searchContainer}>
-      <View style={styles.searchInputWrapper}>
-        <Ionicons name="search" size={18} color={theme.colors.textMuted} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder={t('client.home.searchPlaceholder')}
-          placeholderTextColor={theme.colors.textMuted}
-          value={searchText}
-          onChangeText={setSearchText}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
-        />
-        {searchText.length > 0 && (
-          <TouchableOpacity
-            style={styles.clearButton}
-            onPress={() => setSearchText('')}
-            hitSlop={8}
-          >
-            <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
-          </TouchableOpacity>
-        )}
-      </View>
+      <TouchableOpacity
+        style={styles.searchBar}
+        onPress={handleSearch}
+        activeOpacity={0.85}
+        accessibilityRole="search"
+        accessibilityLabel={t('client.home.searchPlaceholder')}
+      >
+        <View style={styles.searchIconCircle}>
+          <Ionicons name="search" size={18} color={theme.colors.onBrand} />
+        </View>
+        <Text style={styles.searchPlaceholder} numberOfLines={1}>
+          {t('client.home.searchPlaceholder')}
+        </Text>
+        <Ionicons name="options-outline" size={18} color={theme.colors.textMuted} />
+      </TouchableOpacity>
     </View>
   );
 
@@ -339,7 +366,7 @@ export default function HomeScreen() {
               onPress={() => handleProductTap(product)}
               activeOpacity={0.85}
               accessibilityRole="button"
-              accessibilityLabel={`${product.nom}${product.epicerieNom ? `, ${product.epicerieNom}` : ''}${product.prix ? `, ${product.prix.toFixed(2)} DH` : ''}`}
+              accessibilityLabel={`${product.nom}${product.epicerieNom ? `, ${product.epicerieNom}` : ''}${product.prix ? `, ${format(product.prix)}` : ''}`}
             >
               {product.photoUrl ? (
                 <ExpoImage
@@ -361,7 +388,7 @@ export default function HomeScreen() {
                   {product.epicerieNom}
                 </Text>
                 <Text style={styles.productPrice}>
-                  {product.prix ? `${product.prix.toFixed(2)} DH` : 'N/A'}
+                  {product.prix ? format(product.prix) : 'N/A'}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -407,6 +434,23 @@ export default function HomeScreen() {
     );
   }
 
+  // Échec de chargement global (rare : chaque section est déjà tolérante aux
+  // pannes individuelles). On garde l'entête + la recherche et on propose un
+  // Réessayer plutôt qu'une home vide et muette.
+  if (loadFailed) {
+    return (
+      <View style={styles.container}>
+        <HomeHeader />
+        {renderSearchBar()}
+        <ScreenState
+          variant="error"
+          onRetry={handleRetry}
+          message={t('client.home.loadError')}
+        />
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.container}
@@ -419,13 +463,25 @@ export default function HomeScreen() {
       }
       showsVerticalScrollIndicator={false}
     >
+      {/* ── 1. Identité + recherche (zone d'action principale) ───────────── */}
       <HomeHeader />
-      <OngoingOrderCard />
       {renderSearchBar()}
+
+      {/* ── 2. Actif & personnel : ce qui demande une action maintenant ──── */}
+      <OngoingOrderCard />
+      {renderQuickReorder()}
+
+      {/* ── 3. Navigation : explorer le catalogue et les boutiques ───────── */}
+      <HomeCategories
+        onPress={handleCategoryTap}
+        onSeeMore={handleSeeMoreCategories}
+      />
       <EpicerieStories
         epiceries={popularEpiceries}
         onPress={handleEpicerieTap}
       />
+
+      {/* ── 4. Offres : promotions à durée limitée + packs ───────────────── */}
       <FlashDealsSection
         promotions={promotions}
         onPress={(p) => router.push({
@@ -436,11 +492,8 @@ export default function HomeScreen() {
       {/* Bundles featured cross-epicerie. Auto-masque si aucun epicier n'a
           encore flag un bundle comme featured. */}
       <BundleOfferCarousel mode="featured" limit={8} accent={theme.colors.brand} />
-      {renderQuickReorder()}
-      <HomeCategories
-        onPress={handleCategoryTap}
-        onSeeMore={handleSeeMoreCategories}
-      />
+
+      {/* ── 5. Recommandations personnalisées ────────────────────────────── */}
       {renderForYou()}
 
       {forYouProducts.length === 0 &&
@@ -526,32 +579,35 @@ const makeStyles = (theme: Theme) => StyleSheet.create({
   },
   searchContainer: {
     paddingHorizontal: theme.spacing.lg,
-    paddingTop: theme.spacing.sm,
-    paddingBottom: theme.spacing.xs,
+    paddingTop: theme.spacing.xs,
+    paddingBottom: theme.spacing.sm,
   },
-  searchInputWrapper: {
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.pill,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    paddingVertical: 7,
+    paddingStart: 7,
+    paddingEnd: theme.spacing.lg,
+    borderWidth: 1.5,
+    borderColor: theme.colors.brandSubtle,
     ...theme.shadows.sm,
   },
-  searchIcon: {
-    marginEnd: theme.spacing.sm,
+  searchIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  searchInput: {
+  searchPlaceholder: {
     flex: 1,
-    paddingVertical: theme.spacing.md,
     fontSize: 14,
-    color: theme.colors.textPrimary,
-  },
-  clearButton: {
-    padding: 4,
-    marginStart: theme.spacing.xs,
+    fontWeight: '500',
+    color: theme.colors.textMuted,
   },
   section: {
     paddingHorizontal: theme.spacing.lg,

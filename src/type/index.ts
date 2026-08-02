@@ -306,6 +306,10 @@ export interface Epicerie {
   hasLivreur?: boolean;
   averageRating?: number;
   totalRatings?: number;
+  /** Heures avant fermeture (renvoyé par la recherche proximité). Ex: 0.5 = ~30 min. */
+  hoursUntilClosing?: number;
+  /** Distance en km calculée côté backend pour la recherche par proximité. */
+  distanceKm?: number;
   // Adresse structurée
   country?: Country;
   city?: City;
@@ -340,6 +344,8 @@ export interface Epicerie {
   themePreset?: string;
   /** Slogan/tagline court (≤ 255 chars) */
   brandStatement?: string;
+  /** Nom personnalisé de la carte de fidélité affiché côté client (≤ 60 chars) */
+  cardName?: string;
 }
 
 // Product Units Types
@@ -475,6 +481,15 @@ export interface CartItem {
   pricePerUnit: number;
   totalPrice: number;
   photoUrl?: string;
+  /**
+   * True si l'article a ete ajoute a un prix remise par une promotion produit
+   * (source: {@code EffectivePrice.hasDiscount} de effectivePriceForProduct/Unit,
+   * fige au moment de l'ajout). Sert a calculer {@code cartHasPromoItems} pour la
+   * preview du code promo (/promo-codes/validate) sans avoir a re-derive la remise
+   * cote panier — le CartItem ne conserve que le prix deja remise, pas le prix
+   * catalogue. Absent = non remise (compat panier persiste avant ce champ).
+   */
+  onPromo?: boolean;
 }
 
 export interface OrderItem {
@@ -580,6 +595,51 @@ export interface Order {
   deliveryFailureReason?: string;
   /** V116 — Nombre de tentatives de livraison échouées. */
   deliveryAttempts?: number;
+  /** WhatsApp — true si la notification WhatsApp au client a échoué. */
+  whatsappNotificationFailed?: boolean;
+  /** WhatsApp — dernier statut de notification brut renvoyé par le fournisseur. */
+  lastNotificationStatus?: string;
+  /** WhatsApp — type de statut de commande dont la notification a échoué (ex. ACCEPTED). */
+  notificationStatusType?: string;
+  /** WhatsApp — code d'erreur du fournisseur (ex. '131047' = hors fenêtre 24 h). */
+  notificationErrorCode?: string;
+  /** WhatsApp — titre lisible de l'erreur de notification. */
+  notificationErrorTitle?: string;
+  /** WhatsApp — détail lisible de l'erreur de notification. */
+  notificationErrorDetail?: string;
+}
+
+/** WhatsApp — nature d'un message sortant journalisé. */
+export type WhatsAppMessagePurpose = 'ORDER_STATUS' | 'CONVERSATION_REPLY' | 'TEMPLATE';
+
+/** WhatsApp — état de livraison d'un message sortant (webhooks Meta). */
+export type WhatsAppDeliveryStatus = 'UNKNOWN' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+
+/**
+ * WhatsApp — entrée du journal des envois sortants d'une commande.
+ * Miroir de GET /orders/{orderId}/whatsapp-log (une entrée par message).
+ */
+export interface WhatsAppOutboundLog {
+  createdAt: string;
+  updatedAt: string;
+  /** Nature du message : notification de statut, réponse conversationnelle ou modèle. */
+  purpose: WhatsAppMessagePurpose;
+  /** Statut de commande notifié (ex. 'ACCEPTED') — présent surtout pour ORDER_STATUS, nullable. */
+  statusType: string | null;
+  /** État de livraison du message (webhooks Meta). */
+  deliveryStatus: WhatsAppDeliveryStatus;
+  /** Code d'erreur fournisseur (ex. '131047'), présent si FAILED. */
+  errorCode: string | null;
+  /** Titre lisible de l'erreur. */
+  errorTitle: string | null;
+  /** Détail lisible de l'erreur. */
+  errorDetail: string | null;
+  /** Explication FR prête à afficher (non-null si FAILED). */
+  reasonExplanation: string | null;
+  /** Téléphone destinataire masqué (ex. '••••1234'). */
+  recipientPhone: string | null;
+  /** Identifiant WhatsApp du message. */
+  waMessageId: string | null;
 }
 
 /** V115 — Cycle de vie d'un remboursement de commande. */
@@ -615,6 +675,8 @@ export interface OrderListItem {
   telephoneLivraison?: string;
   livreurNom?: string;
   source?: OrderSource;
+  /** WhatsApp — true si la notification WhatsApp au client a échoué (badge d'alerte liste). */
+  whatsappNotificationFailed?: boolean;
 }
 
 /** Page Spring Data classique (subset utile au front). */
@@ -788,6 +850,37 @@ export interface ClientEpicerieRelation {
   clientEmail: string;
   allowCredit: boolean;
   creditLimit: number;
+}
+
+/**
+ * Corps de la réponse 409 CLIENT_DUPLICATE renvoyée par le backend lors de la
+ * création d'un client carnet (confirmAction MERGE) ou de l'invitation d'un
+ * compte (confirmAction LINK). Miroir exact du JSON `err.response.data`.
+ *
+ * Le serveur reste autoritaire : pour confirmer, on rejoue le MÊME endpoint
+ * avec `confirmMerge: true` (aucun id n'est renvoyé au serveur).
+ */
+export interface ClientDuplicateResponse {
+  code: 'CLIENT_DUPLICATE';
+  matchReason: 'EMAIL' | 'PHONE' | 'EMAIL_PHONE';
+  message: string;
+  confirmAction: 'MERGE' | 'LINK';
+  existing: {
+    userId: number;
+    relationId?: number | null;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    hasAccount: boolean;
+    status?: string | null;
+    allowCredit?: boolean | null;
+    creditBalance?: number | null;
+  };
+  incoming: {
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+  };
 }
 
 export interface ClientAccount {
@@ -1006,6 +1099,40 @@ export interface BarcodeProductResult {
   units?: ProductUnit[];
   /** ID de l'unité correspondant au code-barre scanné (null si non lié) */
   matchedUnitId?: number;
+}
+
+// ============================================
+// CATALOGUE SEED — import « Ajouter depuis le catalogue »
+// ============================================
+
+/**
+ * Item du catalogue seed exposé par GET /products/catalogue.
+ * L'épicerie est dérivée du token (aucun param). `alreadyImported` indique
+ * qu'un produit issu de ce seed existe déjà dans le catalogue de l'épicerie →
+ * l'UI le grise et empêche sa (re)sélection. Miroir du CatalogueItemDTO backend.
+ */
+export interface CatalogueItem {
+  seedId: string;
+  nom: string;
+  nomAr: string;
+  description?: string;
+  categoryName: string;
+  categoryId: number | null;
+  prixSuggere: number;
+  stockSuggere: number;
+  preSelected: boolean;
+  brand?: string;
+  brandId?: number | null;
+  variants?: string[];
+  /** true = déjà présent dans le catalogue de l'épicerie (grisé, non sélectionnable). */
+  alreadyImported: boolean;
+}
+
+/** Résultat de POST /products/catalogue/import (dédup côté backend). */
+export interface CatalogueImportResult {
+  importedCount: number;
+  skippedCount: number;
+  createdProductIds: number[];
 }
 
 // ============================================

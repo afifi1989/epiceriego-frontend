@@ -51,6 +51,9 @@ import { EpicerieIdentityBar } from "../../../src/components/client/EpicerieIden
 import { BundleOfferCarousel } from "../../../src/components/client/BundleOfferCarousel";
 import { EpicerieSearchReveal } from "../../../src/components/client/EpicerieSearchReveal";
 import { EpicerieFiltersSheet } from "../../../src/components/client/EpicerieFiltersSheet";
+import { EpicerieCategoryChips } from "../../../src/components/client/EpicerieCategoryChips";
+import { HelpSpeedDial, SpeedDialAction } from "../../../src/components/client/HelpSpeedDial";
+import { favoritesService } from "../../../src/services/favoritesService";
 import { useLanguage } from "../../../src/context/LanguageContext";
 import { cartService, groupCartByEpicerie } from "../../../src/services/cartService";
 import {
@@ -77,6 +80,7 @@ import {
   effectivePriceForProduct,
   effectivePriceForUnit,
 } from "../../../src/features/promotions/utils";
+import { useNow } from "../../../src/features/promotions/hooks";
 import { EpicerieThemeProvider } from "../../../src/theme/epicerieBranding";
 import { deriveBranding } from "../../../src/theme/epicerieBranding/deriveBranding";
 
@@ -188,6 +192,18 @@ export default function EpicerieDetailScreen() {
    *  on la reset à 0 quand l'utilisateur change de tab pour éviter que le
    *  mini-header reste visible alors qu'on vient d'arriver en haut d'un autre tab. */
   const scrollY = useRef(new Animated.Value(0)).current;
+
+  /** Ref sur la FlatList Produits — sert au scroll-to-section (ancrage rayons). */
+  const productListRef = useRef<any>(null);
+  /** Nœuds natifs des sections (mode rayons), indexés par categoryId, pour
+   *  measureLayout → scroll animé vers le rayon choisi depuis les chips. */
+  const sectionNodes = useRef<Map<number, View>>(new Map());
+  /** Rayon actif surligné dans la barre de chips (mode sections). */
+  const [activeChipCatId, setActiveChipCatId] = useState<number | null>(null);
+
+  /** Favori de CETTE épicerie — câblé sur le cœur du hero (comme la découverte). */
+  const [isFavorite, setIsFavorite] = useState(false);
+
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
   const [loyaltyBalance, setLoyaltyBalance] = useState<LoyaltyBalance | null>(null);
@@ -200,6 +216,10 @@ export default function EpicerieDetailScreen() {
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewsLoaded, setReviewsLoaded] = useState(false);
   const [activePromos, setActivePromos] = useState<Promotion[]>([]);
+  // M-g : tick léger (30 s) qui force un re-render pour que bestPromoForProduct/
+  // bestPromoForCategory revérifient la fenêtre des promos → une promo qui expire
+  // pendant que la liste est ouverte cesse d'être affichée/remisée sans nouveau fetch.
+  useNow(30_000);
   /** Historique de recherche local par épicerie (8 dernières, MRU). */
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
@@ -445,8 +465,31 @@ export default function EpicerieDetailScreen() {
       loadProducts(0, "", undefined, false);
       // Hydrate l'historique de recherche pour cette épicerie
       searchHistoryService.list(getEpicerieId()).then(setSearchHistory).catch(() => {});
+      // Statut favori (câblé sur le cœur du hero)
+      favoritesService.isFavorite(getEpicerieId()).then(setIsFavorite).catch(() => {});
+      // Reset du rayon actif au changement d'épicerie
+      setActiveChipCatId(null);
     }
   }, [id]);
+
+  /**
+   * Toggle favori optimiste (même pattern que la page découverte) : on inverse
+   * l'état localement + haptic + pop du cœur (géré dans EpicerieHero), puis on
+   * confirme côté service. Rollback si l'appel échoue.
+   */
+  const handleToggleFavorite = useCallback(async () => {
+    const eid = getEpicerieId();
+    const wasFavorite = isFavorite;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setIsFavorite(!wasFavorite);
+    try {
+      const ok = await favoritesService.toggleFavorite(eid, wasFavorite);
+      if (!ok) throw new Error("toggleFavorite returned false");
+    } catch {
+      setIsFavorite(wasFavorite);
+      toast.error(t("common.error"), t("epicerieDetail.favoriteError"));
+    }
+  }, [getEpicerieId, isFavorite, toast, t]);
 
   // Au focus : recharge le panier ET le catalogue épicier (produits, catégories,
   // tags, promos). Le client doit voir en temps réel les ajouts/modifs faits par
@@ -514,6 +557,12 @@ export default function EpicerieDetailScreen() {
     }
   };
 
+  /** Distance compacte : "800 m", "1.2 km", "12 km". */
+  const formatDistanceKm = (km: number): string => {
+    if (km < 1) return `${Math.round(km * 1000)} m`;
+    return km < 10 ? `${km.toFixed(1)} km` : `${Math.round(km)} km`;
+  };
+
   /** "08:00" → "8h", "08:30" → "8h30". Minimaliste, lisible sur petite pastille. */
   const formatTimeShort = (hhmm?: string): string => {
     if (!hhmm) return '';
@@ -543,25 +592,92 @@ export default function EpicerieDetailScreen() {
   const buildMetaPills = useCallback((e: Epicerie): MetaPill[] => {
     const pills: MetaPill[] = [];
 
-    // 1. Statut ouvert / fermé — vert ou rouge pour signal immédiat.
+    // Libellés statut sans l'emoji préfixe (on porte le signal via le point
+    // coloré désormais, plus lisible/homogène qu'un émoji dans le texte). On
+    // retire explicitement les puces connues des traductions (pas de \p{} pour
+    // rester compatible avec les anciens moteurs Hermes).
+    const stripDot = (s: string) => s.replace(/^(🟢|🔴|⭐|🕐)\s*/u, '').trim();
+
+    // 1. Statut ouvert / fermé — point vert / rouge pour signal immédiat.
     if (e.isOpen != null) {
       pills.push(e.isOpen
-        ? { label: t("epicerieDetail.statusOpen"),   bgColor: '#DCFCE7', textColor: '#166534' }
-        : { label: t("epicerieDetail.statusClosed"), bgColor: '#FEE2E2', textColor: '#991B1B' });
+        ? { label: stripDot(t("epicerieDetail.statusOpen")),   bgColor: '#DCFCE7', textColor: '#166534', dotColor: '#22c55e' }
+        : { label: stripDot(t("epicerieDetail.statusClosed")), bgColor: '#FEE2E2', textColor: '#991B1B', dotColor: '#ef4444' });
     }
 
-    // 2. Note moyenne (si au moins 1 avis).
+    // 2. Fermeture imminente — depuis hoursUntilClosing (heures). On n'affiche
+    // que si l'échéance est proche (≤ 45 min) et la boutique ouverte. Réutilise
+    // la logique/i18n de la carte de découverte (EpicerieDiscoverCard).
+    const h = e.hoursUntilClosing;
+    const minutesToClosing = (h != null && Number.isFinite(h) && h > 0) ? Math.round(h * 60) : null;
+    if (e.isOpen === true && minutesToClosing != null && minutesToClosing <= 45) {
+      pills.push({
+        label: (t("epiceries.closingSoon") || 'Ferme dans ~{{min}} min').replace('{{min}}', String(minutesToClosing)),
+        bgColor: '#FEF3C7',
+        textColor: '#B45309',
+        icon: 'time-outline',
+      });
+    }
+
+    // 3. Top noté — note ≥ 4.5 avec au moins 1 avis (signal de confiance fort).
+    const isTopRated = (e.averageRating ?? 0) >= 4.5 && (e.totalRatings ?? 0) > 0;
+    if (isTopRated) {
+      pills.push({
+        label: t("epiceries.badgeTopRated") || 'Top noté',
+        bgColor: '#FFF6E1',
+        textColor: '#B45309',
+        icon: 'ribbon',
+        iconColor: '#B45309',
+      });
+    }
+
+    // 4. Note moyenne (si au moins 1 avis) — icône étoile dorée.
     if (e.averageRating != null && e.averageRating > 0) {
       pills.push({
         label: t("epicerieDetail.pillReviews")
+          .replace('⭐ ', '')
           .replace('{{rating}}', e.averageRating.toFixed(1))
           .replace('{{count}}', String(e.totalRatings ?? 0)),
         bgColor: '#FEF3C7',
         textColor: '#92400E',
+        icon: 'star',
+        iconColor: '#F5A623',
+      });
+    } else if ((e.totalRatings ?? 0) === 0) {
+      // 4b. Nouveau — aucune note encore. Évite un vide "sans étoile".
+      pills.push({
+        label: t("epiceries.badgeNew") || 'Nouveau',
+        bgColor: '#E6F4EA',
+        textColor: '#15803d',
+        icon: 'sparkles',
+        iconColor: '#15803d',
       });
     }
 
-    // 3. Mode de livraison — formaté selon FLAT_RATE / ZONES / NONE.
+    // 5. Distance — uniquement si le backend l'a calculée (recherche proximité).
+    if (e.distanceKm != null && Number.isFinite(e.distanceKm)) {
+      pills.push({
+        label: formatDistanceKm(e.distanceKm),
+        bgColor: '#EEF2FF',
+        textColor: '#3730A3',
+        icon: 'location',
+        iconColor: '#4F46E5',
+      });
+    }
+
+    // 6. Promo magasin — meilleure réduction active connue sur cette épicerie.
+    const storePromoPct = activePromos.reduce((m, p) => Math.max(m, p.reductionPercentage || 0), 0);
+    if (storePromoPct > 0) {
+      pills.push({
+        label: `-${Math.round(storePromoPct)}%`,
+        bgColor: '#FEE2E2',
+        textColor: '#B91C1C',
+        icon: 'flame',
+        iconColor: '#DC2626',
+      });
+    }
+
+    // 7. Mode de livraison — formaté selon FLAT_RATE / ZONES / NONE.
     if (e.deliveryMode === 'FLAT_RATE' && e.flatDeliveryFee != null) {
       pills.push({
         label: t("epicerieDetail.pillDeliveryFlat")
@@ -598,7 +714,7 @@ export default function EpicerieDetailScreen() {
 
     return pills;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t]);
+  }, [t, activePromos]);
 
   // ── Mini-cart sticky : résumé du panier pour CETTE épicerie ──────────────
   // Le cart global est multi-épicerie (V96) : on filtre via groupCartByEpicerie
@@ -660,6 +776,61 @@ export default function EpicerieDetailScreen() {
     // isSearch=false → spinner principal pour un feedback visuel clair
     loadProducts(0, searchQuery, catIds, false, selectedTagIds);
   }, [flatCategories, getCategoryIdsRecursive, searchQuery, selectedTagIds, loadProducts]);
+
+  /**
+   * Ancrage rayons : scroll animé vers la section d'une catégorie (mode
+   * "sections"). measureLayout donne l'offset absolu du nœud de section dans le
+   * contenu scrollable → scrollToOffset. Fallback : si la mesure échoue (nœud
+   * pas encore monté), on filtre sur la catégorie pour afficher le rayon.
+   */
+  const scrollToCategorySection = useCallback((catId: number | null) => {
+    Haptics.selectionAsync().catch(() => {});
+    setActiveChipCatId(catId);
+    if (catId === null) {
+      productListRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+      return;
+    }
+    const node = sectionNodes.current.get(catId);
+    const scrollNode = productListRef.current?.getScrollableNode?.();
+    if (node && scrollNode && typeof node.measureLayout === "function") {
+      node.measureLayout(
+        scrollNode,
+        (_x: number, y: number) => {
+          productListRef.current?.scrollToOffset?.({ offset: Math.max(0, y - 8), animated: true });
+        },
+        () => {
+          // La section n'est pas rendue (produits non chargés) → on filtre.
+          handleCategorySelect(catId);
+        },
+      );
+    } else {
+      handleCategorySelect(catId);
+    }
+  }, [handleCategorySelect]);
+
+  /**
+   * Handler unifié des chips catégories. En mode rayons (sections) on ancre
+   * (scroll) vers la section ; dans les autres vues on filtre la liste sur la
+   * catégorie (rechargement serveur).
+   */
+  const handleCategoryChip = useCallback((catId: number | null) => {
+    if (viewMode === "sections") {
+      scrollToCategorySection(catId);
+    } else {
+      handleCategorySelect(catId);
+    }
+  }, [viewMode, scrollToCategorySection, handleCategorySelect]);
+
+  /** Catégories pour la barre de chips — icône emoji résolue via getCategoryIcon. */
+  const categoryChips = useMemo(
+    () => flatCategories.map((c) => ({ id: c.id, name: c.name, icon: getCategoryIcon(c.name) })),
+    // getCategoryIcon est stable (pas de closure d'état)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [flatCategories],
+  );
+
+  /** Id de catégorie surligné dans les chips selon le mode d'affichage. */
+  const activeChipHighlightId = viewMode === "sections" ? activeChipCatId : selectedCategoryId;
 
   /**
    * Applique en lot les choix faits dans la bottom-sheet Filtres : on lance
@@ -783,7 +954,8 @@ export default function EpicerieDetailScreen() {
       // modifie pas Product.prix — la remise n'est que runtime côté front.
       // Sans ce calcul, le panier garderait le prix d'origine.
       const promo = bestPromoForProduct(activePromos, product);
-      const effectivePrice = effectivePriceForProduct(product, promo).display;
+      const eff = effectivePriceForProduct(product, promo);
+      const effectivePrice = eff.display;
       const cartItem: CartItem = {
         itemType: "PRODUCT",
         productId: product.id,
@@ -794,6 +966,9 @@ export default function EpicerieDetailScreen() {
         unitLabel: t("products.piece") || t("products.addQuantity"),
         pricePerUnit: effectivePrice,
         totalPrice: effectivePrice,
+        // Fige si ajouté à un prix remisé par une promotion produit → alimente
+        // cartHasPromoItems pour la preview du code promo (non cumulable).
+        onPromo: eff.hasDiscount,
         photoUrl: product.photoUrl,
       };
       const updatedCart = await cartService.addToCart(cartItem);
@@ -825,9 +1000,10 @@ export default function EpicerieDetailScreen() {
       // le panier recalculerait à `quantity * unit.prix` (prix d'origine) et
       // perdrait la remise.
       const promo = bestPromoForProduct(activePromos, selectedProductForCart);
-      const effectivePerUnit = unitId != null
-        ? effectivePriceForUnit(unit, promo).display
-        : effectivePriceForProduct(selectedProductForCart, promo).display;
+      const eff = unitId != null
+        ? effectivePriceForUnit(unit, promo)
+        : effectivePriceForProduct(selectedProductForCart, promo);
+      const effectivePerUnit = eff.display;
       const cartItem: CartItem = {
         itemType: "PRODUCT",
         productId: selectedProductForCart.id,
@@ -844,6 +1020,9 @@ export default function EpicerieDetailScreen() {
         requestedQuantity: quantity * (unit.quantity ?? 1),
         pricePerUnit: effectivePerUnit,
         totalPrice,
+        // Fige si ajouté à un prix remisé par une promotion produit → alimente
+        // cartHasPromoItems pour la preview du code promo (non cumulable).
+        onPromo: eff.hasDiscount,
         photoUrl: selectedProductForCart.photoUrl,
       };
       const updatedCart = await cartService.addToCart(cartItem);
@@ -886,6 +1065,19 @@ export default function EpicerieDetailScreen() {
       try {
         for (const { product: p } of toAdd) {
           const pricePerUnit = p.matchedPrice ?? 0;
+          // C1 — `p.quantity` est en UNITÉ DE BASE (« 500 g » → 0.5) pour tout
+          // item matché. Deux destinations, deux unités :
+          //  - `requestedQuantity` (Double côté backend) attend justement cette
+          //    unité de base : on la passe telle quelle, c'est elle qui pilote
+          //    prix et stock (OrderItemRequest#requestedQuantity prime sur quantite) ;
+          //  - `quantity` alimente `quantite`, un Integer @Min(1) : 0.5 y serait
+          //    tronqué à 0 → HTTP 400 « Quantity must be at least 1 » sur toute
+          //    commande sub-unitaire. On arrondit au supérieur, exactement comme
+          //    le fait le backend WhatsApp (WhatsAppOrderCreator : (int) Math.ceil).
+          // Le ratio requestedQuantity/quantity reste exploitable par H7
+          // (computeRequestedQuantity) pour les +/- ultérieurs du panier.
+          const baseQuantity = Number.isFinite(p.quantity) ? p.quantity : 0;
+          const unitCount = Math.max(1, Math.ceil(baseQuantity));
           await cartService.addToCart({
             itemType: "PRODUCT",
             productId: p.matchedProductId!,
@@ -893,10 +1085,10 @@ export default function EpicerieDetailScreen() {
             epicerieId: getEpicerieId(),
             unitId: p.matchedProductUnitId ?? undefined,
             unitLabel: p.matchedUnitLabel || p.unit,
-            quantity: p.quantity,
-            requestedQuantity: p.quantity,
+            quantity: unitCount,
+            requestedQuantity: baseQuantity > 0 ? baseQuantity : undefined,
             pricePerUnit,
-            totalPrice: pricePerUnit * p.quantity,
+            totalPrice: pricePerUnit * unitCount,
           });
         }
         const updatedCart = await cartService.getCart();
@@ -948,15 +1140,25 @@ export default function EpicerieDetailScreen() {
 
   // ── Helpers UI ────────────────────────────────────────────────────────────
 
-  const renderStars = (rating: number) => {
+  const renderStars = (rating: number, size = 14, color = "#F5A623") => {
     // Borne la note dans [0, 5] puis décompose en pleines / demie / vides.
-    // L'ancien calcul utilisait Math.ceil pour les vides, ce qui produisait
-    // moins de 5 symboles pour toute décimale < 0.5 (ex: 4.2 → 4 étoiles).
+    // Rendu en Ionicons (star / star-half / star-outline) au lieu d'emoji :
+    // rendu net et homogène cross-plateforme, taille/couleur pilotables.
     const safe = Math.max(0, Math.min(5, rating || 0));
     const full = Math.floor(safe);
     const hasHalf = safe - full >= 0.5;
-    const empty = 5 - full - (hasHalf ? 1 : 0);
-    return "⭐".repeat(full) + (hasHalf ? "⭐" : "") + "☆".repeat(empty);
+    return (
+      <View style={{ flexDirection: "row" }}>
+        {[0, 1, 2, 3, 4].map((i) => {
+          const name = i < full
+            ? "star"
+            : i === full && hasHalf
+              ? "star-half"
+              : "star-outline";
+          return <Ionicons key={i} name={name as any} size={size} color={color} style={{ marginEnd: 1 }} />;
+        })}
+      </View>
+    );
   };
 
   /** Date d'avis lisible ("12 mars 2025"). Tolère un ISO absent/invalide. */
@@ -973,7 +1175,10 @@ export default function EpicerieDetailScreen() {
     }
   };
 
-  const getCategoryIcon = (name: string) => {
+  // Déclaration de fonction (hoistée) : appelée par le useMemo `categoryChips`
+  // défini plus haut dans le corps du composant → doit être disponible avant
+  // sa position textuelle (évite une TDZ si on utilisait const arrow).
+  function getCategoryIcon(name: string) {
     const n = name.toLowerCase().trim();
     const map: Record<string, string> = {
       "fruits et légumes": "🥬", fruits: "🍎", légumes: "🥕",
@@ -1041,7 +1246,7 @@ export default function EpicerieDetailScreen() {
         {/* Header : nom + prix */}
         <View style={styles.epicCardHeader}>
           <View style={{ flex: 1, marginEnd: 10 }}>
-            <Text style={styles.epicCardName} numberOfLines={1}>{item.nom}</Text>
+            <Text style={styles.epicCardName} numberOfLines={2}>{item.nom}</Text>
             {item.description ? (
               <Text style={styles.epicCardDesc} numberOfLines={2}>{item.description}</Text>
             ) : null}
@@ -1096,34 +1301,37 @@ export default function EpicerieDetailScreen() {
         <View style={styles.epicCardMeta}>
           <View style={[styles.epicCardMetaBadge, { backgroundColor: stockBg }]}>
             <Text style={[styles.epicCardMetaText, { color: stockColor }]}>
-              {isOos ? 'Rupture de stock' : `Stock: ${stockVal}`}
+              {isOos ? t('products.outOfStock') : t('products.stockCount', { count: stockVal })}
             </Text>
           </View>
           {item.units && item.units.length > 0 ? (
             <View style={styles.epicCardMetaBadge}>
-              <Text style={styles.epicCardMetaText}>{item.units.length} variante{item.units.length > 1 ? 's' : ''}</Text>
+              <Text style={styles.epicCardMetaText}>{t('products.variantCount', { count: item.units.length })}</Text>
             </View>
           ) : null}
         </View>
 
-        {/* Actions : détails + ajouter au panier */}
+        {/* Ajout uniformisé (Lot C) : même InlineQuantitySelector que les modes
+            grille/liste. Le bouton « détails » redondant est retiré — la carte
+            entière navigue déjà vers le détail. */}
         <View style={styles.epicCardActions}>
-          <TouchableOpacity
-            style={styles.epicCardDetailsBtn}
-            onPress={(e) => { e.stopPropagation(); goToProductDetail(item); }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.epicCardDetailsBtnText}>Voir les détails</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.epicCardCartBtn, isOos && styles.epicCardCartBtnOos]}
-            onPress={(e) => { e.stopPropagation(); if (!isOos) handleAddToCart(item); }}
-            disabled={isOos}
-            activeOpacity={0.8}
-          >
-            <Ionicons name={isOos ? "close" : "cart"} size={20} color="#fff" />
-            {!isOos && <Text style={styles.epicCardCartBtnText}>Ajouter</Text>}
-          </TouchableOpacity>
+          <Text style={styles.epicCardAddHint} numberOfLines={1}>
+            {isOos ? t('products.outOfStock') : t('products.add')}
+          </Text>
+          <View onStartShouldSetResponder={() => true}>
+            <InlineQuantitySelector
+              currentQuantity={getCartQuantityForProduct(item.id)}
+              hasVariants={!!(item.units && item.units.length > 0)}
+              maxQuantity={effectiveStock(item)}
+              disabled={isOos}
+              onIncrement={() => handleAddToCart(item)}
+              onDecrement={() => handleDecrement(item)}
+              onAddVariant={() => handleAddToCart(item)}
+              color={brand.primary}
+              textColor={brand.onPrimary}
+              size="normal"
+            />
+          </View>
         </View>
         </View>
       </TouchableOpacity>
@@ -1217,7 +1425,18 @@ export default function EpicerieDetailScreen() {
           ]}>
             {formatPrice(price.display)}
           </Text>
-          <Text style={styles.productStock}>{t("products.stock")}: {effectiveStock(item)}</Text>
+          {(() => {
+            // Stock lisible (Lot C) : masqué si abondant, orange « Plus que N »
+            // si ≤ 5, rouge « Épuisé » en rupture.
+            const n = effectiveStock(item);
+            if (!hasStock(item)) {
+              return <Text style={[styles.productStock, styles.productStockOos]}>{t("epicerieDetail.soldOut")}</Text>;
+            }
+            if (n <= 5) {
+              return <Text style={[styles.productStock, styles.productStockLow]}>{t("products.stockLeft", { count: n })}</Text>;
+            }
+            return null;
+          })()}
           <Text style={[styles.seeMoreText, { color: brand.primary }]}>👉 {t("products.seeMore")}</Text>
         </View>
 
@@ -1250,14 +1469,13 @@ export default function EpicerieDetailScreen() {
     const promo = bestPromoForProduct(activePromos, item);
     const price = effectivePriceForProduct(item, promo);
 
-    const getStockBadge = () => {
-      const n = effectiveStock(item);
-      if (!hasStock(item)) return { label: `✗ ${t("products.outOfStockShort")}`,  color: "#F44336", bg: "#FFEBEE" };
-      if (n < 3)           return { label: `⚠ ${n} ${t("products.inStockUnits")}`, color: "#F44336", bg: "#FFEBEE" };
-      if (n <= 10)         return { label: `⚡ ${n} ${t("products.inStockUnits")}`, color: "#FF6F00", bg: "#FFF3E0" };
-      return                       { label: `✓ ${t("products.inStock")}`, color: "#2E7D32", bg: "#E8F5E9" };
-    };
-    const stock = getStockBadge();
+    // Stock lisible (Lot C) : on masque le badge quand le stock est abondant
+    // (> 5) pour désencombrer, on met une pastille orange « Plus que N » quand
+    // il ne reste que ≤ 5 unités (rareté = urgence douce), et un voile gris
+    // « Épuisé » sur l'image en rupture.
+    const stockN = effectiveStock(item);
+    const isOos = !hasStock(item);
+    const lowStock = !isOos && stockN <= 5;
 
     return (
       <TouchableOpacity
@@ -1265,7 +1483,7 @@ export default function EpicerieDetailScreen() {
         onPress={() => goToProductDetail(item)}
         activeOpacity={0.93}
       >
-        {/* ── Image (60 %) ──────────────────────────────────── */}
+        {/* ── Image ─── pleine et nette (plus d'overlay noir) ── */}
         <View style={styles.gridImageSection}>
           {isLoading && (
             <View style={styles.gridImageSpinner}>
@@ -1304,25 +1522,21 @@ export default function EpicerieDetailScreen() {
             </View>
           )}
 
-          {/* Overlay actions au bas de l'image */}
-          <View style={styles.gridOverlay}>
-            <TouchableOpacity
-              style={styles.gridDetailBtn}
-              onPress={() => goToProductDetail(item)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.gridDetailBtnIcon}>👁</Text>
-              <Text style={styles.gridOverlayBtnText}>{t("epicerieDetail.details")}</Text>
-            </TouchableOpacity>
+          {/* Voile « Épuisé » — image estompée + libellé lisible en rupture. */}
+          {isOos && (
+            <View style={styles.gridOosVeil}>
+              <Text style={styles.gridOosText}>{t("epicerieDetail.soldOut")}</Text>
+            </View>
+          )}
 
-            <View style={styles.gridOverlaySep} />
-
-            {/* Sélecteur de quantité inline — remplace le bouton "Ajouter".
-                Le wrapper View capture l'événement pour qu'un tap ne propage
-                pas vers le parent (navigation détail). */}
+          {/* Pastille flottante d'ajout en bas-droite de l'image (fond marque,
+              ombre). Remplace l'overlay noir + le bouton « détails » redondant :
+              la carte entière est déjà tapable vers le détail. Le wrapper capture
+              l'événement pour qu'un tap sur "+" ne propage pas vers le parent. */}
+          {!isOos && (
             <View
               onStartShouldSetResponder={() => true}
-              style={styles.gridQtyWrap}
+              style={styles.gridQtyFloat}
             >
               <InlineQuantitySelector
                 currentQuantity={getCartQuantityForProduct(item.id)}
@@ -1337,7 +1551,7 @@ export default function EpicerieDetailScreen() {
                 size="normal"
               />
             </View>
-          </View>
+          )}
         </View>
 
         {/* ── Infos (40 %) ──────────────────────────────────── */}
@@ -1375,9 +1589,11 @@ export default function EpicerieDetailScreen() {
                 {formatPrice(price.display)}
               </Text>
             </View>
-            <View style={[styles.gridStockBadge, { backgroundColor: stock.bg }]}>
-              <Text style={[styles.gridStockText, { color: stock.color }]}>{stock.label}</Text>
-            </View>
+            {lowStock && (
+              <View style={styles.gridStockBadge}>
+                <Text style={styles.gridStockText}>{t("products.stockLeft", { count: stockN })}</Text>
+              </View>
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -1393,20 +1609,24 @@ export default function EpicerieDetailScreen() {
     if (!epicerie) return null;
     return (
       <>
-        {/* Hero immersif 300px avec actions flottantes (back, loupe, ...) */}
+        {/* Hero immersif 300px avec actions flottantes (back, favori, loupe, ...) */}
         <EpicerieHero
           photoUrl={epicerie.presentationPhotoUrl}
           brandPrimary={brand.primary}
+          isFavorite={isFavorite}
+          onFavorite={handleToggleFavorite}
           onBack={() => router.back()}
           onSearch={() => setSearchVisible(true)}
           onImagePress={epicerie.presentationPhotoUrl ? () => setShowBannerModal(true) : undefined}
           height={300}
+          scrollY={scrollY}
         />
 
-        {/* Bandeau identité — nom + adresse (style page d'accueil) */}
+        {/* Bandeau identité — nom + slogan + adresse (style page d'accueil) */}
         <EpicerieIdentityBar
           logoUrl={epicerie.photoUrl}
           name={epicerie.nomEpicerie}
+          brandStatement={branding?.brandStatement ?? epicerie.brandStatement}
           address={epicerie.adresse}
           brandPrimary={brand.primary}
           onAddressPress={openGoogleMaps}
@@ -1433,6 +1653,19 @@ export default function EpicerieDetailScreen() {
               : undefined
           }
         />
+
+        {/* Barre de rayons (catégories) — accès rapide façon Glovo. En mode
+            "sections" un tap ancre (scroll) vers le rayon ; sinon il filtre. */}
+        {activeTab === "products" && categoryChips.length > 0 && (
+          <EpicerieCategoryChips
+            categories={categoryChips}
+            activeId={activeChipHighlightId}
+            onSelect={handleCategoryChip}
+            accentColor={brand.primary}
+            accentOnColor={brand.onPrimary}
+            allLabel={t("epicerieDetail.allRayons")}
+          />
+        )}
       </>
     );
   };
@@ -1461,18 +1694,25 @@ export default function EpicerieDetailScreen() {
             onPress={() => setShowFiltersSheet(true)}
             activeOpacity={0.8}
           >
-            <Text
-              style={[
-                styles.toolbarFiltersText,
-                activeFiltersCount > 0 && { color: brand.onPrimary },
-              ]}
-            >
-              ⚙ {t("epicerieDetail.filters") || "Filtres"}
-              {activeFiltersCount > 0 ? ` · ${activeFiltersCount}` : ""}
-            </Text>
+            <View style={styles.toolbarFiltersInner}>
+              <Ionicons
+                name="options-outline"
+                size={15}
+                color={activeFiltersCount > 0 ? brand.onPrimary : "#1F1F1F"}
+              />
+              <Text
+                style={[
+                  styles.toolbarFiltersText,
+                  activeFiltersCount > 0 && { color: brand.onPrimary },
+                ]}
+              >
+                {t("epicerieDetail.filters") || "Filtres"}
+                {activeFiltersCount > 0 ? ` · ${activeFiltersCount}` : ""}
+              </Text>
+            </View>
           </TouchableOpacity>
           <View style={styles.viewToggle}>
-            {/* 📚 Sections (rayons par catégorie, style Instacart) */}
+            {/* Sections (rayons par catégorie, style Instacart) */}
             <TouchableOpacity
               style={[styles.viewToggleBtn, viewMode === "sections" && styles.viewToggleBtnActive]}
               onPress={() => setViewMode("sections")}
@@ -1481,9 +1721,9 @@ export default function EpicerieDetailScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: viewMode === "sections" }}
             >
-              <Text style={[styles.viewToggleIcon, viewMode === "sections" && { color: brand.primary }]}>📚</Text>
+              <Ionicons name="albums-outline" size={18} color={viewMode === "sections" ? brand.primary : "#9CA3AF"} />
             </TouchableOpacity>
-            {/* ▤ Carte : 1 colonne, grandes cartes avec photo prominente */}
+            {/* Carte : 1 colonne, grandes cartes avec photo prominente */}
             <TouchableOpacity
               style={[styles.viewToggleBtn, viewMode === "card" && styles.viewToggleBtnActive]}
               onPress={() => setViewMode("card")}
@@ -1492,9 +1732,9 @@ export default function EpicerieDetailScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: viewMode === "card" }}
             >
-              <Text style={[styles.viewToggleIcon, viewMode === "card" && { color: brand.primary }]}>▤</Text>
+              <Ionicons name="image-outline" size={18} color={viewMode === "card" ? brand.primary : "#9CA3AF"} />
             </TouchableOpacity>
-            {/* ⊞ Grille : 2 colonnes compactes */}
+            {/* Grille : 2 colonnes compactes */}
             <TouchableOpacity
               style={[styles.viewToggleBtn, viewMode === "grid" && styles.viewToggleBtnActive]}
               onPress={() => setViewMode("grid")}
@@ -1503,9 +1743,9 @@ export default function EpicerieDetailScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: viewMode === "grid" }}
             >
-              <Text style={[styles.viewToggleIcon, viewMode === "grid" && { color: brand.primary }]}>⊞</Text>
+              <Ionicons name="grid-outline" size={17} color={viewMode === "grid" ? brand.primary : "#9CA3AF"} />
             </TouchableOpacity>
-            {/* ☰ Liste : ligne compacte horizontale, image à gauche */}
+            {/* Liste : ligne compacte horizontale, image à gauche */}
             <TouchableOpacity
               style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]}
               onPress={() => setViewMode("list")}
@@ -1514,7 +1754,7 @@ export default function EpicerieDetailScreen() {
               accessibilityRole="button"
               accessibilityState={{ selected: viewMode === "list" }}
             >
-              <Text style={[styles.viewToggleIcon, viewMode === "list" && { color: brand.primary }]}>☰</Text>
+              <Ionicons name="list-outline" size={19} color={viewMode === "list" ? brand.primary : "#9CA3AF"} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1540,7 +1780,7 @@ export default function EpicerieDetailScreen() {
             accessibilityLabel="Retirer le filtre par marque"
             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           >
-            <Text style={styles.activeBrandFilterClearText}>✕</Text>
+            <Ionicons name="close" size={13} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
@@ -1643,6 +1883,7 @@ export default function EpicerieDetailScreen() {
               dans le ListHeader → scroll naturel, place aux produits ── */}
         {activeTab === "products" && (
           <Animated.FlatList
+            ref={productListRef}
             key={viewMode}
             data={viewMode === "sections" ? [] : displayedProducts}
             renderItem={viewMode === "grid"
@@ -1686,9 +1927,14 @@ export default function EpicerieDetailScreen() {
                     accentColor={brand.primary}
                     renderCard={(p) => renderProductGrid({ item: p } as any)}
                     cardWidth={180}
+                    registerSection={(catId, node) => {
+                      if (catId == null) return;
+                      if (node) sectionNodes.current.set(catId, node);
+                      else sectionNodes.current.delete(catId);
+                    }}
                     labels={{
                       seeAll: t("epicerieDetail.sectionsSeeAll"),
-                      emptyState: t("products.noProductsFound"),
+                      emptyState: t("epicerieDetail.emptyBrowseTitle"),
                       uncategorized: t("epicerieDetail.sectionsUncategorized"),
                     }}
                     onSeeAllCategory={(_, catId) => {
@@ -1735,25 +1981,40 @@ export default function EpicerieDetailScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
-              ) : (
-                <View style={styles.emptyContainer}>
-                  <Text style={styles.emptyEmoji}>🔍</Text>
-                  <Text style={styles.emptyText}>{t("products.noProductsFound")}</Text>
-                  <Text style={styles.emptySubtext}>
-                    {(searchQuery || selectedCategoryId !== null) && !loading
-                      ? t("epicerieDetail.tryOtherFilters")
-                      : t("epicerieDetail.noProductsYet")}
-                  </Text>
-                  {(searchQuery || selectedCategoryId !== null || selectedTagIds.length > 0 || selectedBrandId !== null) && !loading && (
-                    <TouchableOpacity
-                      style={styles.resetFiltersBtn}
-                      onPress={resetAllFilters}
-                    >
-                      <Text style={styles.resetFiltersBtnText}>{t("epicerieDetail.clearFilters")}</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )
+              ) : (() => {
+                // États vides à personnalité (Lot D) : on distingue la recherche
+                // (« Aucun résultat pour "…" »), le filtrage (essayez autre chose)
+                // et le catalogue encore vide (« Ce rayon se remplit bientôt »).
+                const hasFilters = !!(searchQuery.trim() || selectedCategoryId !== null || selectedTagIds.length > 0 || selectedBrandId !== null);
+                const isSearch = !!searchQuery.trim();
+                return (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyEmoji}>{isSearch ? "🔍" : "🧺"}</Text>
+                    <Text style={styles.emptyText}>
+                      {isSearch
+                        ? t("epicerieDetail.emptySearchTitle").replace("{{q}}", searchQuery.trim())
+                        : hasFilters
+                          ? t("products.noProductsFound")
+                          : t("epicerieDetail.emptyBrowseTitle")}
+                    </Text>
+                    <Text style={styles.emptySubtext}>
+                      {isSearch
+                        ? t("epicerieDetail.emptySearchSubtitle")
+                        : hasFilters
+                          ? t("epicerieDetail.tryOtherFilters")
+                          : t("epicerieDetail.emptyBrowseSubtitle")}
+                    </Text>
+                    {hasFilters && !loading && (
+                      <TouchableOpacity
+                        style={styles.resetFiltersBtn}
+                        onPress={resetAllFilters}
+                      >
+                        <Text style={styles.resetFiltersBtnText}>{t("epicerieDetail.clearFilters")}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })()
             }
           />
         )}
@@ -1790,7 +2051,7 @@ export default function EpicerieDetailScreen() {
                   {/* Carte résumé : moyenne + étoiles + total + distribution */}
                   <View style={styles.reviewsSummaryCard}>
                     <Text style={styles.reviewsBigRating}>{avg.toFixed(1)}</Text>
-                    <Text style={styles.reviewsStars}>{renderStars(avg)}</Text>
+                    <View style={styles.reviewsStars}>{renderStars(avg, 22)}</View>
                     <Text style={styles.reviewsCount}>
                       {total} {t("epicerieDetail.reviews")}
                     </Text>
@@ -1851,7 +2112,7 @@ export default function EpicerieDetailScreen() {
                                 <Text style={styles.reviewName} numberOfLines={1}>{name}</Text>
                                 {date ? <Text style={styles.reviewDate}>{date}</Text> : null}
                               </View>
-                              <Text style={styles.reviewStars}>{renderStars(rev.rating)}</Text>
+                              <View style={styles.reviewStars}>{renderStars(rev.rating, 14)}</View>
                             </View>
                             {rev.comment?.trim() ? (
                               <Text style={styles.reviewComment}>{rev.comment.trim()}</Text>
@@ -1935,7 +2196,7 @@ export default function EpicerieDetailScreen() {
                   </Text>
                   {epicerie.averageRating != null && epicerie.averageRating > 0 && (
                     <View style={styles.ratingContainer}>
-                      <Text style={styles.starsText}>{renderStars(epicerie.averageRating || 0)}</Text>
+                      <View style={styles.starsText}>{renderStars(epicerie.averageRating || 0, 15)}</View>
                       <Text style={styles.ratingText}>{(epicerie.averageRating || 0).toFixed(1)}</Text>
                       <Text style={styles.totalRatingsText}>
                         ({epicerie.totalRatings || 0} {t("epicerieDetail.reviews")})
@@ -2067,82 +2328,114 @@ export default function EpicerieDetailScreen() {
                 extrapolate: "clamp",
               }),
               transform: [{
+                // Hidden state fully off-screen (-140) : le mini-header étant
+                // désormais plus haut (rangée + chips rayons), on le sort
+                // complètement vers le haut au repos pour qu'il n'intercepte
+                // aucun tap sur les actions du hero avant qu'il ne soit révélé.
                 translateY: scrollY.interpolate({
                   inputRange: [180, 280],
-                  outputRange: [-50, 0],
+                  outputRange: [-140, 0],
                   extrapolate: "clamp",
                 }),
               }],
             },
           ]}
         >
-          <TouchableOpacity
-            style={styles.miniHeaderBackBtn}
-            onPress={() => router.back()}
-            hitSlop={6}
-          >
-            <Ionicons name="chevron-back" size={22} color={brand.onPrimary} />
-          </TouchableOpacity>
-          <Text style={[styles.miniHeaderTitle, { color: brand.onPrimary }]} numberOfLines={1}>
-            {epicerie?.nomEpicerie}
-          </Text>
-          <View style={styles.miniHeaderRightGroup}>
-            {epicerie && epicerie.averageRating != null && epicerie.averageRating > 0 && (
-              <Text style={[styles.miniHeaderRating, { color: brand.onPrimary }]}>
-                ⭐ {epicerie.averageRating.toFixed(1)}
-              </Text>
-            )}
+          <View style={styles.miniHeaderRow}>
             <TouchableOpacity
-              style={styles.miniHeaderSearchBtn}
-              onPress={() => setSearchVisible(true)}
+              style={styles.miniHeaderBackBtn}
+              onPress={() => router.back()}
               hitSlop={6}
             >
-              <Ionicons name="search" size={20} color={brand.onPrimary} />
+              <Ionicons name="chevron-back" size={22} color={brand.onPrimary} />
             </TouchableOpacity>
+            <Text style={[styles.miniHeaderTitle, { color: brand.onPrimary }]} numberOfLines={1}>
+              {epicerie?.nomEpicerie}
+            </Text>
+            <View style={styles.miniHeaderRightGroup}>
+              {epicerie && epicerie.averageRating != null && epicerie.averageRating > 0 && (
+                <Text style={[styles.miniHeaderRating, { color: brand.onPrimary }]}>
+                  ⭐ {epicerie.averageRating.toFixed(1)}
+                </Text>
+              )}
+              {/* Filtres — reste atteignable après le hero (mini-header sticky) */}
+              {activeTab === "products" && (
+                <TouchableOpacity
+                  style={styles.miniHeaderIconBtn}
+                  onPress={() => setShowFiltersSheet(true)}
+                  hitSlop={6}
+                  accessibilityLabel={t("epicerieDetail.filters") || "Filtres"}
+                >
+                  <Ionicons name="options-outline" size={20} color={brand.onPrimary} />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={styles.miniHeaderIconBtn}
+                onPress={() => setSearchVisible(true)}
+                hitSlop={6}
+              >
+                <Ionicons name="search" size={20} color={brand.onPrimary} />
+              </TouchableOpacity>
+            </View>
           </View>
+
+          {/* Rayons sticky : catégories accessibles une fois le hero dépassé */}
+          {activeTab === "products" && categoryChips.length > 0 && (
+            <View style={styles.miniHeaderChips}>
+              <EpicerieCategoryChips
+                categories={categoryChips}
+                activeId={activeChipHighlightId}
+                onSelect={handleCategoryChip}
+                accentColor={brand.onPrimary}
+                accentOnColor={brand.primary}
+                allLabel={t("epicerieDetail.allRayons")}
+                compact
+              />
+            </View>
+          )}
         </Animated.View>
 
-        {/* Bouton WhatsApp flottant — réservé aux clients enregistrés de cette épicerie */}
-        {epicerie && canUseAssistedOrdering && epicerie.whatsappEnabled && epicerie.whatsappPhone && (
-          <TouchableOpacity
-            style={[
-              styles.whatsappFab,
-              // Surélever si la StickyMiniCart est visible pour cette épicerie
-              // (panier non vide) — sinon le FAB chevaucherait la barre.
-              // Offset dynamique : hauteur réelle de la barre (safe area incluse).
-              miniCartVisible && { bottom: bottomClearance },
-            ]}
-            onPress={() => {
-              const phone = epicerie.whatsappPhone!.replace(/[^0-9+]/g, "").replace("+", "");
-              const message = encodeURIComponent(
-                `Bonjour, je souhaite commander chez ${epicerie.nomEpicerie} #EID:${epicerie.id}`
-              );
-              Linking.openURL(`https://wa.me/${phone}?text=${message}`);
-            }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.whatsappFabIcon}>💬</Text>
-            <Text style={styles.whatsappFabLabel}>WhatsApp</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Bouton chatbot flottant — réservé aux clients enregistrés de cette épicerie */}
-        {epicerie && clientId && canUseAssistedOrdering && (
-          <TouchableOpacity
-            style={[
-              styles.chatbotButton,
-              // Surélever le FAB chatbot si la StickyMiniCart est visible
-              // (panier non vide pour CETTE épicerie) — sinon il chevaucherait
-              // la barre flottante en bas. Offset dynamique (safe area incluse).
-              miniCartVisible && { bottom: bottomClearance },
-            ]}
-            onPress={() => setShowChatbot(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.chatbotButtonText}>🤖</Text>
-            <Text style={styles.chatbotButtonLabel}>{t("epicerieDetail.aiAssistant")}</Text>
-          </TouchableOpacity>
-        )}
+        {/* Speed-dial « Aide » — fusionne WhatsApp + assistant IA en un seul FAB
+            qui déploie les deux au tap (désencombre le bas, mini-cart déjà là).
+            Réservé aux clients enregistrés de cette épicerie. Surélevé si la
+            StickyMiniCart est visible (offset dynamique, safe area incluse). */}
+        {epicerie && (() => {
+          const actions: SpeedDialAction[] = [];
+          if (canUseAssistedOrdering && epicerie.whatsappEnabled && epicerie.whatsappPhone) {
+            actions.push({
+              key: "whatsapp",
+              emoji: "💬",
+              label: "WhatsApp",
+              color: "#25D366",
+              onPress: () => {
+                const phone = epicerie.whatsappPhone!.replace(/[^0-9+]/g, "").replace("+", "");
+                const message = encodeURIComponent(
+                  `Bonjour, je souhaite commander chez ${epicerie.nomEpicerie} #EID:${epicerie.id}`
+                );
+                Linking.openURL(`https://wa.me/${phone}?text=${message}`);
+              },
+            });
+          }
+          if (clientId && canUseAssistedOrdering) {
+            actions.push({
+              key: "ai",
+              emoji: "🤖",
+              label: t("epicerieDetail.aiAssistant"),
+              color: brand.primary,
+              onPress: () => setShowChatbot(true),
+            });
+          }
+          if (actions.length === 0) return null;
+          return (
+            <HelpSpeedDial
+              actions={actions}
+              mainLabel={t("epicerieDetail.helpFab")}
+              accentColor={brand.primary}
+              accentOnColor={brand.onPrimary}
+              bottom={miniCartVisible ? bottomClearance : 20}
+            />
+          );
+        })()}
 
         {/* ── Mini-cart sticky en bas — visible dès le 1er article au panier ── */}
         <StickyMiniCart
@@ -2273,6 +2566,7 @@ const styles = StyleSheet.create({
     borderColor: "#E5E5E5",
     backgroundColor: "#FFFFFF",
   },
+  toolbarFiltersInner: { flexDirection: "row", alignItems: "center", gap: 4 },
   toolbarFiltersText: { fontSize: 12, fontWeight: "700", color: "#1F1F1F" },
 
   /** Padding du corps des tabs Avis et Infos (le header commun n'a pas de padding pour
@@ -2290,13 +2584,22 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
 
-  /* === Mini-header sticky : ajout de boutons back + loupe === */
+  /* === Mini-header sticky : ajout de boutons back + filtres + loupe === */
   miniHeaderBackBtn: { padding: 4, marginEnd: 6 },
-  miniHeaderSearchBtn: { padding: 4, marginStart: 8 },
+  miniHeaderIconBtn: { padding: 4, marginStart: 4 },
   miniHeaderRightGroup: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 4,
+  },
+  miniHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  miniHeaderChips: {
+    marginTop: 8,
+    marginHorizontal: -16,
   },
 
   /* === Rating utilisés dans l'onglet Infos (sous le gérant) === */
@@ -2450,11 +2753,18 @@ const styles = StyleSheet.create({
   gridCard: {
     width: (SCREEN_WIDTH - 32) / 2,
     backgroundColor: "#fff",
-    borderRadius: 4,
-    marginBottom: 8,
+    borderRadius: 14,
+    marginBottom: 10,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#EEE",
+    // Ombre douce pour décoller la carte du fond (image à coins hauts arrondis
+    // grâce à overflow:hidden + borderRadius).
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
   },
   gridImageSection: {
     height: 160,
@@ -2540,12 +2850,9 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
     zIndex: 50,
     elevation: 8,
     shadowColor: "#000",
@@ -2639,6 +2946,32 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 2,
+  },
+  // Pastille flottante d'ajout en bas-droite de l'image (mode grille).
+  gridQtyFloat: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    zIndex: 3,
+  },
+  // Voile « Épuisé » sur l'image en rupture de stock.
+  gridOosVeil: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(250,250,250,0.62)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  gridOosText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#616161",
+    backgroundColor: "rgba(255,255,255,0.92)",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 10,
+    overflow: "hidden",
   },
   gridAddBtn: {
     flex: 1,
@@ -2744,29 +3077,36 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   gridStockBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 6,
+    borderRadius: 8,
+    paddingHorizontal: 8,
     paddingVertical: 3,
+    backgroundColor: "#FFF3E0",
   },
   gridStockText: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "700",
+    color: "#EF6C00",
   },
 
   /* === CARTE PRODUIT — MODE LISTE ===
      Style e-commerce moderne : flat + bordure fine visible, pas d'ombre. */
   productCard: {
     backgroundColor: "#fff",
-    borderRadius: 4,
+    borderRadius: 14,
     padding: 12,
-    marginBottom: 6,
+    marginBottom: 8,
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#EEE",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.07,
+    shadowRadius: 5,
+    elevation: 2,
   },
   productImageContainer: {
-    width: 76, height: 76, backgroundColor: "#f5f5f5", borderRadius: 4,
+    width: 76, height: 76, backgroundColor: "#f5f5f5", borderRadius: 12,
     marginEnd: 12, overflow: "hidden", justifyContent: "center", alignItems: "center", position: "relative",
   },
   productImage: { width: "100%", height: "100%" },
@@ -2785,7 +3125,9 @@ const styles = StyleSheet.create({
   productPrixBarre: { fontSize: 12, color: "#999", textDecorationLine: "line-through", marginBottom: 1 },
   productPromoTitle: { fontSize: 11, color: "#C62828", fontWeight: "700", marginBottom: 2 },
   listPromoBadge: { position: "absolute", top: 4, left: 4, zIndex: 2 },
-  productStock: { fontSize: 11, color: "#ccc", marginBottom: 3 },
+  productStock: { fontSize: 12, color: "#888", fontWeight: "600", marginBottom: 3 },
+  productStockLow: { color: "#EF6C00", fontWeight: "700" },
+  productStockOos: { color: "#D32F2F", fontWeight: "700" },
   seeMoreText: { fontSize: 11, color: "#4CAF50", fontWeight: "600" },
   addButton: {
     backgroundColor: "#4CAF50", width: 40, height: 40, borderRadius: 20,
@@ -2798,12 +3140,17 @@ const styles = StyleSheet.create({
      Même refonte e-commerce moderne : bordure fine, radius minimal, flat. */
   epicCardWrapper: {
     backgroundColor: '#fff',
-    borderRadius: 4,
+    borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 10,
+    marginBottom: 12,
     marginHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#EEE',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 7,
+    elevation: 2,
   },
   epicCardImageBox: {
     width: '100%',
@@ -2833,6 +3180,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 4,
+    lineHeight: 23,
+    // Réserve la hauteur de 2 lignes pour éviter les sauts de mise en page
+    // entre un nom court (1 ligne) et un nom long (2 lignes).
+    minHeight: 46,
   },
   epicCardDesc: {
     fontSize: 13,
@@ -2921,7 +3272,15 @@ const styles = StyleSheet.create({
   },
   epicCardActions: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
+  },
+  epicCardAddHint: {
+    flex: 1,
+    fontSize: 13,
+    color: '#888',
+    fontWeight: '600',
   },
   epicCardDetailsBtn: {
     flex: 1,

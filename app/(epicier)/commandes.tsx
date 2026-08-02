@@ -19,9 +19,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { orderService } from '../../src/services/orderService';
-import { offlineService } from '../../src/services/offline';
-import { OrderListItem, OrderCounts } from '../../src/type';
+import api from '../../src/services/api';
+import { OrderListItem, OrderCounts, OrderSource } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
+import { useLanguage } from '../../src/context/LanguageContext';
 
 // ─────────────────────────────────────────────────────────────────────────
 // Pattern Inbox/Archive : la page sépare les commandes "en cours"
@@ -54,6 +55,7 @@ const signalNewOrder = () => {
 
 export default function CommandesScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
 
   // ── Top tab ────────────────────────────────────────────────────────
   const [tab, setTab] = useState<TopTab>('active');
@@ -116,12 +118,9 @@ export default function CommandesScreen() {
 
   const loadActive = useCallback(async (opts: { force?: boolean; silent?: boolean } = {}) => {
     try {
-      const data = await offlineService.fetchWithCache<OrderListItem[]>({
-        namespace: 'orders',
-        key: 'epicerie-orders-active',
-        fetcher: () => orderService.getActiveEpicerieOrders(),
-        forceRefresh: opts.force ?? false,
-      });
+      // Un poll silencieux (background) est tagué pour ne pas déclencher la
+      // modal d'upsell 402 en boucle ; un refresh explicite ne l'est pas.
+      const data = await orderService.getActiveEpicerieOrders(opts.silent === true);
       if (data) {
         // Détecte nouvelles PENDING par diff IDs (skip 1er load).
         const previous = lastPendingIdsRef.current;
@@ -141,7 +140,7 @@ export default function CommandesScreen() {
         setLastUpdatedAt(Date.now());
       }
     } catch (error) {
-      if (!opts.silent && offlineService.isOnline()) {
+      if (!opts.silent) {
         Alert.alert('Erreur', 'Impossible de charger les commandes en cours');
       }
     } finally {
@@ -154,7 +153,9 @@ export default function CommandesScreen() {
 
   const loadCounts = useCallback(async () => {
     try {
-      const c = await orderService.getEpicerieOrdersCounts();
+      // Simple rafraîchissement de badges : toujours en mode background poll
+      // (jamais une action utilisateur qui justifierait un upsell 402).
+      const c = await orderService.getEpicerieOrdersCounts(true);
       setCounts(c);
     } catch {
       // Silencieux : juste les badges, pas critique
@@ -229,9 +230,7 @@ export default function CommandesScreen() {
       setArchiveTotalElements(result.totalElements);
       setArchiveLoaded(true);
     } catch (error) {
-      if (offlineService.isOnline()) {
-        Alert.alert('Erreur', 'Impossible de charger l\'historique');
-      }
+      Alert.alert('Erreur', 'Impossible de charger l\'historique');
     } finally {
       setArchiveLoading(false);
       setRefreshingArchive(false);
@@ -290,23 +289,11 @@ export default function CommandesScreen() {
 
   const handleUpdateStatus = async (orderId: number, newStatus: string) => {
     try {
-      const result = await offlineService.writeOrQueue({
-        domain: 'orders',
-        method: 'PUT',
-        endpoint: `/orders/${orderId}/status`,
-        payload: { status: newStatus },
-        invalidateCache: ['orders'],
-        description: `Commande #${orderId} → ${newStatus}`,
-      });
+      await api.put(`/orders/${orderId}/status`, { status: newStatus });
       // Confirmation physique — utile au comptoir où l'Alert peut être
       // fermée machinalement sans être lue.
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      if (result.online) {
-        Alert.alert('✅', 'Statut mis à jour');
-      } else {
-        setActiveOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-        Alert.alert('📦 Hors-ligne', 'Le changement sera synchronisé au retour du réseau.');
-      }
+      Alert.alert('✅', 'Statut mis à jour');
       refreshAfterAction();
     } catch {
       Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
@@ -419,7 +406,32 @@ export default function CommandesScreen() {
   // Render : carte de commande (commune active + archive)
   // ═════════════════════════════════════════════════════════════════
 
+  // Badge « canal » : distingue nettement WhatsApp (vert + icône) des autres
+  // canaux (App/Web/Vente directe), affichés en badge discret gris.
+  const getChannelBadge = (
+    source?: OrderSource,
+  ): { label: string; bg: string; color: string; icon: 'whatsapp' | null; iconColor?: string } => {
+    if (source === 'WHATSAPP') {
+      return {
+        label: t('orderDetail.channelWhatsapp'),
+        bg: '#E7F6EC',
+        color: '#128C4B',
+        icon: 'whatsapp',
+        iconColor: '#25D366',
+      };
+    }
+    if (source === 'DIRECT_SALE') {
+      return { label: t('orderDetail.channelDirectSale'), bg: '#EEF1F4', color: '#5E6B7A', icon: null };
+    }
+    if (source === 'WEB') {
+      return { label: t('orderDetail.channelWeb'), bg: '#EEF1F4', color: '#5E6B7A', icon: null };
+    }
+    // APP (défaut) ou source absente
+    return { label: t('orderDetail.channelApp'), bg: '#EEF1F4', color: '#5E6B7A', icon: null };
+  };
+
   const renderOrder = ({ item }: { item: OrderListItem }) => {
+    const channel = getChannelBadge(item.source);
     const isPending = item.status === 'PENDING';
     const isSelected = selectedOrderIds.has(item.id);
     const isActiveTab = tab === 'active';
@@ -456,6 +468,12 @@ export default function CommandesScreen() {
             )}
             <View style={styles.orderInfo}>
               <Text style={styles.orderClient}>👤 {item.clientNom || '—'}</Text>
+              <View style={[styles.channelBadge, { backgroundColor: channel.bg }]}>
+                {channel.icon && (
+                  <MaterialCommunityIcons name={channel.icon} size={13} color={channel.iconColor} />
+                )}
+                <Text style={[styles.channelBadgeText, { color: channel.color }]}>{channel.label}</Text>
+              </View>
               <Text style={styles.orderDate}>
                 {new Date(item.createdAt).toLocaleString('fr-FR')}
               </Text>
@@ -465,6 +483,12 @@ export default function CommandesScreen() {
               <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
                 <Text style={styles.statusText}>{getStatusLabel(item.status)}</Text>
               </View>
+              {item.whatsappNotificationFailed && (
+                <View style={styles.notifFailedBadge}>
+                  <MaterialIcons name="error-outline" size={12} color="#C62828" />
+                  <Text style={styles.notifFailedBadgeText}>{t('orderDetail.notifFailedBadge')}</Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -1196,6 +1220,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#fff',
     fontWeight: 'bold',
+  },
+  channelBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  channelBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  notifFailedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 3,
+    backgroundColor: '#FDECEA',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  notifFailedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#C62828',
   },
   orderDetails: {
     backgroundColor: '#f9f9f9',

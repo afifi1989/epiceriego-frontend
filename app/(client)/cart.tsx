@@ -1,4 +1,5 @@
 export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -20,10 +21,11 @@ import PromoCodeInput from '../../src/components/client/PromoCodeInput';
 import { Skeleton, useToast } from '../../src/components/feedback';
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { useLanguage } from '../../src/context/LanguageContext';
-import { cartService, computeItemTotal, groupCartByEpicerie, CartGroup, CartBundle } from '../../src/services/cartService';
+import { cartService, computeItemTotal, computeRequestedQuantity, groupCartByEpicerie, CartGroup, CartBundle } from '../../src/services/cartService';
 import { clientManagementService } from '../../src/services/clientManagementService';
 import { DeliveryQuote, deliveryQuoteService } from '../../src/services/deliveryQuoteService';
 import { epicerieService } from '../../src/services/epicerieService';
+import { GeocodingError, geocodingService } from '../../src/services/geocodingService';
 import { orderService, BatchOrderError } from '../../src/services/orderService';
 import { paymentService } from '../../src/services/paymentService';
 import { productService } from '../../src/services/productService';
@@ -122,6 +124,41 @@ export default function CartScreen() {
   const [deliveryQuotes, setDeliveryQuotes] = useState<Record<number, DeliveryQuote>>({});
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [hasSavedAddress, setHasSavedAddress] = useState(false);
+  // Noms des boutiques par epicerieId, pour afficher un détail livraison lisible
+  // en multi-boutique (les CartItem ne portent pas le nom de l'épicerie → on le
+  // résout à la demande). Évite le fallback "#id" dans le récapitulatif.
+  const [epicerieNamesById, setEpicerieNamesById] = useState<Record<number, string>>({});
+
+  // Résout les noms manquants des boutiques présentes dans le panier. Best-effort
+  // (un échec laisse le fallback "#id"). Ne refetch jamais un nom déjà connu.
+  useEffect(() => {
+    const groups = groupCartByEpicerie(cart, cartBundles);
+    const missing = groups
+      .map((g) => g.epicerieId)
+      .filter((id) => !!id && !epicerieNamesById[id]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        missing.map(async (id) => {
+          try {
+            const e = await epicerieService.getEpicerieById(id);
+            return [id, e.nomEpicerie] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (cancelled || !entries.some(Boolean)) return;
+      setEpicerieNamesById((prev) => {
+        const next = { ...prev };
+        entries.forEach((en) => { if (en) next[en[0]] = en[1]; });
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, cartBundles]);
 
   type CreditInfoEntry = {
     allowCredit: boolean;
@@ -411,8 +448,8 @@ export default function CartScreen() {
           showCheckoutWarning(
             t('common.error'),
             q.mode === 'NONE'
-              ? 'Cette épicerie ne livre pas — retrait en boutique uniquement.'
-              : 'Adresse hors zone de livraison — basculé sur retrait en boutique.',
+              ? t('cart.deliveryNotAvailableStore')
+              : t('cart.deliveryOutOfZoneSwitch'),
           );
         }
       }
@@ -426,7 +463,7 @@ export default function CartScreen() {
     try {
       const me = await profileService.getMyProfile();
       if (!me || me.latitude == null || me.longitude == null) {
-        showCheckoutWarning(t('common.error'), 'Aucune adresse enregistrée sur votre profil.');
+        showCheckoutWarning(t('common.error'), t('cart.noSavedAddress'));
         return;
       }
       if (me.adresse) setAdresse(me.adresse);
@@ -443,7 +480,7 @@ export default function CartScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        showCheckoutWarning(t('common.error'), 'Permission de localisation refusée.');
+        showCheckoutWarning(t('common.error'), t('cart.locationPermissionDenied'));
         return;
       }
       setQuoteLoading(true);
@@ -468,11 +505,43 @@ export default function CartScreen() {
       await fetchQuotes(pos.coords.latitude, pos.coords.longitude);
     } catch (e) {
       console.warn('[CartScreen] GPS failed:', e);
-      showCheckoutError(t('common.error'), 'Impossible de récupérer votre position.');
+      showCheckoutError(t('common.error'), t('cart.locationUnavailable'));
     } finally {
       setQuoteLoading(false);
     }
   }, [fetchQuotes, t, toast]);
+
+  /**
+   * Geocode the typed delivery address via the backend (`POST /api/geocode`,
+   * Google Geocoding, biais Maroc). Troisième source de coordonnées de
+   * l'approche hybride (profil enregistré / GPS appareil / adresse tapée) —
+   * indispensable car la livraison par zones EXIGE des coordonnées client :
+   * sans position valide, le checkout HOME_DELIVERY reste bloqué.
+   */
+  const geocodeTypedAddress = useCallback(async () => {
+    const address = adresse.trim();
+    if (!address) {
+      showCheckoutWarning(t('common.error'), t('cart.enterAddress'));
+      return;
+    }
+    setQuoteLoading(true);
+    try {
+      const result = await geocodingService.geocode(address);
+      lastCoordsRef.current = { lat: result.latitude, lng: result.longitude };
+      // Adresse normalisée par Google — plus fiable pour le livreur que la
+      // saisie brute ; on ne remplace que si Google renvoie quelque chose.
+      if (result.formattedAddress) setAdresse(result.formattedAddress);
+      await fetchQuotes(result.latitude, result.longitude);
+    } catch (e: any) {
+      const unavailable = e instanceof GeocodingError && e.code === 'UNAVAILABLE';
+      showCheckoutWarning(
+        t('common.error'),
+        unavailable ? t('cart.geocodeUnavailable') : t('cart.geocodeFailed'),
+      );
+    } finally {
+      setQuoteLoading(false);
+    }
+  }, [adresse, fetchQuotes, t, toast]);
 
   const loadSavedPaymentMethods = async () => {
     try {
@@ -551,6 +620,13 @@ export default function CartScreen() {
           if (newQuantity <= 0) return null;
           const next = { ...item, quantity: newQuantity };
           next.totalPrice = computeItemTotal(next);
+          // H7 — Recalcule requestedQuantity (unité de base : L/kg/pcs) pour
+          // conserver le ratio unit.quantity. Le ratio est dérivé de `item`
+          // (ancienne quantité + ancien requestedQuantity) AVANT mutation. Sans
+          // ça, le +/- du panier laisse requestedQuantity figé et le vrac est
+          // mal facturé côté backend.
+          const nextReq = computeRequestedQuantity(item, newQuantity);
+          if (nextReq !== undefined) next.requestedQuantity = nextReq;
           return next;
         })
         .filter((i): i is CartItem => i !== null);
@@ -674,14 +750,14 @@ export default function CartScreen() {
       // Garde-fou : ce bouton ne devrait pas être visible en multi (le JSX
       // le cache déjà), mais on protège quand même contre un état incohérent.
       Alert.alert(
-        'Panier multi-boutiques',
-        'Pour commander sur WhatsApp, conservez les produits d\'une seule épicerie.',
+        t('cart.whatsappMultiStoreTitle'),
+        t('cart.whatsappMultiStoreMessage'),
       );
       return;
     }
     const group = groups[0];
     if (!group.epicerieId) {
-      Alert.alert('Erreur', t('cartExtra.obsoleteItems'));
+      Alert.alert(t('common.error'), t('cartExtra.obsoleteItems'));
       return;
     }
 
@@ -692,7 +768,17 @@ export default function CartScreen() {
         ...(i.unitId && i.unitId > 0 ? { unitId: i.unitId } : {}),
         productName: (i as any).productNom ?? '',
         unitLabel: (i as any).unitLabel ?? '',
-        quantity: i.quantity,
+        // Le `quantity` du precart est contractuellement en UNITÉ DE BASE
+        // (kg/L/pièces) — cf. PrecartItemDTO#quantity et
+        // WhatsAppConversationManager#buildCart : c'est ce que consomment le
+        // récap, ProductUnit#calculatePrice et decreaseStock. `i.quantity` est
+        // un NOMBRE DE FORMATS (« 2 × 500 g » → 2) : l'envoyer facturait
+        // 2/0.5 = 4 kg (24 DH au lieu de 12) et décrémentait −2 kg de stock.
+        // `i.requestedQuantity` porte déjà la quantité de base (= quantity ×
+        // unit.quantity, maintenu par H7 aux +/-). Repli sur `i.quantity` pour
+        // les paniers persistés avant ce champ : pour un article à la pièce les
+        // deux coïncident, et c'est la seule valeur disponible.
+        quantity: i.requestedQuantity ?? i.quantity,
         price: i.pricePerUnit,
       }));
 
@@ -712,8 +798,8 @@ export default function CartScreen() {
         // Très rare : device sans WhatsApp ni navigateur. On donne au moins
         // l'URL en fallback pour que l'utilisateur la copie manuellement.
         Alert.alert(
-          'WhatsApp introuvable',
-          'Impossible d\'ouvrir WhatsApp sur cet appareil. Installez l\'app puis réessayez.',
+          t('cart.whatsappNotFoundTitle'),
+          t('cart.whatsappNotFoundMessage'),
         );
       }
     } catch (error: any) {
@@ -723,13 +809,13 @@ export default function CartScreen() {
       if (status === 429) {
         // Quota de sessions actives atteint (cf. TooManyActivePrecartsException).
         Alert.alert(
-          'Trop de sessions WhatsApp',
-          backendMsg ?? 'Termine ou attends l\'expiration des sessions WhatsApp en cours.',
+          t('cart.whatsappTooManySessionsTitle'),
+          backendMsg ?? t('cart.whatsappTooManySessionsMessage'),
         );
       } else {
         Alert.alert(
-          'Erreur',
-          backendMsg ?? 'Impossible de préparer le panier pour WhatsApp. Réessaie.',
+          t('common.error'),
+          backendMsg ?? t('cart.whatsappPrepareError'),
         );
       }
     } finally {
@@ -753,7 +839,7 @@ export default function CartScreen() {
     // devis livrable pour toutes, la commande ne peut pas passer.
     if (deliveryType === 'HOME_DELIVERY') {
       if (quoteLoading) {
-        showCheckoutWarning(t('common.error'), 'Calcul des frais de livraison en cours, patientez…');
+        showCheckoutWarning(t('common.error'), t('cart.deliveryFeeCalculating'));
         return;
       }
       const groups = groupCartByEpicerie(cart, cartBundles);
@@ -761,17 +847,17 @@ export default function CartScreen() {
       if (!lastCoordsRef.current || agg.pending) {
         showCheckoutWarning(
           t('common.error'),
-          'Calculez les frais de livraison via « Mon adresse » ou le GPS avant de continuer.',
+          t('cart.deliveryFeeComputeFirst'),
         );
         return;
       }
       if (!agg.allDeliverable) {
         const names = agg.undeliverable.map(g => g.epicerieNom || `#${g.epicerieId}`).join(', ');
         showCheckoutWarning(
-          'Livraison indisponible',
+          t('cart.deliveryUnavailableTitle'),
           groups.length > 1
-            ? `Ces boutiques ne livrent pas à votre adresse : ${names}. Retirez-les du panier ou choisissez le retrait en boutique.`
-            : 'Cette épicerie ne livre pas à votre adresse. Choisissez le retrait en boutique.',
+            ? t('cart.deliveryUnavailableMulti', { names })
+            : t('cart.deliveryUnavailableSingle'),
         );
         return;
       }
@@ -796,12 +882,12 @@ export default function CartScreen() {
       if (!lastCoordsRef.current || agg.pending || !agg.allDeliverable) {
         const names = agg.undeliverable.map(g => g.epicerieNom || `#${g.epicerieId}`).join(', ');
         showCheckoutError(
-          'Livraison indisponible',
+          t('cart.deliveryUnavailableTitle'),
           !lastCoordsRef.current || agg.pending
-            ? 'Calculez les frais de livraison (adresse / GPS) avant de valider.'
+            ? t('cart.deliveryFeeComputeFirst')
             : dGroups.length > 1
-              ? `Ces boutiques ne livrent pas à votre adresse : ${names}. Retirez-les ou choisissez le retrait.`
-              : 'Cette épicerie ne livre pas à votre adresse. Choisissez le retrait en boutique.',
+              ? t('cart.deliveryUnavailableMulti', { names })
+              : t('cart.deliveryUnavailableSingle'),
         );
         return;
       }
@@ -809,7 +895,14 @@ export default function CartScreen() {
 
     // Validation du paiement par carte
     if (paymentMethod === 'CARD' && selectedSavedCard === null && !showCardForm) {
-      showCheckoutWarning(t('common.error'), t('cart.selectOrAddCard'));
+      // B7 — L'ajout de nouvelle carte est retiré (cul-de-sac PCI). Si aucune
+      // carte enregistrée n'est sélectionnée, le mode carte ne peut pas aboutir :
+      // on bloque AVANT toute création de commande et on oriente vers un autre
+      // moyen de paiement.
+      showCheckoutWarning(
+        t('common.error'),
+        savedPaymentMethods.length === 0 ? t('cart.cardComingSoon') : t('cart.selectOrAddCard'),
+      );
       return;
     }
 
@@ -838,7 +931,10 @@ export default function CartScreen() {
         const info = creditInfoByEpicerie[g.epicerieId];
         const storeLabel = g.epicerieNom || `#${g.epicerieId}`;
 
-        if (!info || !info.allowCredit) {
+        // Refusé seulement s'il n'y a AUCUN moyen de payer avec le compte :
+        // pas de relation (info manquante) OU crédit non accordé ET aucun solde
+        // d'avances/cashback. Sinon on laisse le check de suffisance décider.
+        if (!info || (!info.allowCredit && info.availableCredit <= 0)) {
           showCheckoutWarning(
             t('common.error'),
             isMulti
@@ -973,6 +1069,11 @@ export default function CartScreen() {
       };
 
       let response: any;
+      // C2 — Total autoritatif renvoyé par le backend (Order.total). C'est la
+      // source de vérité du montant à afficher, indépendamment du total calculé
+      // côté client (qui peut diverger : arrondis, remise/livraison recalculées
+      // côté serveur, prix ajustés). Reste null si le backend ne l'expose pas.
+      let serverTotal: number | null = null;
       if (isMultiEpicerie) {
         // Batch all-or-nothing : 1 requete, N commandes
         const requests = groups.map(buildRequest);
@@ -980,17 +1081,45 @@ export default function CartScreen() {
         const orders = await orderService.createOrderBatch(requests);
         response = orders[0] ?? null; // pour la suite (paiement par carte
                                        // deja exclu pour multi, donc inutilise)
+        // Total autoritatif multi = somme des totaux de toutes les commandes
+        // créées. On ne le retient que si TOUTES exposent un total exploitable,
+        // sinon on retomberait sur un montant partiel trompeur.
+        if (Array.isArray(orders) && orders.length > 0
+            && orders.every(o => Number.isFinite(Number(o?.total)))) {
+          serverTotal = orders.reduce((s, o) => s + Number(o.total), 0);
+        }
       } else {
         const orderData = buildRequest(groups[0]);
         console.log('=== REQUÊTE CRÉÉE ===');
         console.log('Données complètes:', JSON.stringify(orderData, null, 2));
         console.log('================');
         response = await orderService.createOrder(orderData);
+        if (Number.isFinite(Number(response?.total))) {
+          serverTotal = Number(response.total);
+        }
       }
 
       console.log('=== RÉPONSE DU SERVEUR ===');
       console.log('Commande créée:', JSON.stringify(response, null, 2));
       console.log('========================');
+
+      // B1 — Total autoritatif à DÉBITER = exactement le total affiché au client
+      // (sous-total − remise promo + frais de livraison), en privilégiant le
+      // total serveur (Order.total) quand il est exploitable. Calculé AVANT le
+      // paiement pour que la carte soit débitée du total réel et non du seul
+      // sous-total (getTotal()). Réutilisé plus bas pour le récapitulatif.
+      const deliveryAgg = computeDeliveryAggregate(groups);
+      const deliveryFeeVal =
+        deliveryType === 'HOME_DELIVERY' && deliveryAgg.allDeliverable ? deliveryAgg.total : 0;
+      const discountVal = appliedPromo?.discountAmount ?? 0;
+      // Total estimé côté client — sert uniquement de fallback si le backend
+      // n'a pas renvoyé de total exploitable.
+      const clientTotal = Math.max(0, getTotal() - discountVal + deliveryFeeVal);
+      // C2 — On privilégie TOUJOURS le total serveur quand il est disponible :
+      // c'est le montant réellement facturé (Order.total). Le total client n'est
+      // qu'une estimation d'affichage susceptible de diverger.
+      const authoritativeTotal =
+        serverTotal != null && serverTotal >= 0 ? serverTotal : clientTotal;
 
       // Si paiement par carte, traiter le paiement
       if (paymentMethod === 'CARD') {
@@ -1001,14 +1130,14 @@ export default function CartScreen() {
             console.log('Paiement avec carte enregistrée ID:', selectedSavedCard);
             await paymentService.processPaymentWithSavedCard(
               selectedSavedCard,
-              getTotal(),
+              authoritativeTotal,
               response.id
             );
           } else if (showCardForm) {
             console.log('Paiement avec nouvelle carte');
             await paymentService.processCardPayment(
               cardDetails,
-              getTotal(),
+              authoritativeTotal,
               response.id
             );
 
@@ -1019,6 +1148,19 @@ export default function CartScreen() {
           console.log('=========================');
         } catch (paymentError) {
           console.error('❌ Erreur paiement:', paymentError);
+          // Le paiement a échoué APRÈS la création de la commande. Sans action,
+          // la commande resterait orpheline (créée mais impayée) et un nouveau
+          // « Valider » recréerait une 2e commande pour le même panier (doublon).
+          // On annule donc la commande créée avant de rendre la main ; le panier
+          // est conservé pour permettre un retry propre sur une commande neuve.
+          if (response?.id != null) {
+            try {
+              await orderService.cancelOrder(response.id);
+              console.log('[CartScreen] Commande', response.id, 'annulée suite à l\'échec du paiement');
+            } catch (cancelError) {
+              console.warn('[CartScreen] Annulation de la commande impayée échouée:', cancelError);
+            }
+          }
           showCheckoutError(t('cart.paymentError'), String(paymentError));
           return;
         }
@@ -1028,6 +1170,28 @@ export default function CartScreen() {
       const paymentLabel = paymentMethod === 'CASH' ? t('cart.cash') :
                           paymentMethod === 'CARD' ? t('cart.card') :
                           t('cart.clientAccount');
+
+      // Récapitulatif pour l'écran de confirmation — `authoritativeTotal`,
+      // `clientTotal`, `deliveryFeeVal` et `discountVal` sont déjà calculés
+      // plus haut (avant le paiement carte, cf. B1) et réutilisés ici tels
+      // quels : le montant confirmé = le montant débité.
+      // Devise figée à la création de la commande (fallback : devise courante).
+      const orderCurrency = response?.currency ?? currency;
+      console.log('[CartScreen] Total confirmé serveur:', serverTotal, '| estimé client:', clientTotal);
+      // Écart notable entre l'estimation client et le montant réel → on prévient
+      // l'utilisateur du montant confirmé par la boutique. Le toast est global
+      // (ToastProvider racine) donc il survit à la navigation vers l'écran de
+      // confirmation, qui affiche par ailleurs déjà ce même montant serveur.
+      if (serverTotal != null && Math.abs(serverTotal - clientTotal) > 0.01) {
+        console.warn('[CartScreen] Écart total client/serveur:', clientTotal, '→', serverTotal);
+        toast.info(
+          t('cart.total'),
+          t('cart.serverTotalNotice').replace('{{total}}', formatPrice(authoritativeTotal, orderCurrency)),
+        );
+      }
+      const totalText = formatPrice(authoritativeTotal, orderCurrency);
+      const orderCount = isMultiEpicerie ? groups.length : 1;
+      const primaryOrderId = response?.id != null ? String(response.id) : '';
 
       // ✅ Vider le panier après succès (V95 : reset aussi le code promo —
       // sans cela, un code "1 fois par client" pourrait apparaitre encore
@@ -1040,15 +1204,20 @@ export default function CartScreen() {
         cartService.clearBundles(),
       ]);
 
-      // UX 2026: pas de dialogue à fermer manuellement. Toast + redirect
-      // immédiat — l'utilisateur voit la confirmation et atterrit là où il
-      // peut suivre sa commande.
+      // UX 2026 : écran de confirmation dédié (réassurance) au lieu d'un simple
+      // toast + retour accueil. L'utilisateur voit le récap et peut suivre sa
+      // commande ou continuer ses achats.
       setShowCheckoutModal(false);
-      toast.success(
-        t('common.success'),
-        `${deliveryLabel} • ${paymentLabel}`
-      );
-      router.replace('/(client)');
+      router.replace({
+        pathname: '/(client)/order-confirmation',
+        params: {
+          count: String(orderCount),
+          totalText,
+          delivery: deliveryLabel,
+          payment: paymentLabel,
+          orderId: primaryOrderId,
+        },
+      });
     } catch (error: any) {
       console.error('[CartScreen] handleOrder failed:', error);
 
@@ -1506,6 +1675,14 @@ export default function CartScreen() {
       fontSize: 24,
       marginBottom: 8,
     },
+    optionIcon: {
+      marginBottom: 8,
+    },
+    finalizeInner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
     optionButtonText: {
       fontSize: 14,
       fontWeight: '600',
@@ -1532,6 +1709,7 @@ export default function CartScreen() {
     },
     addressActionsRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       gap: 8,
       marginTop: 4,
       marginBottom: 12,
@@ -1661,6 +1839,26 @@ export default function CartScreen() {
     subTotalValue: {
       fontSize: 13,
       color: '#333',
+      fontWeight: '600',
+    },
+    // Détail livraison par boutique (multi-épicerie) — lignes indentées sous
+    // la ligne "Livraison" agrégée.
+    deliveryBreakdownRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 3,
+      paddingLeft: 14,
+    },
+    deliveryBreakdownName: {
+      fontSize: 12,
+      color: '#8a8a8a',
+      flex: 1,
+      marginRight: 8,
+    },
+    deliveryBreakdownValue: {
+      fontSize: 12,
+      color: '#666',
       fontWeight: '600',
     },
     // V95 — Code promo : zone d'input + ligne de remise dans le footer
@@ -1889,6 +2087,24 @@ export default function CartScreen() {
       fontWeight: '600',
       fontSize: 14,
     },
+    // B7 — Note « paiement carte bientôt disponible » (remplace le bouton
+    // d'ajout de carte, retiré car il menait à un cul-de-sac).
+    cardComingSoonNote: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: '#FFF3E0',
+      borderRadius: 8,
+      marginTop: 8,
+    },
+    cardComingSoonText: {
+      flex: 1,
+      color: '#E65100',
+      fontSize: 13,
+      fontWeight: '500',
+    },
     cardFormContainer: {
       backgroundColor: '#f9f9f9',
       paddingHorizontal: 12,
@@ -2021,6 +2237,13 @@ export default function CartScreen() {
   const cartGroups = groupCartByEpicerie(cart, cartBundles);
   const isMultiBoutique = cartGroups.length > 1;
 
+  /** Nom affichable d'une boutique du panier (résout #id quand possible). */
+  const shopName = (g: CartGroup): string =>
+    epicerieNamesById[g.epicerieId] ||
+    g.epicerieNom ||
+    (epicerie?.id === g.epicerieId ? epicerie?.nomEpicerie : undefined) ||
+    `Boutique #${g.epicerieId}`;
+
   return (
     <View style={styles.container}>
       {isMultiBoutique && (
@@ -2067,6 +2290,7 @@ export default function CartScreen() {
             <PromoCodeInput
               epicerieId={primaryEpicerieId}
               subtotal={getTotal()}
+              cartHasPromoItems={cart.some((i) => i.onPromo === true)}
               channel="APP"
               value={appliedPromo}
               onApplied={setAppliedPromo}
@@ -2112,10 +2336,35 @@ export default function CartScreen() {
                     </View>
                   )}
                   {showDelivery && (
-                    <View style={styles.subTotalRow}>
-                      <Text style={styles.subTotalLabel}>Livraison</Text>
-                      <Text style={styles.subTotalValue}>+{formatPrice(deliveryFeeVal, currency)}</Text>
-                    </View>
+                    cartGroups.length > 1 ? (
+                      <>
+                        <View style={styles.subTotalRow}>
+                          <Text style={styles.subTotalLabel}>
+                            Livraison ({cartGroups.length} boutiques)
+                          </Text>
+                          <Text style={styles.subTotalValue}>+{formatPrice(deliveryFeeVal, currency)}</Text>
+                        </View>
+                        {cartGroups.map((g) => {
+                          const q = deliveryQuotes[g.epicerieId];
+                          if (!q || q.deliveryFee == null) return null;
+                          return (
+                            <View key={g.epicerieId} style={styles.deliveryBreakdownRow}>
+                              <Text style={styles.deliveryBreakdownName} numberOfLines={1}>
+                                {shopName(g)}
+                              </Text>
+                              <Text style={styles.deliveryBreakdownValue}>
+                                +{formatPrice(q.deliveryFee, currency)}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </>
+                    ) : (
+                      <View style={styles.subTotalRow}>
+                        <Text style={styles.subTotalLabel}>Livraison</Text>
+                        <Text style={styles.subTotalValue}>+{formatPrice(deliveryFeeVal, currency)}</Text>
+                      </View>
+                    )
                   )}
                 </>
               )}
@@ -2136,12 +2385,19 @@ export default function CartScreen() {
         </TouchableOpacity>
 
         {/* Killer feature : finir la commande sur WhatsApp.
-            Mono-épicerie uniquement (le précart est attaché à une seule
-            boutique). En multi, on cache le bouton — le checkout standard
-            reste disponible au-dessus. Pas de check whatsappEnabled ici : le
-            backend renverra une erreur métier explicite si la boutique n'a
-            pas activé WhatsApp, et on l'affiche dans le catch. */}
-        {(cart.length > 0 || cartBundles.length > 0) && cartGroups.length === 1 && (
+            Affiché UNIQUEMENT si :
+              1. le panier n'est pas vide,
+              2. il ne contient qu'UNE seule épicerie (le précart WhatsApp est
+                 attaché à une boutique unique — en multi on cache le bouton, le
+                 checkout standard reste disponible au-dessus),
+              3. cette épicerie a activé WhatsApp Business (`whatsappEnabled`).
+            Le check `epicerie.id === cartGroups[0].epicerieId` garantit qu'on
+            lit le statut WhatsApp de LA boutique du panier (et pas d'un état
+            `epicerie` resté d'un panier précédent, non encore rechargé). */}
+        {(cart.length > 0 || cartBundles.length > 0)
+          && cartGroups.length === 1
+          && epicerie?.id === cartGroups[0]?.epicerieId
+          && epicerie?.whatsappEnabled === true && (
           <>
             <View style={styles.waSeparator}>
               <View style={styles.waSeparatorLine} />
@@ -2257,8 +2513,8 @@ export default function CartScreen() {
                   {!homeDeliveryAvailable && (
                     <Text style={styles.deliveryHint}>
                       {epicerie?.deliveryMode === 'NONE'
-                        ? '❕ Cette épicerie ne livre pas — retrait en boutique uniquement.'
-                        : '❕ Aucun livreur disponible — retrait en boutique uniquement.'}
+                        ? `❕ ${t('cart.deliveryNotAvailableStore')}`
+                        : `❕ ${t('cart.deliveryHintNoDriver')}`}
                     </Text>
                   )}
                 </View>
@@ -2318,7 +2574,7 @@ export default function CartScreen() {
                             disabled={quoteLoading}
                           >
                             <Text style={styles.addressActionEmoji}>📍</Text>
-                            <Text style={styles.addressActionLabel}>Mon adresse</Text>
+                            <Text style={styles.addressActionLabel}>{t('cart.useMyAddress')}</Text>
                           </TouchableOpacity>
                         )}
                         <TouchableOpacity
@@ -2327,7 +2583,18 @@ export default function CartScreen() {
                           disabled={quoteLoading}
                         >
                           <Text style={styles.addressActionEmoji}>🛰️</Text>
-                          <Text style={styles.addressActionLabel}>Utiliser GPS</Text>
+                          <Text style={styles.addressActionLabel}>{t('cart.useGps')}</Text>
+                        </TouchableOpacity>
+                        {/* Hybride : géocode l'adresse tapée ci-dessus quand le
+                            GPS n'est pas envisageable. Même destination que le
+                            GPS : lastCoordsRef + devis par boutique. */}
+                        <TouchableOpacity
+                          style={styles.addressActionBtn}
+                          onPress={geocodeTypedAddress}
+                          disabled={quoteLoading}
+                        >
+                          <Text style={styles.addressActionEmoji}>🗺️</Text>
+                          <Text style={styles.addressActionLabel}>{t('cart.locateAddress')}</Text>
                         </TouchableOpacity>
                       </View>
 
@@ -2337,20 +2604,20 @@ export default function CartScreen() {
                       {quoteLoading ? (
                         <View style={styles.quoteCard}>
                           <ActivityIndicator size="small" color="#4CAF50" />
-                          <Text style={styles.quoteCardSubText}>Calcul des frais…</Text>
+                          <Text style={styles.quoteCardSubText}>{t('cart.quoteCalculating')}</Text>
                         </View>
                       ) : Object.keys(deliveryQuotes).length === 0 ? (
                         <Text style={styles.quoteCardSubText}>
-                          ℹ️ Utilisez votre adresse enregistrée ou le GPS pour calculer les frais.
+                          ℹ️ {t('cart.quoteUseAddressOrGps')}
                         </Text>
                       ) : cartGroups.length === 1 ? (
                         deliveryQuote && deliveryQuote.canDeliver && deliveryQuote.deliveryFee != null ? (
                           <View style={[styles.quoteCard, styles.quoteCardOk]}>
-                            <Text style={styles.quoteCardTitle}>✅ Livraison disponible</Text>
+                            <Text style={styles.quoteCardTitle}>✅ {t('cart.quoteDeliveryAvailable')}</Text>
                             <Text style={styles.quoteCardLine}>
                               {deliveryQuote.mode === 'FLAT_RATE'
-                                ? 'Forfait livraison'
-                                : `${deliveryQuote.zoneName ?? 'Zone'}${
+                                ? t('cart.quoteFlatRate')
+                                : `${deliveryQuote.zoneName ?? t('cart.quoteZone')}${
                                     deliveryQuote.distanceKm != null
                                       ? ` · ${deliveryQuote.distanceKm.toFixed(1)} km`
                                       : ''
@@ -2362,31 +2629,31 @@ export default function CartScreen() {
                           </View>
                         ) : (
                           <View style={[styles.quoteCard, styles.quoteCardKo]}>
-                            <Text style={styles.quoteCardTitleKo}>⚠️ Livraison indisponible</Text>
+                            <Text style={styles.quoteCardTitleKo}>⚠️ {t('cart.deliveryUnavailableTitle')}</Text>
                             <Text style={styles.quoteCardSubText}>
                               {deliveryQuote?.mode === 'NONE'
-                                ? 'Cette épicerie ne livre pas. Choisissez le retrait en boutique.'
-                                : 'Adresse hors zone de livraison. Choisissez le retrait en boutique.'}
+                                ? t('cart.deliveryUnavailableSingle')
+                                : t('cart.quoteOutOfZone')}
                             </Text>
                           </View>
                         )
                       ) : (
                         <View style={styles.quoteCard}>
-                          <Text style={styles.quoteCardTitle}>Frais de livraison par boutique</Text>
+                          <Text style={styles.quoteCardTitle}>{t('cart.quoteFeesByStore')}</Text>
                           {cartGroups.map((g) => {
                             const q = deliveryQuotes[g.epicerieId];
                             const ok = !!q && q.canDeliver && q.deliveryFee != null;
                             return (
                               <View key={g.epicerieId} style={styles.multiQuoteRow}>
                                 <Text style={styles.multiQuoteName} numberOfLines={1}>
-                                  {ok ? '✅' : !q ? '⏳' : '⚠️'} {g.epicerieNom || `#${g.epicerieId}`}
+                                  {ok ? '✅' : !q ? '⏳' : '⚠️'} {shopName(g)}
                                 </Text>
                                 <Text style={[styles.multiQuoteFee, !ok && styles.multiQuoteFeeKo]}>
                                   {ok
                                     ? formatPrice(q!.deliveryFee!, currency)
                                     : !q
-                                      ? 'À calculer'
-                                      : (q.mode === 'NONE' ? 'Ne livre pas' : 'Hors zone')}
+                                      ? t('cart.quoteToCompute')
+                                      : (q.mode === 'NONE' ? t('cart.quoteNoDelivery') : t('cart.quoteOutOfZoneShort'))}
                                 </Text>
                               </View>
                             );
@@ -2395,15 +2662,14 @@ export default function CartScreen() {
                             const agg = computeDeliveryAggregate(cartGroups);
                             return agg.allDeliverable ? (
                               <View style={styles.multiQuoteTotalRow}>
-                                <Text style={styles.multiQuoteTotalLabel}>Total livraison</Text>
+                                <Text style={styles.multiQuoteTotalLabel}>{t('cart.quoteTotalDelivery')}</Text>
                                 <Text style={styles.multiQuoteTotalValue}>
                                   {formatPrice(agg.total, currency)}
                                 </Text>
                               </View>
                             ) : (
                               <Text style={[styles.quoteCardSubText, { marginTop: 8 }]}>
-                                ⚠️ Une ou plusieurs boutiques ne livrent pas à votre adresse —
-                                retirez-les ou choisissez le retrait en boutique.
+                                ⚠️ {t('cart.quoteSomeUndeliverable')}
                               </Text>
                             );
                           })()}
@@ -2417,15 +2683,15 @@ export default function CartScreen() {
                     au root sont masqués par le Modal natif plein écran) */}
                 {checkoutError && (
                   <View style={styles.checkoutErrorBanner}>
-                    <Text style={styles.checkoutErrorIcon}>⚠️</Text>
+                    <Ionicons name="warning" size={18} color="#c62828" style={styles.checkoutErrorIcon} />
                     <Text style={styles.checkoutErrorText} numberOfLines={4}>{checkoutError}</Text>
                     <TouchableOpacity
                       onPress={() => setCheckoutError(null)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       accessibilityRole="button"
-                      accessibilityLabel="Fermer"
+                      accessibilityLabel={t('common.close')}
                     >
-                      <Text style={styles.checkoutErrorDismiss}>✕</Text>
+                      <Ionicons name="close" size={18} color="#991b1b" />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -2487,7 +2753,12 @@ export default function CartScreen() {
                       ]}
                       onPress={() => setPaymentMethod('CASH')}
                     >
-                      <Text style={styles.optionEmoji}>💵</Text>
+                      <Ionicons
+                        name="cash-outline"
+                        size={24}
+                        color={paymentMethod === 'CASH' ? '#4CAF50' : '#888'}
+                        style={styles.optionIcon}
+                      />
                       <Text
                         style={[
                           styles.optionButtonText,
@@ -2504,7 +2775,12 @@ export default function CartScreen() {
                       ]}
                       onPress={() => setPaymentMethod('CARD')}
                     >
-                      <Text style={styles.optionEmoji}>💳</Text>
+                      <Ionicons
+                        name="card-outline"
+                        size={24}
+                        color={paymentMethod === 'CARD' ? '#4CAF50' : '#888'}
+                        style={styles.optionIcon}
+                      />
                       <Text
                         style={[
                           styles.optionButtonText,
@@ -2515,13 +2791,14 @@ export default function CartScreen() {
                       </Text>
                     </TouchableOpacity>
                     {(() => {
-                      // Vérifie le crédit pour CHAQUE épicerie du panier (multi-store).
-                      // Le bouton CLIENT_ACCOUNT n'est activé que si toutes les boutiques
-                      // autorisent le crédit avec un solde suffisant pour leur sous-total.
+                      // Vérifie le SOLDE DISPONIBLE pour CHAQUE épicerie du panier.
+                      // Le bouton CLIENT_ACCOUNT est activé dès que chaque boutique a
+                      // un disponible ≥ son sous-total — que ce disponible vienne d'un
+                      // crédit accordé OU des avances/cashback du client (aligné backend).
                       const groups = groupCartByEpicerie(cart, cartBundles);
                       const allAllow = groups.every(g => {
                         const info = creditInfoByEpicerie[g.epicerieId];
-                        if (!info || !info.allowCredit) return false;
+                        if (!info) return false;
                         const groupSubtotal = g.items.reduce((s, i) => s + computeItemTotal(i), 0);
                         return info.availableCredit >= groupSubtotal;
                       });
@@ -2536,7 +2813,12 @@ export default function CartScreen() {
                           onPress={() => { if (!disabled) setPaymentMethod('CLIENT_ACCOUNT'); }}
                           disabled={disabled}
                         >
-                          <Text style={styles.optionEmoji}>💰</Text>
+                          <Ionicons
+                            name="wallet-outline"
+                            size={24}
+                            color={disabled ? '#bbb' : paymentMethod === 'CLIENT_ACCOUNT' ? '#4CAF50' : '#888'}
+                            style={styles.optionIcon}
+                          />
                           <Text
                             style={[
                               styles.optionButtonText,
@@ -2575,11 +2857,14 @@ export default function CartScreen() {
                           {groups.map((g) => {
                             const info = creditInfoByEpicerie[g.epicerieId];
                             const groupSubtotal = g.items.reduce((s, i) => s + computeItemTotal(i), 0);
-                            if (!info || !info.allowCredit) {
+                            // Aucun moyen de payer avec le compte (pas de relation, ou
+                            // ni crédit ni solde) → ligne "non disponible". Sinon on
+                            // affiche le solde (avances/cashback inclus).
+                            if (!info || (!info.allowCredit && info.availableCredit <= 0)) {
                               return (
                                 <View key={g.epicerieId} style={styles.creditPanelRow}>
                                   <Text style={styles.creditPanelLabel} numberOfLines={1}>
-                                    {g.epicerieNom || `#${g.epicerieId}`}
+                                    {shopName(g)}
                                   </Text>
                                   <Text style={[styles.creditPanelValue, { color: '#dc2626' }]}>
                                     {t('cart.creditNotAllowed')} ✗
@@ -2591,7 +2876,7 @@ export default function CartScreen() {
                             return (
                               <View key={g.epicerieId} style={styles.creditPanelRow}>
                                 <Text style={styles.creditPanelLabel} numberOfLines={1}>
-                                  {g.epicerieNom || `#${g.epicerieId}`}
+                                  {shopName(g)}
                                 </Text>
                                 <Text style={[
                                   styles.creditPanelValue,
@@ -2609,7 +2894,9 @@ export default function CartScreen() {
 
                     // ── MONO ────────────────────────────────────────────────
                     if (!creditInfo) return null;
-                    if (!creditInfo.allowCredit) {
+                    // Message "non disponible" seulement si rien à dépenser :
+                    // ni crédit accordé ni solde d'avances/cashback.
+                    if (!creditInfo.allowCredit && creditInfo.availableCredit <= 0) {
                       return (
                         <View style={styles.creditInfoContainer}>
                           <Text style={styles.creditWarningText}>
@@ -2700,22 +2987,16 @@ export default function CartScreen() {
                           {savedPaymentMethods.length === 0 && (
                             <Text style={styles.emptyCardsText}>{t('cart.noSavedCards')}</Text>
                           )}
-                          <TouchableOpacity
-                            style={styles.addNewCardButton}
-                            onPress={() => {
-                              setShowCardForm(true);
-                              setCardDetails({
-                                cardNumber: '',
-                                cardholderName: '',
-                                expiryMonth: '',
-                                expiryYear: '',
-                                cvv: '',
-                                saveForLater: false,
-                              });
-                            }}
-                          >
-                            <Text style={styles.addNewCardButtonText}>+ {t('cart.addNewCard')}</Text>
-                          </TouchableOpacity>
+                          {/* B7 — Le formulaire « nouvelle carte » était un cul-de-sac :
+                              faute de passerelle de tokenisation PCI, processCardPayment
+                              throw systématiquement, la commande était créée PUIS annulée.
+                              On retire donc le bouton d'ajout et on affiche un message
+                              clair. Le paiement par carte ENREGISTRÉE, lui, reste actif
+                              (appel réel /payments/process-saved). */}
+                          <View style={styles.cardComingSoonNote}>
+                            <Ionicons name="information-circle-outline" size={16} color="#E65100" />
+                            <Text style={styles.cardComingSoonText}>{t('cart.cardComingSoon')}</Text>
+                          </View>
                         </View>
                       )}
 
@@ -2838,7 +3119,7 @@ export default function CartScreen() {
                   au root sont masqués par le Modal natif plein écran) */}
               {checkoutError && (
                 <View style={[styles.checkoutErrorBanner, { marginBottom: 12, marginHorizontal: 0 }]}>
-                  <Text style={styles.checkoutErrorIcon}>⚠️</Text>
+                  <Ionicons name="warning" size={18} color="#c62828" style={styles.checkoutErrorIcon} />
                   <Text style={styles.checkoutErrorText} numberOfLines={5}>{checkoutError}</Text>
                   <TouchableOpacity
                     onPress={() => setCheckoutError(null)}
@@ -2846,7 +3127,7 @@ export default function CartScreen() {
                     accessibilityRole="button"
                     accessibilityLabel="Fermer"
                   >
-                    <Text style={styles.checkoutErrorDismiss}>✕</Text>
+                    <Ionicons name="close" size={18} color="#c62828" />
                   </TouchableOpacity>
                 </View>
               )}
@@ -2858,7 +3139,10 @@ export default function CartScreen() {
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.continueButtonText}>{t('cart.finalizeOrder')}</Text>
+                  <View style={styles.finalizeInner}>
+                    <Ionicons name="lock-closed" size={18} color="#fff" />
+                    <Text style={styles.continueButtonText}>{t('cart.finalizeOrder')}</Text>
+                  </View>
                 )}
               </TouchableOpacity>
             </View>

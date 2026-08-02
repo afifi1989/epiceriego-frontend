@@ -39,9 +39,26 @@ const UNREAD_COUNT_KEY = 'notifications_unread_count';
  */
 export const notificationService = {
   /**
-   * Récupère toutes les notifications de l'utilisateur
+   * Récupère toutes les notifications de l'utilisateur.
+   *
+   * Comportement erreur réseau :
+   *  - Par défaut (silent), on retombe silencieusement sur le cache
+   *    AsyncStorage, ou sur `[]` si aucun cache. Ce comportement historique
+   *    est conservé pour les appelants qui n'ont pas d'état d'erreur dédié
+   *    (badge, écran épicier).
+   *  - Avec `{ throwIfNoCache: true }`, on continue de renvoyer le cache s'il
+   *    existe (bonne UX offline), MAIS si l'appel réseau échoue ET qu'aucun
+   *    cache exploitable n'existe, on **propage l'erreur** pour que l'écran
+   *    puisse afficher un état "Réessayer" au lieu d'une liste vide trompeuse.
+   *
+   * Note : un succès réseau qui renvoie `[]` n'est PAS une erreur (vide
+   * légitime) — seul un échec réseau sans cache déclenche le throw.
    */
-  getAllNotifications: async (page: number = 0, size: number = 50): Promise<Notification[]> => {
+  getAllNotifications: async (
+    page: number = 0,
+    size: number = 50,
+    options?: { throwIfNoCache?: boolean }
+  ): Promise<Notification[]> => {
     try {
       console.log('[NotificationService] Récupération des notifications, page:', page);
       const response = await api.get<Notification[]>('/notifications', {
@@ -55,13 +72,27 @@ export const notificationService = {
       return response.data;
     } catch (error: any) {
       console.warn('[NotificationService] Fallback sur AsyncStorage:', error.message);
+      // Lecture du cache isolée : on ne veut pas qu'un `throw` volontaire
+      // (propagation d'erreur réseau) soit repris par le catch du storage.
+      let cached: Notification[] | null = null;
       try {
         const data = await AsyncStorage.getItem(NOTIFICATIONS_STORAGE_KEY);
-        return data ? JSON.parse(data) : [];
+        cached = data != null ? JSON.parse(data) : null;
       } catch (storageError) {
         console.error('[NotificationService] Erreur AsyncStorage:', storageError);
-        return [];
+        cached = null;
       }
+
+      // Cache disponible : on le renvoie (offline OK), même s'il est vide.
+      if (cached != null) {
+        return cached;
+      }
+      // Pas de cache exploitable + échec réseau : on propage si l'appelant
+      // l'exige, pour distinguer "échec" de "vide légitime".
+      if (options?.throwIfNoCache) {
+        throw error;
+      }
+      return [];
     }
   },
 
@@ -232,7 +263,11 @@ export const notificationService = {
    */
   getNotificationsGroupedByDate: async (): Promise<{ [key: string]: Notification[] }> => {
     try {
-      const notifications = await notificationService.getAllNotifications(0, 200);
+      // throwIfNoCache: un échec réseau sans cache doit remonter à l'écran
+      // (état "Réessayer") au lieu d'être masqué en `{}` (faux "vide").
+      const notifications = await notificationService.getAllNotifications(0, 200, {
+        throwIfNoCache: true,
+      });
 
       const grouped: { [key: string]: Notification[] } = {};
 
@@ -260,8 +295,12 @@ export const notificationService = {
 
       return sorted;
     } catch (error) {
+      // On NE masque PLUS l'erreur en renvoyant `{}` (qui serait interprété
+      // comme "aucune notification"). On la propage pour que l'écran affiche
+      // l'état d'erreur + "Réessayer". Le cache offline reste géré en amont
+      // par getAllNotifications (renvoyé sans throw s'il existe).
       console.error('[NotificationService] Erreur groupage:', error);
-      return {};
+      throw error;
     }
   },
 };

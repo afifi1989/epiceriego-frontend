@@ -1,5 +1,19 @@
 import { Colors } from '../../constants/colors';
 /**
+ * ⚠️ COMPOSANT MORT — NON UTILISÉ (R5)
+ * ====================================
+ * Ancienne UI de gestion des codes-barres, basée sur `epicierProductService`
+ * (endpoints legacy `/produits/{id}/barcodes`, SANS notion de variante/`unitId`).
+ *
+ * Audit R5 : aucun écran ne l'importe. Il est REMPLACÉ par le composant moderne
+ * `src/features/products/components/tabs/BarcodesTab.tsx` (branché dans
+ * `app/(epicier)/fiche-produit.tsx`), qui appelle le MÊME endpoint barcode
+ * officiel via `api` mais rattache chaque code-barre à une variante (`unitId`).
+ *
+ * → Code mort, candidat à la SUPPRESSION. NE PAS le rebrancher.
+ *
+ * @deprecated Remplacé par BarcodesTab (gestion codes-barres par variante).
+ *
  * Barcode Management Tab Component
  * Permet d'ajouter/modifier/supprimer les codes-barres d'un produit
  * Support du scan et de la saisie manuelle

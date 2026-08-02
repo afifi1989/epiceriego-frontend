@@ -32,6 +32,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage } from '../../../src/context/LanguageContext';
 import bundleOfferService, { BundleOffer } from '../../../src/services/bundleOfferService';
 import { cartService, CartBundle, CartBundleItem } from '../../../src/services/cartService';
 
@@ -41,6 +42,7 @@ const RED = '#E53935';
 
 export default function BundleDetailScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{ id: string }>();
   const id = parseInt(params.id ?? '0', 10);
 
@@ -50,7 +52,7 @@ export default function BundleDetailScreen() {
 
   useEffect(() => {
     if (!Number.isFinite(id) || id <= 0) {
-      setError('Identifiant de bundle invalide.');
+      setError(t('bundleDetail.invalidId'));
       setLoading(false);
       return;
     }
@@ -63,9 +65,9 @@ export default function BundleDetailScreen() {
         if (!cancelled) {
           const status = err?.response?.status;
           if (status === 404) {
-            setError('Cette offre n\'est plus disponible.');
+            setError(t('bundleDetail.notAvailable'));
           } else {
-            setError(err?.response?.data?.message || err?.message || 'Chargement impossible');
+            setError(err?.response?.data?.message || err?.message || t('bundleDetail.loadFailed'));
           }
         }
       } finally {
@@ -98,15 +100,15 @@ export default function BundleDetailScreen() {
     try {
       await cartService.addBundle(cartBundle);
       Alert.alert(
-        'Ajouté au panier',
-        `${bundle.name} a été ajouté à votre panier.`,
+        t('bundleDetail.addedTitle'),
+        t('bundleDetail.addedMessage', { name: bundle.name }),
         [
-          { text: 'Continuer', style: 'cancel' },
-          { text: 'Voir le panier', onPress: () => router.push('/(client)/cart') },
+          { text: t('bundleDetail.continue'), style: 'cancel' },
+          { text: t('bundleDetail.viewCart'), onPress: () => router.push('/(client)/cart') },
         ],
       );
     } catch (err: any) {
-      Alert.alert('Erreur', err?.message || 'Ajout au panier impossible');
+      Alert.alert(t('common.error'), err?.message || t('bundleDetail.addError'));
     }
   };
 
@@ -114,7 +116,7 @@ export default function BundleDetailScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <Header onBack={() => router.back()} title="Chargement…" />
+        <Header onBack={() => router.back()} title={t('bundleDetail.loadingTitle')} />
         <View style={styles.center}><ActivityIndicator size="large" color={GREEN} /></View>
       </SafeAreaView>
     );
@@ -124,12 +126,12 @@ export default function BundleDetailScreen() {
   if (error || !bundle) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <Header onBack={() => router.back()} title="Offre indisponible" />
+        <Header onBack={() => router.back()} title={t('bundleDetail.unavailableTitle')} />
         <View style={styles.center}>
           <MaterialCommunityIcons name="gift-off-outline" size={56} color="#BDBDBD" />
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={() => router.back()} style={styles.errorBtn}>
-            <Text style={styles.errorBtnText}>Retour</Text>
+            <Text style={styles.errorBtnText}>{t('bundleDetail.back')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -147,7 +149,7 @@ export default function BundleDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <Header onBack={() => router.back()} title="Offre" />
+      <Header onBack={() => router.back()} title={t('bundleDetail.offerTitle')} />
 
       <ScrollView style={styles.body} contentContainerStyle={{ paddingBottom: 140 }}>
         {/* Hero */}
@@ -184,7 +186,12 @@ export default function BundleDetailScreen() {
         {/* Items */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Contenu du panier ({bundle.items?.length ?? 0} {bundle.items?.length === 1 ? 'produit' : 'produits'})
+            {t('bundleDetail.contentTitle', {
+              count: bundle.items?.length ?? 0,
+              unit: (bundle.items?.length ?? 0) === 1
+                ? t('bundleDetail.productSingular')
+                : t('bundleDetail.productPlural'),
+            })}
           </Text>
           <View style={styles.itemsList}>
             {(bundle.items ?? []).map((it, idx) => (
@@ -220,12 +227,12 @@ export default function BundleDetailScreen() {
           <View style={styles.priceCard}>
             {sumItems > bundle.price && (
               <View style={styles.priceRow}>
-                <Text style={styles.priceRowLabel}>Prix séparé</Text>
+                <Text style={styles.priceRowLabel}>{t('bundleDetail.separatePrice')}</Text>
                 <Text style={styles.priceRowOld}>{sumItems.toFixed(2)} {bundle.currencyCode}</Text>
               </View>
             )}
             <View style={styles.priceRow}>
-              <Text style={styles.priceRowMain}>Prix du panier</Text>
+              <Text style={styles.priceRowMain}>{t('bundleDetail.bundlePrice')}</Text>
               <Text style={styles.priceRowMainValue}>
                 {bundle.price.toFixed(2)} {bundle.currencyCode}
               </Text>
@@ -234,7 +241,10 @@ export default function BundleDetailScreen() {
               <View style={styles.savingsBanner}>
                 <Ionicons name="checkmark-circle" size={16} color="#fff" />
                 <Text style={styles.savingsBannerText}>
-                  Vous économisez {savings.toFixed(2)} {bundle.currencyCode} ({Math.round(savingsPct)}%)
+                  {t('bundleDetail.savingsBanner', {
+                    amount: `${savings.toFixed(2)} ${bundle.currencyCode}`,
+                    percent: Math.round(savingsPct),
+                  })}
                 </Text>
               </View>
             )}
@@ -247,7 +257,7 @@ export default function BundleDetailScreen() {
             <View style={styles.unavailableBox}>
               <Ionicons name="alert-circle" size={18} color={RED} />
               <Text style={styles.unavailableText}>
-                Cette offre est temporairement en rupture (un des produits n'est plus en stock).
+                {t('bundleDetail.outOfStock')}
               </Text>
             </View>
           </View>
@@ -257,7 +267,7 @@ export default function BundleDetailScreen() {
       {/* CTA sticky bottom */}
       <View style={styles.footer}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.footerPriceLabel}>Total</Text>
+          <Text style={styles.footerPriceLabel}>{t('bundleDetail.total')}</Text>
           <Text style={styles.footerPrice}>
             {bundle.price.toFixed(2)} {bundle.currencyCode}
           </Text>
@@ -269,7 +279,7 @@ export default function BundleDetailScreen() {
           activeOpacity={0.85}
         >
           <Ionicons name="cart" size={18} color="#fff" />
-          <Text style={styles.ctaText}>Ajouter au panier</Text>
+          <Text style={styles.ctaText}>{t('bundleDetail.addToCart')}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

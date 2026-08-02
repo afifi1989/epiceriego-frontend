@@ -1,4 +1,15 @@
 /**
+ * ⚠️ HOOK MORT — NON UTILISÉ (R5)
+ * ================================
+ * Ce hook s'appuie ENTIÈREMENT sur `epicierProductService` (legacy `/produits/*`)
+ * et fait doublon avec la couche produit moderne (`productService` / `/products/*`).
+ * Audit R5 : aucun écran ne l'importe → code mort, candidat à la SUPPRESSION.
+ *
+ * NE PAS le brancher sur un écran. Pour un nouvel écran de gestion produit,
+ * utiliser directement `productService` / `unitService` / `stockService`.
+ *
+ * @deprecated Doublon legacy de la couche `/products/*`.
+ *
  * Custom hook for product management
  * Handles product state, caching, and API interactions
  */

@@ -1,13 +1,12 @@
 /**
  * useCarnet — Hook pour charger et gérer le carnet digital d'un client.
  *
- * Utilise offlineService.fetchWithCache pour le support offline.
+ * Online-only : lecture directe du backend (temps réel).
  * Gère la pagination, le refresh, et les actions (encaisser, avance, crédit).
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import api from '../../../services/api';
-import { offlineService } from '../../../services/offline';
 import { CarnetResponse } from '../types';
 
 const PAGE_SIZE = 20;
@@ -49,21 +48,11 @@ export function useCarnet({ epicerieId, clientId, enabled = true }: UseCarnetOpt
     setError(null);
 
     try {
-      const cacheKey = `carnet_${epicerieId}_${clientId}_p${pageNum}`;
-      const fetcher = async () => {
-        const resp = await api.get<CarnetResponse>(
-          `/epiceries/${epicerieId}/clients/${clientId}/carnet`,
-          { params: { page: pageNum, size: PAGE_SIZE } }
-        );
-        return resp.data;
-      };
-
-      const data = await offlineService.fetchWithCache<CarnetResponse>({
-        namespace: 'clients',
-        key: cacheKey,
-        fetcher,
-        forceRefresh: isRefresh,
-      });
+      const resp = await api.get<CarnetResponse>(
+        `/epiceries/${epicerieId}/clients/${clientId}/carnet`,
+        { params: { page: pageNum, size: PAGE_SIZE } }
+      );
+      const data = resp.data;
 
       if (!data) {
         if (pageNum === 0) setError('Aucune donnée disponible');
@@ -82,14 +71,9 @@ export function useCarnet({ epicerieId, clientId, enabled = true }: UseCarnetOpt
 
       setHasMore(data.page < data.totalPages - 1);
       setPage(pageNum);
-
-      // Vérifier si les données sont du cache
-      const meta = await offlineService.cache.getMeta('clients', cacheKey);
-      setIsStale(meta?.isExpired ?? false);
+      setIsStale(false);
     } catch (err: any) {
-      if (offlineService.isOnline()) {
-        setError(err.message || 'Erreur de chargement');
-      }
+      setError(err.message || 'Erreur de chargement');
     } finally {
       setLoading(false);
       setRefreshing(false);

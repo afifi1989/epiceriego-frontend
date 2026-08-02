@@ -2,8 +2,6 @@ export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoun
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -13,7 +11,9 @@ import {
 } from 'react-native';
 import { InvoiceCard } from '../../src/components/epicier/InvoiceCard';
 import { PayInvoiceModal } from '../../src/components/client/PayInvoiceModal';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { Colors, FontSizes } from '../../src/constants/colors';
+import { useCurrency } from '../../src/context/CurrencyContext';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { creditPaymentService } from '../../src/services/creditPaymentService';
 import { invoiceService } from '../../src/services/invoiceService';
@@ -21,12 +21,20 @@ import { Invoice, Payment } from '../../src/type';
 
 type Tab = 'unpaid' | 'history' | 'advances';
 
+/** Taille de page pour l'affichage progressif de l'historique (infinite scroll). */
+const HISTORY_PAGE_SIZE = 15;
+
 export default function FacturesPaiementsScreen() {
   const router = useRouter();
   const { t } = useLanguage();
+  const { format } = useCurrency();
   const [activeTab, setActiveTab] = useState<Tab>('unpaid');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Fenêtre d'affichage de l'historique — grandit au scroll (onEndReached)
+  // plutôt que de tout rendre d'un coup.
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE);
 
   // Payment modal
   const [payingInvoice, setPayingInvoice] = useState<Invoice | null>(null);
@@ -37,12 +45,14 @@ export default function FacturesPaiementsScreen() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [advances, setAdvances] = useState({
     totalAdvances: 0,
+    totalCashback: 0,
     availableBalance: 0,
     usedBalance: 0,
     byStore: [] as Array<{
       epicerieId: number;
       epicerieName: string;
       totalAdvances: number;
+      totalCashback: number;
       availableBalance: number;
       usedBalance: number;
     }>,
@@ -63,6 +73,8 @@ export default function FacturesPaiementsScreen() {
   const loadData = async () => {
     try {
       setLoading(true);
+      setError(false);
+      setHistoryLimit(HISTORY_PAGE_SIZE);
 
       // Load unpaid invoices
       const unpaid = await invoiceService.getMyUnpaidInvoices();
@@ -81,7 +93,7 @@ export default function FacturesPaiementsScreen() {
       setAdvances(advancesData);
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Erreur', 'Impossible de charger les données');
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -109,11 +121,13 @@ export default function FacturesPaiementsScreen() {
     .reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
 
   if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
+    return <ScreenState variant="loading" />;
+  }
+
+  // Erreur réseau: écran dédié avec bouton « Réessayer » plutôt qu'un
+  // état vide trompeur.
+  if (error) {
+    return <ScreenState variant="error" onRetry={loadData} />;
   }
 
   return (
@@ -123,7 +137,7 @@ export default function FacturesPaiementsScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>{t('invoices.toPay')}</Text>
           <Text style={[styles.summaryValue, { color: '#F44336' }]}>
-            {totalUnpaid.toFixed(2)} DH
+            {format(totalUnpaid)}
           </Text>
           <Text style={styles.summaryCount}>
             {t(unpaidInvoices.length !== 1 ? 'invoices.invoiceCountPlural' : 'invoices.invoiceCount')
@@ -134,7 +148,7 @@ export default function FacturesPaiementsScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>{t('invoices.paid')}</Text>
           <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>
-            {totalPaid.toFixed(2)} DH
+            {format(totalPaid)}
           </Text>
           <Text style={styles.summaryCount}>
             {t(allInvoices.filter(i => i.status === 'PAID').length !== 1
@@ -147,9 +161,15 @@ export default function FacturesPaiementsScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>{t('invoices.advances')}</Text>
           <Text style={[styles.summaryValue, { color: '#2196F3' }]}>
-            {(advances.availableBalance ?? 0).toFixed(2)} DH
+            {format(advances.availableBalance ?? 0)}
           </Text>
-          <Text style={styles.summaryCount}>{t('invoices.available')}</Text>
+          {(advances.totalCashback ?? 0) > 0 ? (
+            <Text style={[styles.summaryCount, { color: '#2E7D32' }]}>
+              {t('invoices.includingCashback', { amount: format(advances.totalCashback ?? 0) })}
+            </Text>
+          ) : (
+            <Text style={styles.summaryCount}>{t('invoices.available')}</Text>
+          )}
         </View>
       </View>
 
@@ -186,9 +206,15 @@ export default function FacturesPaiementsScreen() {
           activeTab === 'unpaid'
             ? unpaidInvoices
             : activeTab === 'history'
-              ? allInvoices
+              ? allInvoices.slice(0, historyLimit)
               : []
         }
+        onEndReachedThreshold={0.4}
+        onEndReached={() => {
+          if (activeTab === 'history' && historyLimit < allInvoices.length) {
+            setHistoryLimit((n) => n + HISTORY_PAGE_SIZE);
+          }
+        }}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) =>
           activeTab === 'unpaid' || activeTab === 'history' ? (
@@ -214,7 +240,7 @@ export default function FacturesPaiementsScreen() {
                 <View style={styles.emptyState}>
                   <Text style={styles.emptyStateEmoji}>💰</Text>
                   <Text style={styles.emptyStateText}>
-                    Aucune avance enregistrée
+                    {t('invoices.noAdvances')}
                   </Text>
                 </View>
               ) : (
@@ -228,33 +254,42 @@ export default function FacturesPaiementsScreen() {
                           {item.epicerieName}
                         </Text>
                         <Text style={styles.advanceTotal}>
-                          {(item.totalAdvances ?? 0).toFixed(2)} DH
+                          {format(item.totalAdvances ?? 0)}
                         </Text>
                       </View>
 
                       <View style={styles.advanceRow}>
-                        <Text style={styles.advanceLabel}>Disponible</Text>
+                        <Text style={styles.advanceLabel}>{t('invoices.advanceAvailable')}</Text>
                         <Text
                           style={[
                             styles.advanceValue,
                             { color: '#4CAF50' },
                           ]}
                         >
-                          {(item.availableBalance ?? 0).toFixed(2)} DH
+                          {format(item.availableBalance ?? 0)}
                         </Text>
                       </View>
 
                       <View style={styles.advanceRow}>
-                        <Text style={styles.advanceLabel}>Utilisé</Text>
+                        <Text style={styles.advanceLabel}>{t('invoices.advanceUsed')}</Text>
                         <Text
                           style={[
                             styles.advanceValue,
                             { color: '#FF9800' },
                           ]}
                         >
-                          {(item.usedBalance ?? 0).toFixed(2)} DH
+                          {format(item.usedBalance ?? 0)}
                         </Text>
                       </View>
+
+                      {(item.totalCashback ?? 0) > 0 && (
+                        <View style={styles.advanceRow}>
+                          <Text style={styles.advanceLabel}>{t('invoices.advanceCashbackEarned')}</Text>
+                          <Text style={[styles.advanceValue, { color: '#2E7D32' }]}>
+                            {format(item.totalCashback ?? 0)}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   )}
                   scrollEnabled={false}
@@ -267,8 +302,8 @@ export default function FacturesPaiementsScreen() {
               <Text style={styles.emptyStateEmoji}>📄</Text>
               <Text style={styles.emptyStateText}>
                 {activeTab === 'unpaid'
-                  ? 'Aucune facture à payer'
-                  : 'Aucune facture'}
+                  ? t('invoices.noUnpaidInvoices')
+                  : t('invoices.noInvoices')}
               </Text>
             </View>
           )

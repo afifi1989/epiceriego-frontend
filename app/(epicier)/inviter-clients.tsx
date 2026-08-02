@@ -18,7 +18,8 @@ import {
 import { Colors, FontSizes } from '../../src/constants/colors';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { clientManagementService } from '../../src/services/clientManagementService';
-import { ClientInvitation } from '../../src/type';
+import { ClientDuplicateResponse, ClientInvitation } from '../../src/type';
+import { ClientDuplicateModal } from '../../src/components/epicier/ClientDuplicateModal';
 
 export default function InviterClientsScreen() {
   const router = useRouter();
@@ -31,6 +32,9 @@ export default function InviterClientsScreen() {
   const [invitations, setInvitations] = useState<ClientInvitation[]>([]);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
   const [useClientId, setUseClientId] = useState(false);
+  // Conflit 409 CLIENT_DUPLICATE (confirmAction LINK) — modal de confirmation.
+  const [duplicate, setDuplicate] = useState<ClientDuplicateResponse | null>(null);
+  const [confirmingMerge, setConfirmingMerge] = useState(false);
 
   /**
    * Get epicerie ID from storage
@@ -175,8 +179,14 @@ export default function InviterClientsScreen() {
     } catch (error: any) {
       console.error('Error sending invitation:', error);
 
-      // Check if it's a "client doesn't exist" error
-      if (error.includes("n'existe pas") || error.includes("not found")) {
+      // 409 CLIENT_DUPLICATE → modal de confirmation (existing vs incoming).
+      if (error?.clientDuplicate) {
+        setDuplicate(error.clientDuplicate as ClientDuplicateResponse);
+        return;
+      }
+
+      // Check if it's a "client doesn't exist" error (le service throw une string)
+      if (typeof error === 'string' && (error.includes("n'existe pas") || error.includes("not found"))) {
         Alert.alert(
           'Client non trouvé',
           `Aucun utilisateur avec l'email ${emailInput} n'existe dans le système.\n\nLe client doit d'abord créer un compte sur l'application.`,
@@ -192,6 +202,34 @@ export default function InviterClientsScreen() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Confirmation du rattachement : rejoue POST /invite avec confirmMerge:true.
+   */
+  const handleConfirmMerge = async () => {
+    if (!epicerieId) return;
+    setConfirmingMerge(true);
+    try {
+      const clientName = emailInput.split('@')[0];
+      await clientManagementService.sendClientInvitationByEmail(
+        epicerieId,
+        emailInput.trim(),
+        clientName,
+        true
+      );
+      setDuplicate(null);
+      Alert.alert('Succès', `Invitation envoyée à ${emailInput}`);
+      setEmailInput('');
+      await loadInvitations();
+    } catch (error: any) {
+      Alert.alert(
+        'Erreur',
+        (typeof error === 'string' ? error : error?.message) || 'Impossible de rattacher le client'
+      );
+    } finally {
+      setConfirmingMerge(false);
     }
   };
 
@@ -470,6 +508,15 @@ export default function InviterClientsScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* ─── Conflit de doublon client (409 CLIENT_DUPLICATE) ─── */}
+      <ClientDuplicateModal
+        visible={duplicate !== null}
+        data={duplicate}
+        confirming={confirmingMerge}
+        onCancel={() => setDuplicate(null)}
+        onConfirm={handleConfirmMerge}
+      />
     </View>
   );
 }

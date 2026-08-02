@@ -21,10 +21,7 @@ export type AuthFeedbackEvent =
   // Reauth modal (declenche par api.ts quand refresh impossible)
   | 'reauth:required'    // payload: { email?: string; reason?: string }
   | 'reauth:success'     // payload: void  (emis par ReauthModal apres re-login OK)
-  | 'reauth:cancelled'   // payload: void  (emis par ReauthModal apres dismiss/cancel)
-  // Cycle reseau (emis par NetworkBanner via NetInfo)
-  | 'network:offline'    // payload: void
-  | 'network:online';    // payload: void
+  | 'reauth:cancelled';  // payload: void  (emis par ReauthModal apres dismiss/cancel)
 
 export interface AuthFeedbackPayloads {
   'refresh:start':    void;
@@ -33,8 +30,6 @@ export interface AuthFeedbackPayloads {
   'reauth:required':  { email?: string; reason?: string };
   'reauth:success':   void;
   'reauth:cancelled': void;
-  'network:offline':  void;
-  'network:online':   void;
 }
 
 const PREFIX = '@authFeedback/';

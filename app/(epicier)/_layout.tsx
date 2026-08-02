@@ -12,8 +12,6 @@ import { epicerieService } from '../../src/services/epicerieService';
 import { onboardingService } from '../../src/services/onboardingService';
 import { usePathname } from 'expo-router';
 import { LoginResponse } from '../../src/type';
-import { NetworkProvider } from '../../src/context/NetworkContext';
-import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
 import { NotificationBadge } from '../../components/NotificationBadge';
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { EpicierLanguageProvider } from '../../src/context/EpicierLanguageProvider';
@@ -312,6 +310,12 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="supervision-caisses"
+        options={{
+          href: null, // accessible depuis le dashboard (owner/manager)
+        }}
+      />
+      <Tabs.Screen
         name="produits"
         options={{
           href: null,
@@ -321,6 +325,13 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         name="finaliser-catalogue"
         options={{
           href: null,        // accessible depuis la bannière Produits/Dashboard
+          headerShown: false, // header géré par l'écran (back + titre)
+        }}
+      />
+      <Tabs.Screen
+        name="importer-catalogue"
+        options={{
+          href: null,        // accessible depuis Produits (« Ajouter depuis le catalogue »)
           headerShown: false, // header géré par l'écran (back + titre)
         }}
       />
@@ -482,6 +493,13 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
         }}
       />
       <Tabs.Screen
+        name="client-commandes"
+        options={{
+          href: null,        // poussé depuis carnet-client (« Voir tout »)
+          headerShown: false, // header géré par l'écran (back + titre client)
+        }}
+      />
+      <Tabs.Screen
         name="onboarding"
         options={{
           // Onboarding obligatoire : on cache completement la tab bar pour
@@ -520,6 +538,12 @@ function EpicierTabsContent({ loginData }: { loginData: LoginResponse | null }) 
           headerTitleStyle: { fontWeight: 'bold' },
         }}
       />
+      <Tabs.Screen
+              name="caisses"
+              options={{
+                href: null,
+              }}
+            />
     </Tabs>
   );
 }
@@ -582,13 +606,10 @@ export default function EpicierLayout() {
   // recherche darija/arabe dans vente-directe reste fonctionnelle car elle
   // passe par la map de synonymes (helper expandAndFilter), pas par t().
   return (
-    <NetworkProvider>
-      <EpicierLanguageProvider>
-        <View style={{ flex: 1 }}>
-          <OfflineBanner />
-          <EpicierTabsContent loginData={loginData} />
-        </View>
-      </EpicierLanguageProvider>
-    </NetworkProvider>
+    <EpicierLanguageProvider>
+      <View style={{ flex: 1 }}>
+        <EpicierTabsContent loginData={loginData} />
+      </View>
+    </EpicierLanguageProvider>
   );
 }

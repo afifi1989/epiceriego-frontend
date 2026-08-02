@@ -37,7 +37,28 @@ export const LoyaltyCardVisual: React.FC<LoyaltyCardVisualProps> = ({
   style,
 }) => {
   const { t, language } = useLanguage();
-  const tint = colorFromId(card.epicerieId);
+  // Vraie couleur de branding de l'épicerie si le DTO la fournit, sinon
+  // teinte déterministe dérivée de l'id (comportement historique).
+  const brandColor = card.primaryColor && card.primaryColor.trim() !== ''
+    ? card.primaryColor.trim()
+    : null;
+  const tint = brandColor ?? colorFromId(card.epicerieId);
+  // Couleur de contraste posée SUR l'en-tête coloré (texte + statut). On
+  // privilégie l'onPrimaryColor du branding ; à défaut on choisit blanc/noir
+  // selon la luminance de la teinte pour garder un texte lisible sur les
+  // couleurs claires (l'ancien blanc fixe devenait illisible sur du jaune).
+  const onPrimary = card.onPrimaryColor && card.onPrimaryColor.trim() !== ''
+    ? card.onPrimaryColor.trim()
+    : readableTextColor(tint);
+  // Accent (bordure du cadre QR) : accentColor si fourni, sinon la teinte.
+  const accent = card.accentColor && card.accentColor.trim() !== ''
+    ? card.accentColor.trim()
+    : tint;
+  // Sous-titre : nom de carte personnalisé par l'épicier s'il existe, sinon
+  // libellé i18n générique (le "🎴 " en tête est retiré).
+  const cardSubtitle = card.cardName && card.cardName.trim() !== ''
+    ? card.cardName.trim()
+    : t('cards.headerTitle').replace(/^[^\s]+\s/, '');
   const issuedDate = formatIssuedDate(card.issuedAt, language);
 
   // Bascule vers les initiales si l'URL renvoie un 404 ou si le chargement
@@ -66,17 +87,17 @@ export const LoyaltyCardVisual: React.FC<LoyaltyCardVisualProps> = ({
             />
           ) : (
             <View style={[styles.logo, styles.logoFallback]}>
-              <Text style={styles.logoFallbackText}>
+              <Text style={[styles.logoFallbackText, { color: onPrimary }]}>
                 {initials(card.epicerieName)}
               </Text>
             </View>
           )}
           <View style={styles.headerText}>
-            <Text style={styles.brandName} numberOfLines={1}>
+            <Text style={[styles.brandName, { color: onPrimary }]} numberOfLines={1}>
               {card.epicerieName}
             </Text>
-            <Text style={styles.cardKind}>
-              {t('cards.headerTitle').replace(/^[^\s]+\s/, '')}
+            <Text style={[styles.cardKind, { color: onPrimary, opacity: 0.85 }]} numberOfLines={1}>
+              {cardSubtitle}
             </Text>
           </View>
           <View
@@ -85,7 +106,7 @@ export const LoyaltyCardVisual: React.FC<LoyaltyCardVisualProps> = ({
               card.active ? styles.statusActive : styles.statusInactive,
             ]}
           >
-            <Text style={styles.statusChipText}>
+            <Text style={[styles.statusChipText, { color: onPrimary }]}>
               {card.active ? t('cards.statusActive') : t('cards.statusInactive')}
             </Text>
           </View>
@@ -97,7 +118,7 @@ export const LoyaltyCardVisual: React.FC<LoyaltyCardVisualProps> = ({
         <View style={styles.qrBlock}>
           {card.active && card.qrToken ? (
             <>
-              <View style={styles.qrFrame}>
+              <View style={[styles.qrFrame, { borderColor: accent }]}>
                 <QRCode
                   value={card.qrToken}
                   size={qrSize}
@@ -153,6 +174,23 @@ const colorFromId = (id: number): string => {
   // Mix high and low bits so consecutive ids get different colors.
   const hash = Math.abs(id * 2654435761) % PALETTE.length;
   return PALETTE[hash];
+};
+
+/**
+ * Choisit noir ou blanc pour rester lisible sur une couleur de fond donnée.
+ * Utilisé comme fallback quand le branding ne fournit pas d'onPrimaryColor —
+ * évite le texte blanc illisible sur une teinte primaire claire (jaune, etc.).
+ * Formule de luminance relative simplifiée (sRGB, seuil 0.6).
+ */
+const readableTextColor = (hex: string): string => {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return '#ffffff';
+  const int = parseInt(m[1], 16);
+  const r = (int >> 16) & 0xff;
+  const g = (int >> 8) & 0xff;
+  const b = int & 0xff;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#212121' : '#ffffff';
 };
 
 const initials = (name: string): string => {

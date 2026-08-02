@@ -35,6 +35,8 @@ import {
 } from '../../src/services/walkInConversionService';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { tFmt } from '../../src/services/chatbotService';
+import { ClientDuplicateModal } from '../../src/components/epicier/ClientDuplicateModal';
+import { ClientDuplicateResponse } from '../../src/type';
 
 export default function PassantsAConvertirScreen() {
   const { t } = useLanguage();
@@ -50,6 +52,11 @@ export default function PassantsAConvertirScreen() {
   const [convertName, setConvertName] = useState('');
   const [convertPhone, setConvertPhone] = useState('');
   const [converting, setConverting] = useState(false);
+
+  // 409 CLIENT_DUPLICATE — la conversion correspond à un compte/fiche existant.
+  // On garde le corps structuré (existing vs incoming) pour la modal de confirmation.
+  const [duplicate, setDuplicate] = useState<ClientDuplicateResponse | null>(null);
+  const [confirmingMerge, setConfirmingMerge] = useState(false);
 
   // ── Load épicerie id once (same pattern as clients-list) ─────────────
   useEffect(() => {
@@ -106,6 +113,29 @@ export default function PassantsAConvertirScreen() {
     setEditing(null);
   };
 
+  // Succès (première tentative OU après confirmation de fusion) : feedback,
+  // retrait de la ligne convertie de la liste, fermeture des modals.
+  const onConvertSuccess = (
+    convertedEmail: string,
+    name: string,
+    ordersTransferred: number,
+  ) => {
+    Alert.alert(
+      '',
+      tFmt(t, 'walkInConversion.convertSuccess', {
+        name,
+        count: ordersTransferred,
+      }),
+    );
+    // Drop the converted entry from the list optimistically — a refetch
+    // would also work but feels slower. La ligne convertie disparaît.
+    setSuggestions((prev) =>
+      prev.filter((s) => s.receiptEmail !== convertedEmail),
+    );
+    setDuplicate(null);
+    setEditing(null);
+  };
+
   const submitConvert = async () => {
     if (!editing || !epicerieId) return;
     if (!convertName.trim()) {
@@ -119,27 +149,52 @@ export default function PassantsAConvertirScreen() {
         name: convertName.trim(),
         phone: convertPhone.trim() || undefined,
       });
-      Alert.alert(
-        '',
-        tFmt(t, 'walkInConversion.convertSuccess', {
-          name: convertName.trim(),
-          count: result.ordersTransferred,
-        }),
-      );
-      // Drop the converted entry from the list optimistically — a refetch
-      // would also work but feels slower.
-      setSuggestions((prev) =>
-        prev.filter((s) => s.receiptEmail !== editing.receiptEmail),
-      );
-      setEditing(null);
+      onConvertSuccess(editing.receiptEmail, convertName.trim(), result.ordersTransferred);
     } catch (e: any) {
-      Alert.alert(
-        t('walkInConversion.convertError'),
-        e?.message || '',
-      );
+      // 409 CLIENT_DUPLICATE → on ouvre la modal de confirmation au lieu de
+      // l'erreur générique. Le serveur renvoie existing vs incoming + motif.
+      if (e?.clientDuplicate) {
+        setDuplicate(e.clientDuplicate as ClientDuplicateResponse);
+      } else if (!e?.__subscriptionGateHandled) {
+        Alert.alert(
+          t('walkInConversion.convertError'),
+          e?.message || '',
+        );
+      }
     } finally {
       setConverting(false);
     }
+  };
+
+  // Confirmation de la fusion : rejoue la conversion avec confirmMerge:true.
+  const handleConfirmMerge = async () => {
+    if (!editing || !epicerieId) return;
+    setConfirmingMerge(true);
+    try {
+      const result = await walkInConversionService.convert(epicerieId, {
+        receiptEmail: editing.receiptEmail,
+        name: convertName.trim(),
+        phone: convertPhone.trim() || undefined,
+        confirmMerge: true,
+      });
+      onConvertSuccess(editing.receiptEmail, convertName.trim(), result.ordersTransferred);
+    } catch (e: any) {
+      if (!e?.__subscriptionGateHandled) {
+        Alert.alert(
+          t('walkInConversion.convertError'),
+          e?.message || '',
+        );
+      }
+    } finally {
+      setConfirmingMerge(false);
+    }
+  };
+
+  // Annuler la fusion : on ferme la modal de doublon sans effet, l'épicier
+  // reste sur le dialogue de conversion (il peut ajuster ou annuler).
+  const cancelMerge = () => {
+    if (confirmingMerge) return;
+    setDuplicate(null);
   };
 
   // ─────────────────────────────────────────────────────────────────────
@@ -266,6 +321,15 @@ export default function PassantsAConvertirScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Conflit 409 CLIENT_DUPLICATE — confirmation de fusion/rattachement */}
+      <ClientDuplicateModal
+        visible={duplicate !== null}
+        data={duplicate}
+        confirming={confirmingMerge}
+        onCancel={cancelMerge}
+        onConfirm={handleConfirmMerge}
+      />
     </View>
   );
 }

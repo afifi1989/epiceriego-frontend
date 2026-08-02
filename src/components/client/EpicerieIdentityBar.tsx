@@ -26,6 +26,8 @@ export interface EpicerieIdentityBarProps {
   logoUrl?: string | null;
   /** Nom commercial — typo brand color, 20pt bold. */
   name: string;
+  /** Slogan/tagline court de la boutique (brandStatement). Rendu discret en italique sous le nom. */
+  brandStatement?: string;
   /** Adresse postale formatée. Tap dessus → onAddressPress si fourni. */
   address?: string;
   /** Couleur primaire de l'épicerie (sert au nom). */
@@ -36,6 +38,7 @@ export interface EpicerieIdentityBarProps {
 export const EpicerieIdentityBar: React.FC<EpicerieIdentityBarProps> = ({
   logoUrl,
   name,
+  brandStatement,
   address,
   brandPrimary,
   onAddressPress,
@@ -51,6 +54,11 @@ export const EpicerieIdentityBar: React.FC<EpicerieIdentityBarProps> = ({
         <Text style={[styles.name, { color: brandPrimary }]} numberOfLines={1}>
           {name}
         </Text>
+        {!!brandStatement?.trim() && (
+          <Text style={styles.tagline} numberOfLines={2}>
+            {brandStatement.trim()}
+          </Text>
+        )}
         {!!address && (
           <Pressable
             onPress={onAddressPress}
@@ -86,6 +94,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 2,
     letterSpacing: 0.1,
+  },
+  tagline: {
+    fontSize: 13,
+    color: '#8A8A8A',
+    fontStyle: 'italic',
+    lineHeight: 17,
+    marginBottom: 3,
   },
   address: {
     fontSize: 13,

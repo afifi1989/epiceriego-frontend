@@ -31,7 +31,9 @@ export type SubscriptionFeature =
   | 'hasCsvImport'
   | 'hasLoyalty'
   | 'hasMultiEpicerie'
-  | 'hasPrioritySupport';
+  | 'hasPrioritySupport'
+  | 'hasBundleOffers'
+  | 'hasMultiCaisse';
 
 /** Quota types — null = illimité côté backend. */
 export type QuotaType =
@@ -42,7 +44,17 @@ export type QuotaType =
   | 'maxLivreurs'
   | 'maxPromoCodes';
 
-/** Plan par défaut quand l'API échoue. Le moins permissif → safe. */
+/**
+ * DERNIER RECOURS uniquement. La source de vérité reste l'API :
+ *   1. le plan renvoyé par /subscriptions/my-plan (sub.plan), sinon
+ *   2. la vraie définition DECOUVERTE chargée depuis /subscriptions/plans
+ *      (cache module-level {@link cachedDefaultPlan}), sinon
+ *   3. ce fallback codé en dur — utilisé seulement si le réseau est coupé
+ *      dès le tout premier lancement (aucun /plans jamais chargé). Le moins
+ *      permissif → safe : jamais de feature payante débloquée à tort.
+ * Les quotas ci-dessous ne sont donc qu'un garde-fou hors-ligne et peuvent
+ * diverger du backend ; ne pas s'en servir comme référence produit.
+ */
 const FALLBACK_PLAN: SubscriptionPlan = {
   id: 0,
   code: 'DECOUVERTE',
@@ -63,12 +75,22 @@ const FALLBACK_PLAN: SubscriptionPlan = {
   hasLoyalty: false,
   hasMultiEpicerie: false,
   hasPrioritySupport: false,
+  hasBundleOffers: false,
+  hasMultiCaisse: false,
   displayOrder: 1,
 };
 
 // ── Cache module-level ──────────────────────────────────────────────
 let cachedSub: MySubscription | null = null;
 let inflight: Promise<MySubscription | null> | null = null;
+/**
+ * Définition DECOUVERTE (plan gratuit) chargée depuis /subscriptions/plans.
+ * Sert de fallback « source de vérité » quand l'épicier n'a pas encore de
+ * sub chargé : quotas/flags réels du backend plutôt que le FALLBACK_PLAN codé
+ * en dur. Null tant que /plans n'a jamais répondu.
+ */
+let cachedDefaultPlan: SubscriptionPlan | null = null;
+let defaultPlanInflight: Promise<SubscriptionPlan | null> | null = null;
 /** V99 : cache de la demande PENDING courante (null si aucune). */
 let cachedPending: SubscriptionChangeRequest | null = null;
 let pendingInflight: Promise<SubscriptionChangeRequest | null> | null = null;
@@ -111,6 +133,29 @@ async function loadSubscription(): Promise<MySubscription | null> {
   return inflight;
 }
 
+/**
+ * Charge (une fois) la définition du plan gratuit DECOUVERTE depuis le
+ * catalogue /plans, pour servir de fallback réel quand aucun sub n'est chargé.
+ * Best-effort : en cas d'échec on garde le FALLBACK_PLAN codé en dur.
+ */
+async function loadDefaultPlan(): Promise<SubscriptionPlan | null> {
+  if (cachedDefaultPlan) return cachedDefaultPlan;
+  if (defaultPlanInflight) return defaultPlanInflight;
+  defaultPlanInflight = subscriptionService.listPlans()
+    .then(plans => {
+      if (!plans || plans.length === 0) return null;
+      // DECOUVERTE explicite, sinon le plan de plus petit displayOrder (le
+      // moins permissif) — jamais une feature payante débloquée à tort.
+      const found = plans.find(p => p.code === 'DECOUVERTE')
+        ?? [...plans].sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0))[0];
+      cachedDefaultPlan = found ?? null;
+      return cachedDefaultPlan;
+    })
+    .catch(() => null)
+    .finally(() => { defaultPlanInflight = null; });
+  return defaultPlanInflight;
+}
+
 /** V99 : load la demande PENDING courante (1 max). */
 async function loadPendingRequest(): Promise<SubscriptionChangeRequest | null> {
   if (pendingInflight) return pendingInflight;
@@ -131,9 +176,12 @@ export async function refreshPendingRequest(): Promise<SubscriptionChangeRequest
   return loadPendingRequest();
 }
 
-/** Plan effectif : le plan du sub courant, ou le fallback. */
+/**
+ * Plan effectif, par ordre de confiance décroissant :
+ *   sub.plan (API) → DECOUVERTE réel depuis /plans → fallback codé en dur.
+ */
 function effectivePlan(sub: MySubscription | null): SubscriptionPlan {
-  return sub?.plan ?? FALLBACK_PLAN;
+  return sub?.plan ?? cachedDefaultPlan ?? FALLBACK_PLAN;
 }
 
 export interface UseSubscriptionResult {
@@ -165,6 +213,9 @@ export function useSubscription(): UseSubscriptionResult {
   const [sub, setSub] = useState<MySubscription | null>(cachedSub);
   const [loading, setLoading] = useState<boolean>(cachedSub == null);
   const [pending, setPending] = useState<SubscriptionChangeRequest | null>(cachedPending);
+  // Tick pour re-render quand le plan DECOUVERTE réel (/plans) arrive et
+  // remplace le FALLBACK_PLAN codé en dur dans effectivePlan().
+  const [, setDefaultPlanTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -174,6 +225,11 @@ export function useSubscription(): UseSubscriptionResult {
         if (!alive) return;
         setSub(next);
         setLoading(false);
+      });
+      // Fallback « source de vérité » : charge la vraie définition DECOUVERTE
+      // pour ne pas dépendre des quotas/flags codés en dur pendant le chargement.
+      loadDefaultPlan().then(p => {
+        if (alive && p) setDefaultPlanTick(t => t + 1);
       });
     }
     // Charge la pending en parallèle (toujours, pour avoir l'état frais).

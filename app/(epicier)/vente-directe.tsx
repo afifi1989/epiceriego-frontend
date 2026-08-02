@@ -14,6 +14,8 @@ import { Colors } from '../../src/constants/colors';
  */
 
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { getActiveCaisseId, useActiveCaisse } from '../../src/services/activeCaisse';
+import { cashSessionService } from '../../src/services/cashSessionService';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,7 +43,7 @@ import { epicerieService } from '../../src/services/epicerieService';
 import { orderService } from '../../src/services/orderService';
 import { receiptPrinterService } from '../../src/services/receiptPrinterService';
 import { productService } from '../../src/services/productService';
-import { offlineService } from '../../src/services/offline';
+import api from '../../src/services/api';
 import { BarcodeProductScanner } from '../../src/components/shared/BarcodeProductScanner';
 import PromoCodeInput from '../../src/components/client/PromoCodeInput';
 import { CategoryFilterModal } from '../../src/components/epicier/CategoryFilterModal';
@@ -53,6 +55,19 @@ import { useLanguage } from '../../src/context/LanguageContext';
 import { AppliedPromoCode, extractPromoRejection } from '../../src/services/promoCodeService';
 import { synonymsService } from '../../src/services/synonymsService';
 import { expandAndFilter, SynonymExpansionMap } from '../../src/utils/synonymExpansion';
+// Promotions — on RÉUTILISE l'outillage promo déjà en place côté client
+// (mêmes fonctions pures → cohérence garantie entre parcours client et POS).
+import { promotionService, Promotion } from '../../src/services/promotionService';
+import { PromoProductBadge } from '../../src/features/promotions/components';
+import {
+  activePromosForEpicerie,
+  bestPromoForProduct,
+  bestPromoForUnit,
+  effectivePriceForProduct,
+  effectivePriceForUnit,
+  type EffectivePrice,
+} from '../../src/features/promotions/utils';
+import { useNow } from '../../src/features/promotions/hooks';
 
 /** Sale flow: anonymous walk-in customer (default) vs picked-from-list. */
 type ClientMode = 'walkIn' | 'registered';
@@ -71,8 +86,13 @@ interface CartItem {
   productNom: string;
   unitId?: number;
   unitLabel: string;
+  /** Prix EFFECTIF (déjà remisé si une promo s'applique) — sert au total. */
   prix: number;
   quantite: number;
+  /** Prix catalogue avant remise, présent uniquement si `onPromo` (affichage barré). */
+  prixOriginal?: number;
+  /** true si une promo a été appliquée à cette ligne (prix barré + badge). */
+  onPromo?: boolean;
 }
 
 type PaymentMethod = 'CASH' | 'CARD' | 'CLIENT_ACCOUNT' | 'MOBILE';
@@ -195,9 +215,21 @@ export default function VenteDirecteScreen() {
     deviceIdService.get().then(setDeviceId);
   }, []);
 
-  // ── Sync serveur (Axe POS / S1+S6) ─────────────────────────────
-  // Additive : n'interfère pas avec la logique existante en mémoire.
-  // S6 : toutes les écritures passent par offlineService.writeOrQueue
+  // ── Statut caisse : session ouverte sur la caisse active du poste ──
+  // null = inconnu (chargement) ; true = ouverte ; false = aucune → bannière.
+  // Non bloquant : la vente reste possible même sans session, mais elle
+  // échappe alors au rapport Z (d'où l'avertissement affiché).
+  const activeCaisseId = useActiveCaisse();
+  const [cashDrawerOpen, setCashDrawerOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    cashSessionService.getCurrent(activeCaisseId ?? null)
+      .then(session => { if (!cancelled) setCashDrawerOpen(!!session); })
+      .catch(() => { if (!cancelled) setCashDrawerOpen(null); });
+    return () => { cancelled = true; };
+  }, [activeCaisseId]);
+
+  // ── Sync serveur des sessions POS (temps réel) ─────────────────
   const posSync = usePosSessionSync({
     debounceMs: 800,
     deviceId: deviceId ?? undefined,
@@ -327,6 +359,16 @@ export default function VenteDirecteScreen() {
   const [productSearch, setProductSearch] = useState('');
   const [loadingProducts, setLoadingProducts] = useState(false);
 
+  // ── Promotions actives de l'épicerie ──────────────────────────────────────
+  // Réutilise l'outillage promo du parcours client : on charge les promos
+  // actives une fois (échec silencieux → []) puis on price au prix EFFECTIF
+  // via les mêmes fonctions pures (`bestPromoForX` / `effectivePriceForX`).
+  const [activePromos, setActivePromos] = useState<Promotion[]>([]);
+  // Tick léger (30 s) qui force un re-render pour que `bestPromoForX`
+  // revérifie la fenêtre temporelle → une promo qui expire pendant que
+  // l'écran reste ouvert cesse d'être affichée/remisée (idem client).
+  useNow(30_000);
+
   // UI états
   const [showCart, setShowCart]         = useState(false);
   const [submitting, setSubmitting]     = useState(false);
@@ -377,6 +419,14 @@ export default function VenteDirecteScreen() {
     [cart]
   );
 
+  // V95 — Le panier contient-il au moins une ligne déjà remisée par une promo ?
+  // Transmis à PromoCodeInput pour anticiper le refus d'un code NON CUMULABLE
+  // (NOT_STACKABLE_WITH_PROMOTION) — même logique que côté client.
+  const cartHasPromoItems = useMemo(
+    () => cart.some(item => item.onPromo === true),
+    [cart]
+  );
+
   // Paiement sur compte possible ? client inscrit + crédit autorisé + plafond
   // ≥ total. Côté mobile, la relation ne porte que le plafond (pas le solde dû
   // ni les avances) → on l'utilise comme borne ; le backend revérifie
@@ -403,11 +453,7 @@ export default function VenteDirecteScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const epicerie = await offlineService.fetchWithCache<Epicerie>({
-          namespace: 'epicerie',
-          key: 'my-epicerie',
-          fetcher: () => epicerieService.getMyEpicerie(),
-        });
+        const epicerie = await epicerieService.getMyEpicerie();
         if (!epicerie) throw new Error('Aucune donnée disponible');
         setEpicerieId(epicerie.id);
 
@@ -415,22 +461,20 @@ export default function VenteDirecteScreen() {
         // until the map arrives, then upgrades to darija-aware on next render.
         synonymsService.getExpansionMap(epicerie.id)
           .then(setSynonymMap)
-          .catch(() => { /* offline-first, ignore */ });
+          .catch(() => { /* non bloquant */ });
 
         const [prods, cls] = await Promise.all([
-          offlineService.fetchWithCache<Product[]>({
-            namespace: 'products',
-            key: `epicerie_${epicerie.id}`,
-            fetcher: () => productService.getProductsByEpicerie(epicerie.id),
-          }),
-          offlineService.fetchWithCache<ClientEpicerieRelation[]>({
-            namespace: 'clients',
-            key: `epicerie_${epicerie.id}_clients`,
-            fetcher: () => clientManagementService.getEpicerieClients(epicerie.id, 0, 100),
-          }),
+          productService.getProductsByEpicerie(epicerie.id),
+          clientManagementService.getEpicerieClients(epicerie.id),
         ]);
         if (prods) setProducts(prods.filter(p => p.isAvailable !== false));
         if (cls) setClients(cls.filter(c => c.status === 'ACCEPTED'));
+
+        // Promos actives — non bloquant, échec silencieux → aucune remise
+        // affichée/appliquée (le POS reste 100 % opérationnel au prix catalogue).
+        promotionService.getAllActivePromotions()
+          .then(promos => setActivePromos(activePromosForEpicerie(promos, epicerie.id)))
+          .catch(() => setActivePromos([]));
 
         // Catégories chargées depuis l'API (équivalent web `loadCategories`).
         // Non bloquant : la grille produits s'affiche même si le fetch
@@ -448,9 +492,7 @@ export default function VenteDirecteScreen() {
           })
           .finally(() => setCategoriesLoading(false));
       } catch (err: any) {
-        if (offlineService.isOnline()) {
-          Alert.alert('Erreur', err.message || 'Chargement impossible');
-        }
+        Alert.alert('Erreur', err.message || 'Chargement impossible');
       } finally {
         setLoadingInit(false);
       }
@@ -573,6 +615,11 @@ export default function VenteDirecteScreen() {
     } catch {
       // silently ignore refresh errors
     }
+    // Rafraîchit aussi les promos actives (une promo a pu démarrer/expirer
+    // depuis l'ouverture de l'écran). Échec silencieux → on garde l'existant.
+    promotionService.getAllActivePromotions()
+      .then(promos => setActivePromos(activePromosForEpicerie(promos, epicerieId)))
+      .catch(() => { /* garde les promos déjà en mémoire */ });
   }, [epicerieId]);
 
   // ── Gestion des sessions POS ──────────────────────────────────────────────
@@ -610,6 +657,23 @@ export default function VenteDirecteScreen() {
 
   // ── Sélection produit / variante ─────────────────────────────────────────
 
+  /**
+   * Prix EFFECTIF d'un produit (ou d'une variante précise) au moment de
+   * l'ajout au panier. Factorisé pour éviter la duplication entre les 3 points
+   * d'ajout (clic produit, confirmation variante, scan code-barre) et pour
+   * garantir qu'on réutilise EXACTEMENT les fonctions pures du parcours client.
+   *
+   * @returns `{ display, original, hasDiscount }` — `display` est le prix
+   *   remisé à mettre dans `CartItem.prix`.
+   */
+  const effectivePriceOf = useCallback(
+    (product: Product, unit?: ProductUnit | null): EffectivePrice =>
+      unit
+        ? effectivePriceForUnit(unit, bestPromoForUnit(activePromos, product, unit.id))
+        : effectivePriceForProduct(product, bestPromoForProduct(activePromos, product)),
+    [activePromos],
+  );
+
   const handleProductPress = (product: Product) => {
     const availableUnits = (product.units ?? []).filter(u => u.isAvailable && u.stock > 0);
 
@@ -619,12 +683,15 @@ export default function VenteDirecteScreen() {
     }
 
     if (availableUnits.length === 0) {
-      // Produit sans variantes — ajouter directement
+      // Produit sans variantes — ajouter directement au prix effectif (remisé).
+      const eff = effectivePriceOf(product);
       addToCart({
         productId: product.id,
         productNom: product.nom,
         unitLabel: 'Unité',
-        prix: product.prix,
+        prix: eff.display,
+        prixOriginal: eff.original ?? undefined,
+        onPromo: eff.hasDiscount,
         quantite: 1,
       });
       return;
@@ -647,12 +714,15 @@ export default function VenteDirecteScreen() {
       Alert.alert('Stock insuffisant', `Stock disponible : ${selectedUnit.stock}`);
       return;
     }
+    const eff = effectivePriceOf(unitPickerProduct, selectedUnit);
     addToCart({
       productId: unitPickerProduct.id,
       productNom: unitPickerProduct.nom,
       unitId: selectedUnit.id,
       unitLabel: selectedUnit.label,
-      prix: selectedUnit.prix,
+      prix: eff.display,
+      prixOriginal: eff.original ?? undefined,
+      onPromo: eff.hasDiscount,
       quantite: qty,
     });
     setUnitPickerProduct(null);
@@ -686,12 +756,15 @@ export default function VenteDirecteScreen() {
       }
 
       if (availableUnits.length === 0) {
-        // Produit sans variantes → ajout direct
+        // Produit sans variantes → ajout direct au prix effectif (remisé).
+        const eff = effectivePriceOf(product);
         addToCart({
           productId: product.id,
           productNom: product.nom,
           unitLabel: 'Unité',
-          prix: product.prix,
+          prix: eff.display,
+          prixOriginal: eff.original ?? undefined,
+          onPromo: eff.hasDiscount,
           quantite: 1,
         });
         return;
@@ -787,7 +860,9 @@ export default function VenteDirecteScreen() {
     // client was selected; the walk-in endpoint resolves the placeholder
     // user server-side and rejects any clientId hint.
     const salePayload: any = {
-      ...(isWalkIn ? {} : { clientId: selectedClient!.clientId }),
+      // Multi-caisse : rattache la vente directe à la caisse active du poste
+      // (null -> caisse par défaut serveur). Le walk-in résout la caisse serveur.
+      ...(isWalkIn ? {} : { clientId: selectedClient!.clientId, caisseId: getActiveCaisseId() ?? null }),
       items: cart.map(item => ({
         productId: item.productId,
         ...(item.unitId != null ? { unitId: item.unitId } : {}),
@@ -819,22 +894,12 @@ export default function VenteDirecteScreen() {
     }
 
     const endpoint = isWalkIn ? '/orders/walk-in-sale' : '/orders/direct-sale';
-    const description = isWalkIn
-      ? `Vente passante — ${fmt(cartTotal)}`
-      : `Vente directe ${selectedClient!.clientNom} — ${fmt(cartTotal)}`;
 
     try {
-      const result = await offlineService.writeOrQueue({
-        domain: 'orders',
-        method: 'POST',
-        endpoint,
-        payload: salePayload,
-        invalidateCache: ['orders', 'products'],
-        description,
-      });
+      const response = await api.post(endpoint, salePayload);
+      const result = { online: true as const, data: response.data as any };
 
-      // Vente enregistrée (online OU mise en file offline) → confirmation
-      // physique immédiate, avant même l'Alert de succès.
+      // Vente enregistrée → confirmation physique immédiate, avant l'Alert.
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
       const clientNomSaved = isWalkIn ? '🚶 Client de passage' : selectedClient!.clientNom;
@@ -907,15 +972,6 @@ export default function VenteDirecteScreen() {
           `Total : ${fmt(totalSaved)}\nCommande créée pour ${clientNomSaved}`,
           successButtons
         );
-      } else {
-        Alert.alert(
-          '📦 Vente enregistrée hors-ligne',
-          `${fmt(totalSaved)} pour ${clientNomSaved}\nSera synchronisée au retour du réseau.`,
-          [
-            { text: 'Nouvelle vente' },
-            { text: 'Retour', onPress: () => router.back() },
-          ]
-        );
       }
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? err?.message ?? String(err);
@@ -970,6 +1026,25 @@ export default function VenteDirecteScreen() {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* ── Bannière : aucune caisse ouverte (avertissement non bloquant) ── */}
+        {cashDrawerOpen === false && (
+          <View style={styles.cashWarning}>
+            <Ionicons name="warning" size={20} color="#B45309" style={{ marginTop: 1 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cashWarningTitle}>Aucune caisse ouverte</Text>
+              <Text style={styles.cashWarningText}>
+                Vous pouvez encaisser, mais ces ventes ne compteront pas dans le rapport Z.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.cashWarningBtn}
+              onPress={() => router.push('/(epicier)/cash-session' as any)}
+            >
+              <Text style={styles.cashWarningBtnText}>Ouvrir</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── Onglets sessions multi-clients ── */}
         <View style={styles.sessionBar}>
@@ -1187,9 +1262,16 @@ export default function VenteDirecteScreen() {
                   const inCart = cart.some(c => c.productId === product.id);
                   const stock = product.totalStock ?? product.stock ?? 0;
                   const hasUnits = (product.units?.length ?? 0) > 0;
-                  const minPrice = hasUnits
-                    ? Math.min(...(product.units ?? []).map(u => u.prix))
-                    : product.prix;
+                  // Variante la moins chère → sert de base au prix "à partir de".
+                  const cheapestUnit = hasUnits
+                    ? (product.units ?? []).reduce((min, u) => (u.prix < min.prix ? u : min))
+                    : null;
+                  // Prix effectif (remisé) affiché sur la carte + promo pour le badge.
+                  // Réutilise les mêmes fonctions pures que le parcours client.
+                  const cardPrice = effectivePriceOf(product, cheapestUnit);
+                  const cardPromo = cheapestUnit
+                    ? bestPromoForUnit(activePromos, product, cheapestUnit.id)
+                    : bestPromoForProduct(activePromos, product);
 
                   return (
                     <TouchableOpacity
@@ -1206,6 +1288,11 @@ export default function VenteDirecteScreen() {
                       {inCart && (
                         <View style={styles.inCartBadge}>
                           <Ionicons name="checkmark" size={12} color="#fff" />
+                        </View>
+                      )}
+                      {cardPromo && (
+                        <View style={styles.productPromoBadge}>
+                          <PromoProductBadge promo={cardPromo} compact />
                         </View>
                       )}
                       <View style={styles.productImageContainer}>
@@ -1227,8 +1314,13 @@ export default function VenteDirecteScreen() {
                         )}
                       </View>
                       <Text style={styles.productName} numberOfLines={2}>{product.nom}</Text>
-                      <Text style={styles.productPrice}>
-                        {hasUnits ? 'à partir de ' : ''}{fmt(minPrice)}
+                      {cardPrice.hasDiscount && cardPrice.original != null && (
+                        <Text style={styles.productPrixBarre}>
+                          {hasUnits ? 'à partir de ' : ''}{fmt(cardPrice.original)}
+                        </Text>
+                      )}
+                      <Text style={[styles.productPrice, cardPrice.hasDiscount && styles.productPricePromo]}>
+                        {hasUnits ? 'à partir de ' : ''}{fmt(cardPrice.display)}
                       </Text>
                       {hasUnits && (
                         <Text style={styles.productUnitsHint}>
@@ -1280,11 +1372,25 @@ export default function VenteDirecteScreen() {
             >
               {cart.map((item, idx) => (
                 <View key={idx} style={styles.cartPanelItem}>
+                  {item.onPromo && (
+                    <View style={styles.cartPanelPromoTag}>
+                      <Text style={styles.cartPanelPromoTagText}>PROMO</Text>
+                    </View>
+                  )}
                   <Text style={styles.cartPanelItemName} numberOfLines={1}>{item.productNom}</Text>
                   <Text style={styles.cartPanelItemUnit} numberOfLines={1}>{item.unitLabel}</Text>
                   <View style={styles.cartPanelItemBottom}>
                     <Text style={styles.cartPanelItemQty}>×{item.quantite}</Text>
-                    <Text style={styles.cartPanelItemPrice}>{fmt(item.prix * item.quantite)}</Text>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      {item.onPromo && item.prixOriginal != null && (
+                        <Text style={styles.cartPanelItemPriceBarre}>
+                          {fmt(item.prixOriginal * item.quantite)}
+                        </Text>
+                      )}
+                      <Text style={[styles.cartPanelItemPrice, item.onPromo && styles.cartPanelItemPricePromo]}>
+                        {fmt(item.prix * item.quantite)}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               ))}
@@ -1297,6 +1403,7 @@ export default function VenteDirecteScreen() {
                   epicerieId={epicerieId}
                   subtotal={cartSubtotal}
                   channel="POS"
+                  cartHasPromoItems={cartHasPromoItems}
                   value={appliedPromo}
                   onApplied={setAppliedPromo}
                   onRemoved={() => setAppliedPromo(null)}
@@ -1487,7 +1594,12 @@ export default function VenteDirecteScreen() {
               {(unitPickerProduct.units ?? [])
                 .filter(u => u.isAvailable)
                 .sort((a, b) => a.displayOrder - b.displayOrder)
-                .map(unit => (
+                .map(unit => {
+                  // Prix effectif (remisé) de la variante — mêmes fonctions pures
+                  // que la card et confirmUnitSelection → cohérence garantie.
+                  const unitEff = effectivePriceOf(unitPickerProduct, unit);
+                  const unitPromo = bestPromoForUnit(activePromos, unitPickerProduct, unit.id);
+                  return (
                   <TouchableOpacity
                     key={unit.id}
                     style={[
@@ -1504,12 +1616,23 @@ export default function VenteDirecteScreen() {
                         Stock : {unit.stock > 0 ? unit.stock : 'Rupture'}
                       </Text>
                     </View>
-                    <Text style={styles.unitPrice}>{fmt(unit.prix)}</Text>
+                    <View style={styles.unitPriceCol}>
+                      {unitEff.hasDiscount && unitEff.original != null && (
+                        <Text style={styles.unitPriceBarre}>{fmt(unitEff.original)}</Text>
+                      )}
+                      <Text style={[styles.unitPrice, unitEff.hasDiscount && styles.unitPricePromo]}>
+                        {fmt(unitEff.display)}
+                      </Text>
+                      {unitEff.hasDiscount && unitPromo && (
+                        <PromoProductBadge promo={unitPromo} compact />
+                      )}
+                    </View>
                     {selectedUnit?.id === unit.id && (
                       <Ionicons name="checkmark-circle" size={22} color={BLUE} style={{ marginLeft: 10 }} />
                     )}
                   </TouchableOpacity>
-                ))
+                  );
+                })
               }
 
               {/* Quantité */}
@@ -1540,7 +1663,7 @@ export default function VenteDirecteScreen() {
                 <View style={styles.unitPreview}>
                   <Text style={styles.unitPreviewLabel}>Sous-total estimé</Text>
                   <Text style={styles.unitPreviewTotal}>
-                    {fmt((selectedUnit.prix * (parseFloat(unitQty) || 1)))}
+                    {fmt(effectivePriceOf(unitPickerProduct, selectedUnit).display * (parseFloat(unitQty) || 1))}
                   </Text>
                 </View>
               )}
@@ -1588,7 +1711,16 @@ export default function VenteDirecteScreen() {
                 <View key={idx} style={styles.cartRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cartItemName}>{item.productNom}</Text>
-                    <Text style={styles.cartItemUnit}>{item.unitLabel} — {fmt(item.prix)}</Text>
+                    {item.onPromo && item.prixOriginal != null ? (
+                      <Text style={styles.cartItemUnit}>
+                        {item.unitLabel} —{' '}
+                        <Text style={styles.cartItemUnitBarre}>{fmt(item.prixOriginal)}</Text>
+                        {'  '}
+                        <Text style={styles.cartItemUnitPromo}>{fmt(item.prix)}</Text>
+                      </Text>
+                    ) : (
+                      <Text style={styles.cartItemUnit}>{item.unitLabel} — {fmt(item.prix)}</Text>
+                    )}
                   </View>
                   <View style={styles.cartQtyControl}>
                     <TouchableOpacity style={styles.cartQtyBtn} onPress={() => updateQty(idx, -1)}>
@@ -1614,6 +1746,7 @@ export default function VenteDirecteScreen() {
                   epicerieId={epicerieId}
                   subtotal={cartSubtotal}
                   channel="POS"
+                  cartHasPromoItems={cartHasPromoItems}
                   value={appliedPromo}
                   onApplied={setAppliedPromo}
                   onRemoved={() => setAppliedPromo(null)}
@@ -2000,6 +2133,25 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f5f7fa' },
 
   // Session tabs
+  cashWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FEF3C7',
+    borderLeftWidth: 4,
+    borderLeftColor: '#B45309',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  cashWarningTitle: { fontSize: 13, fontWeight: '700', color: '#7A3D00' },
+  cashWarningText: { fontSize: 12, color: '#7A3D00', marginTop: 1 },
+  cashWarningBtn: {
+    backgroundColor: '#B45309',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  cashWarningBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   sessionBar: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
@@ -2261,6 +2413,11 @@ const styles = StyleSheet.create({
   },
   productName: { fontSize: 13, fontWeight: '700', color: '#222', marginBottom: 4, lineHeight: 18 },
   productPrice: { fontSize: 14, fontWeight: '700', color: BLUE, marginBottom: 4 },
+  // Prix catalogue barré + prix promo (rouge) — cohérent avec le parcours client.
+  productPrixBarre: { fontSize: 11, color: '#999', textDecorationLine: 'line-through', marginBottom: 1 },
+  productPricePromo: { color: '#E53935' },
+  // Badge -X% en haut à gauche de la carte (le check "in cart" est à droite).
+  productPromoBadge: { position: 'absolute', top: 8, left: 8, zIndex: 2 },
   productUnitsHint: { fontSize: 11, color: '#888', marginBottom: 4 },
   stockPill: {
     alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
@@ -2326,6 +2483,13 @@ const styles = StyleSheet.create({
     backgroundColor: BLUE, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1,
   },
   cartPanelItemPrice: { fontSize: 12, fontWeight: '700', color: BLUE },
+  cartPanelItemPriceBarre: { fontSize: 10, color: '#999', textDecorationLine: 'line-through' },
+  cartPanelItemPricePromo: { color: '#E53935' },
+  cartPanelPromoTag: {
+    position: 'absolute', top: 6, right: 6, zIndex: 2,
+    backgroundColor: '#E53935', borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1,
+  },
+  cartPanelPromoTagText: { fontSize: 9, fontWeight: '800', color: '#fff' },
   cartPanelFooter: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 14, paddingVertical: 10,
@@ -2392,7 +2556,10 @@ const styles = StyleSheet.create({
   unitRowDisabled: { opacity: 0.45 },
   unitLabel: { fontSize: 15, fontWeight: '600', color: '#333' },
   unitStock: { fontSize: 12, color: '#888', marginTop: 2 },
+  unitPriceCol: { alignItems: 'flex-end' },
   unitPrice: { fontSize: 16, fontWeight: '700', color: BLUE },
+  unitPriceBarre: { fontSize: 12, color: '#999', textDecorationLine: 'line-through' },
+  unitPricePromo: { color: '#E53935' },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   qtyBtn: {
     width: 44, height: 44, borderRadius: 22,
@@ -2422,6 +2589,8 @@ const styles = StyleSheet.create({
   },
   cartItemName: { fontSize: 14, fontWeight: '700', color: '#222' },
   cartItemUnit: { fontSize: 12, color: '#888', marginTop: 2 },
+  cartItemUnitBarre: { color: '#999', textDecorationLine: 'line-through' },
+  cartItemUnitPromo: { color: '#E53935', fontWeight: '700' },
   cartQtyControl: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cartQtyBtn: {
     width: 28, height: 28, borderRadius: 14,

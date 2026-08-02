@@ -30,7 +30,21 @@ interface ProductUnitDisplayProps {
    * comme "pas de variante" — ne JAMAIS envoyer `0` au backend (cela
    * déclenche "Unit not found" lors de la création de la commande).
    */
-  onAddToCart: (unitId: number | null, quantity: number, totalPrice: number, unit: ProductUnit) => void;
+  onAddToCart: (
+    unitId: number | null,
+    quantity: number,
+    totalPrice: number,
+    unit: ProductUnit,
+    /**
+     * Prix unitaire EFFECTIF (remisé) déjà résolu par ce composant via
+     * {@link effectivePriceForUnit}/{@link effectivePriceForProduct}. Le parent
+     * DOIT stocker cette valeur comme {@code pricePerUnit} du panier plutôt que
+     * {@code unit.prix} (brut) — sans quoi le panier persiste le tarif plein et
+     * le total est recalculé faux à partir du prix d'origine. Source unique de
+     * vérité pour éviter toute double-remise côté parent.
+     */
+    pricePerUnit: number,
+  ) => void;
   /**
    * Promotion active résolue pour ce produit (ou pour une unité), côté parent.
    * Sert de fallback quand le backend n'a pas encore écrit `prixBarre` sur
@@ -46,6 +60,20 @@ interface ProductUnitDisplayProps {
    * a side-channel for the parent's UI.
    */
   onUnitChanged?: (unit: ProductUnit | null) => void;
+  /**
+   * Couleur d'accent de la boutique (branding épicier V101). Appliquée au prix,
+   * au bouton « Ajouter au panier », à la bordure de la variante sélectionnée et
+   * à la pastille de sélection. Défaut = vert AbridGO → zéro régression pour les
+   * appels existants qui ne passent pas la prop.
+   */
+  accentColor?: string;
+  /**
+   * Sélection pilotée depuis le parent (ex. l'utilisateur fait défiler le
+   * carrousel d'images du header → on synchronise le format choisi). Quand le
+   * parent pousse une nouvelle valeur ≠ null, le composant aligne sa sélection
+   * interne. Laisser `undefined` pour un fonctionnement 100 % autonome.
+   */
+  controlledUnitId?: number | null;
 }
 
 export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
@@ -53,6 +81,8 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
   onAddToCart,
   promo = null,
   onUnitChanged,
+  accentColor = '#4CAF50',
+  controlledUnitId,
 }) => {
   const { t } = useLanguage();
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(
@@ -71,6 +101,17 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
     onUnitChanged?.(selectedUnit ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUnitId]);
+
+  // Sélection pilotée par le parent (carrousel d'images du header). On ne
+  // réagit qu'aux valeurs non-null réellement différentes pour éviter toute
+  // boucle avec onUnitChanged (qui notifie le parent en retour).
+  useEffect(() => {
+    if (controlledUnitId != null && controlledUnitId !== selectedUnitId) {
+      setSelectedUnitId(controlledUnitId);
+      setQuantity('1');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlledUnitId]);
 
   // Calculer le prix total — applique la promo résolue quand prixBarre n'a
   // pas (encore) été écrit sur l'unité par le backend.
@@ -133,8 +174,10 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
       });
       // `null` (pas `0`) = produit sans variante. Le backend lit ce champ et
       // déclenche "Unit not found" si on lui envoie `0` (qui correspond à
-      // aucune ProductUnit en base).
-      onAddToCart(null, qty, totalPrice, defaultUnit);
+      // aucune ProductUnit en base). On passe `effectivePrice` comme
+      // pricePerUnit : defaultUnit.prix EST déjà le prix remisé, donc pas de
+      // double-remise possible côté parent.
+      onAddToCart(null, qty, totalPrice, defaultUnit, effectivePrice);
       return;
     }
 
@@ -149,15 +192,22 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
       return;
     }
 
+    // Prix unitaire EFFECTIF (remisé) — même source que l'affichage et que
+    // getTotalPrice(). On NE stocke PAS selectedUnit.prix (brut) : quand la promo
+    // n'est pas encore matérialisée sur la variante, unit.prix = tarif plein,
+    // ce qui persisterait un mauvais prix dans le panier.
+    const effectiveUnitPrice = effectivePriceForUnit(selectedUnit, promo).display;
     const totalPrice = getTotalPrice();
     console.log('[ProductUnitDisplay] Ajout au panier:', {
       unitId: selectedUnit.id,
       quantity: qty,
       totalPrice,
-      pricePerUnit: selectedUnit.prix,
+      pricePerUnit: effectiveUnitPrice,
+      rawPrice: selectedUnit.prix,
+      promoActive: !!promo,
       label: selectedUnit.label
     });
-    onAddToCart(selectedUnit.id, qty, totalPrice, selectedUnit);
+    onAddToCart(selectedUnit.id, qty, totalPrice, selectedUnit, effectiveUnitPrice);
   };
 
   // S'il n'y a pas d'unités, afficher le prix legacy
@@ -168,14 +218,41 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
         <View style={styles.legacyContainer}>
           <View style={styles.priceSection}>
             <Text style={styles.priceLabel}>{t('products.price')}</Text>
-            <Text style={styles.legacyPrice}>{product.prix.toFixed(2)} DH</Text>
+            {/* M-f : prix EFFECTIF (remisé) + prix barré + badge −X% quand la
+                promo runtime touche ce produit legacy — même source que l'ajout
+                (effectivePriceForProduct) et que la branche variante. Avant, on
+                affichait product.prix brut alors que l'ajout appliquait déjà la
+                remise (promo invisible mais facturée). */}
+            {(() => {
+              const price = effectivePriceForProduct(product, promo);
+              const discountPct = price.hasDiscount && price.original != null
+                ? Math.round((1 - price.display / price.original) * 100)
+                : 0;
+              return (
+                <>
+                  {price.hasDiscount && price.original != null && (
+                    <Text style={styles.legacyPrixBarre}>{price.original.toFixed(2)} DH</Text>
+                  )}
+                  <View style={styles.legacyPriceRow}>
+                    <Text style={[styles.legacyPrice, { color: price.hasDiscount ? '#e53935' : accentColor }]}>
+                      {price.display.toFixed(2)} DH
+                    </Text>
+                    {price.hasDiscount && discountPct > 0 && (
+                      <View style={styles.legacyPromoBadge}>
+                        <Text style={styles.promoBadgeText}>-{discountPct}%</Text>
+                      </View>
+                    )}
+                  </View>
+                </>
+              );
+            })()}
           </View>
 
           <View style={styles.stockSection}>
-            <MaterialIcons name="inventory-2" size={20} color="#4CAF50" />
+            <MaterialIcons name="inventory-2" size={20} color={accentColor} />
             <Text style={[
               styles.stockText,
-              { color: product.stock > 0 ? '#4CAF50' : '#f44336' }
+              { color: product.stock > 0 ? accentColor : '#f44336' }
             ]}>
               {product.stock} {t('products.inStockUnits')}
             </Text>
@@ -206,7 +283,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
           </View>
 
           <TouchableOpacity
-            style={[styles.addButton, !product.isAvailable && styles.addButtonDisabled]}
+            style={[styles.addButton, { backgroundColor: accentColor }, !product.isAvailable && styles.addButtonDisabled]}
             onPress={handleAddToCart}
             disabled={!product.isAvailable}
           >
@@ -279,6 +356,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                 style={[
                   styles.unitCard,
                   isSelected && styles.unitCardSelected,
+                  isSelected && { borderColor: accentColor },
                   !isInStock && styles.unitCardDisabled,
                 ]}
                 onPress={() => {
@@ -351,7 +429,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
                 {/* Indicateur de sélection */}
                 {isSelected && (
                   <View style={styles.checkmark}>
-                    <MaterialIcons name="check-circle" size={28} color="#4CAF50" />
+                    <MaterialIcons name="check-circle" size={28} color={accentColor} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -394,7 +472,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
               {/* Affichage du prix total */}
               <View style={styles.totalPriceBox}>
                 <Text style={styles.totalPriceLabel}>{t('products.total')}</Text>
-                <Text style={styles.totalPrice}>{getTotalPrice().toFixed(2)} DH</Text>
+                <Text style={[styles.totalPrice, { color: accentColor }]}>{getTotalPrice().toFixed(2)} DH</Text>
               </View>
             </View>
           </View>
@@ -403,6 +481,7 @@ export const ProductUnitDisplay: React.FC<ProductUnitDisplayProps> = ({
           <TouchableOpacity
             style={[
               styles.addButton,
+              { backgroundColor: accentColor },
               !canOrderNow() && styles.addButtonDisabled,
             ]}
             onPress={handleAddToCart}
@@ -517,6 +596,28 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
     color: '#4CAF50',
+  },
+
+  // M-f : rendu promo du prix legacy (barré + ligne prix/badge), calqué sur la
+  // branche variante mais dimensionné pour le gros prix legacy.
+  legacyPrixBarre: {
+    fontSize: 16,
+    color: '#999',
+    textDecorationLine: 'line-through',
+    marginBottom: 2,
+  },
+
+  legacyPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  legacyPromoBadge: {
+    backgroundColor: '#E53935',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
 
   stockSection: {

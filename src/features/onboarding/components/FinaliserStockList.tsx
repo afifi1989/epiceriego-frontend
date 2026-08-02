@@ -35,11 +35,38 @@ import { useRouter } from 'expo-router';
 import { productService } from '../../../services/productService';
 import { stockService } from '../../../services/stockService';
 import { categoryService, type Category } from '../../../services/categoryService';
-import type { Epicerie, Product } from '../../../type';
+import type { Epicerie, Product, ProductUnit } from '../../../type';
+import { UnitType } from '../../../type';
 import { colors } from '../theme';
 
 const PRIMARY = colors.primary;
 const GREEN = colors.success;
+
+// ── R2 — Quantités décimales (vrac : poids / volume / longueur) ──────────
+// Le stock initial d'une variante non-PIECE peut être décimal (jusqu'à 3
+// décimales). Les variantes PIECE restent en entier (pas de 2,5 pièces).
+
+/** true si la variante autorise une quantité décimale (non-PIECE). */
+const allowsDecimal = (u: ProductUnit | null | undefined): boolean =>
+  !!u && u.unitType !== UnitType.PIECE;
+
+/** Libellé de l'unité de base à afficher (kg / L / m / pcs). */
+const baseUnitLabel = (u: ProductUnit | null | undefined): string => {
+  if (!u) return '';
+  if (u.baseUnit) return u.baseUnit;
+  switch (u.unitType) {
+    case UnitType.WEIGHT: return 'kg';
+    case UnitType.VOLUME: return 'L';
+    case UnitType.LENGTH: return 'm';
+    default: return 'pcs';
+  }
+};
+
+/** Arrondi à 3 décimales (évite les artefacts flottants). */
+const round3 = (n: number): number => Math.round(n * 1000) / 1000;
+
+/** Formatage d'affichage : 3 décimales max, zéros inutiles supprimés. */
+const fmtQty = (n: number): string => (isFinite(n) ? String(round3(n)) : '0');
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -83,6 +110,9 @@ export const FinaliserStockList = forwardRef<FinaliserStockHandle, FinaliserStoc
     // baseline = stock serveur connu ; targets = valeur saisie. dirty = écart.
     const [baseline, setBaseline] = useState<Record<number, number>>({});
     const [targets, setTargets] = useState<Record<number, number>>({});
+    // Buffer texte des champs décimaux en cours d'édition : permet de taper
+    // "2." ou "2,5" sans que la valeur numérique tronque le point saisi.
+    const [rawQty, setRawQty] = useState<Record<number, string>>({});
 
     useEffect(() => {
       const type = epicerie.epicerieType ?? 'EPICERIE_GENERALE';
@@ -157,7 +187,17 @@ export const FinaliserStockList = forwardRef<FinaliserStockHandle, FinaliserStoc
     useEffect(() => { onDirtyChange?.(dirtyIds.length); }, [dirtyIds.length, onDirtyChange]);
 
     const setTarget = (productId: number, value: number) => {
-      setTargets(prev => ({ ...prev, [productId]: Math.max(0, value) }));
+      setTargets(prev => ({ ...prev, [productId]: Math.max(0, round3(value)) }));
+    };
+
+    /** Efface le buffer texte d'un champ (ex. après usage du stepper +/-). */
+    const clearRaw = (productId: number) => {
+      setRawQty(prev => {
+        if (!(productId in prev)) return prev;
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
     };
 
     const toggleRayon = (id: number) => {
@@ -259,34 +299,56 @@ export const FinaliserStockList = forwardRef<FinaliserStockHandle, FinaliserStoc
                         </Text>
                       </TouchableOpacity>
                     ) : (
-                      <View style={styles.stepper}>
-                        <TouchableOpacity
-                          style={styles.stepBtn}
-                          onPress={() => setTarget(product.id, value - 1)}
-                          disabled={value <= 0}
-                          hitSlop={6}
-                        >
-                          <Text style={[styles.stepGlyph, value <= 0 && styles.stepGlyphOff]}>−</Text>
-                        </TouchableOpacity>
-                        <TextInput
-                          style={[styles.stepInput, value > 0 && styles.stepInputActive]}
-                          value={String(value)}
-                          onChangeText={t => {
-                            const n = parseInt(t.replace(/[^0-9]/g, ''), 10);
-                            setTarget(product.id, isNaN(n) ? 0 : n);
-                          }}
-                          keyboardType="number-pad"
-                          maxLength={5}
-                          selectTextOnFocus
-                        />
-                        <TouchableOpacity
-                          style={styles.stepBtn}
-                          onPress={() => setTarget(product.id, value + 1)}
-                          hitSlop={6}
-                        >
-                          <Text style={styles.stepGlyph}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      (() => {
+                        const decimal = allowsDecimal(unit);
+                        const displayValue = rawQty[product.id] ?? fmtQty(value);
+                        return (
+                          <View style={styles.stepper}>
+                            <TouchableOpacity
+                              style={styles.stepBtn}
+                              onPress={() => { clearRaw(product.id); setTarget(product.id, value - 1); }}
+                              disabled={value <= 0}
+                              hitSlop={6}
+                            >
+                              <Text style={[styles.stepGlyph, value <= 0 && styles.stepGlyphOff]}>−</Text>
+                            </TouchableOpacity>
+                            <TextInput
+                              style={[styles.stepInput, value > 0 && styles.stepInputActive]}
+                              value={displayValue}
+                              onChangeText={t => {
+                                if (decimal) {
+                                  // Normalise virgule FR → point, ne garde qu'un seul point.
+                                  const norm = t.replace(',', '.').replace(/[^0-9.]/g, '');
+                                  const parts = norm.split('.');
+                                  const cleaned = parts.length > 1
+                                    ? parts[0] + '.' + parts.slice(1).join('')
+                                    : norm;
+                                  setRawQty(prev => ({ ...prev, [product.id]: cleaned }));
+                                  const n = parseFloat(cleaned);
+                                  setTarget(product.id, isNaN(n) ? 0 : n);
+                                } else {
+                                  clearRaw(product.id);
+                                  const n = parseInt(t.replace(/[^0-9]/g, ''), 10);
+                                  setTarget(product.id, isNaN(n) ? 0 : n);
+                                }
+                              }}
+                              keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
+                              maxLength={decimal ? 9 : 5}
+                              selectTextOnFocus
+                            />
+                            <TouchableOpacity
+                              style={styles.stepBtn}
+                              onPress={() => { clearRaw(product.id); setTarget(product.id, value + 1); }}
+                              hitSlop={6}
+                            >
+                              <Text style={styles.stepGlyph}>+</Text>
+                            </TouchableOpacity>
+                            {decimal && (
+                              <Text style={styles.stepUnit}>{baseUnitLabel(unit)}</Text>
+                            )}
+                          </View>
+                        );
+                      })()
                     )}
                   </View>
                 );
@@ -376,6 +438,7 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   stepInputActive: { borderColor: GREEN, color: GREEN, backgroundColor: colors.successSoft },
+  stepUnit: { fontSize: 12, fontWeight: '600', color: '#9aa3ad', marginLeft: 2 },
 
   overlay: {
     position: 'absolute',

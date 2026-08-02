@@ -32,6 +32,14 @@ export interface SubscriptionPlan {
   hasLoyalty: boolean;
   hasMultiEpicerie: boolean;
   hasPrioritySupport: boolean;
+  /** Offres & paniers groupés. Présent dans SubscriptionPlanDTO (backend). */
+  hasBundleOffers: boolean;
+  /**
+   * Multi-caisse : autorise la création d'une 2ᵉ caisse et plus. La 1ʳᵉ caisse
+   * reste GRATUITE (enforce backend CaisseService). Désormais mappé dans
+   * SubscriptionPlanDTO.from() → exposé au front.
+   */
+  hasMultiCaisse?: boolean;
   displayOrder: number;
 }
 

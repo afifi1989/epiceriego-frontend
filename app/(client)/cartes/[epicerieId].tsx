@@ -21,6 +21,7 @@ import {
 } from '../../../src/services/loyaltyCardService';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { tFmt } from '../../../src/services/chatbotService';
+import { useToast } from '../../../src/components/feedback';
 
 /**
  * Full-screen card detail with the QR. Three actions:
@@ -36,6 +37,7 @@ import { tFmt } from '../../../src/services/chatbotService';
  */
 export default function CardDetailScreen() {
   const { t } = useLanguage();
+  const toast = useToast();
   const router = useRouter();
   const params = useLocalSearchParams<{ epicerieId: string }>();
   const epicerieId = Number(params.epicerieId);
@@ -43,6 +45,7 @@ export default function CardDetailScreen() {
   const [card, setCard] = useState<LoyaltyCard | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
   // Référence vers le QRCode off-screen dédié à la génération PDF.
@@ -90,6 +93,45 @@ export default function CardDetailScreen() {
       setRefreshing(false);
     }
   }, [epicerieId, refreshing, t, router]);
+
+  /**
+   * Régénère la carte : révoque tous les QR précédemment partagés et en émet
+   * un nouveau. Action sensible → confirmation explicite avant l'appel réseau.
+   * Utile pour reprendre le contrôle des QR diffusés (famille / proches).
+   */
+  const doRegenerate = useCallback(async () => {
+    if (regenerating) return;
+    setRegenerating(true);
+    try {
+      const data = await loyaltyCardService.regenerateCard(epicerieId);
+      setCard(data);
+      toast.success(t('cards.regenerateSuccessTitle'), t('cards.regenerateSuccessMsg'));
+    } catch (e: any) {
+      const code = e?.errorCode || 'LOYALTY_CARD_ERROR';
+      Alert.alert(t('cards.regenerateErrorTitle'), t(`cards.error.${code}`));
+      if (code === 'CARD_REVOKED') {
+        router.back();
+      }
+    } finally {
+      setRegenerating(false);
+    }
+  }, [epicerieId, regenerating, t, toast, router]);
+
+  const onRegenerate = useCallback(() => {
+    if (regenerating || !card?.active) return;
+    Alert.alert(
+      t('cards.regenerateConfirmTitle'),
+      t('cards.regenerateConfirmMsg'),
+      [
+        { text: t('cards.regenerateCancel'), style: 'cancel' },
+        {
+          text: t('cards.regenerateConfirm'),
+          style: 'destructive',
+          onPress: doRegenerate,
+        },
+      ],
+    );
+  }, [regenerating, card, t, doRegenerate]);
 
   /**
    * Convertit le QR off-screen en data URL PNG.
@@ -231,6 +273,26 @@ export default function CardDetailScreen() {
           disabled={!card.active}
         />
       </View>
+
+      {/* Bouton sécurité : régénérer la carte (révoque les QR partagés). */}
+      <TouchableOpacity
+        style={[styles.regenerateBtn, (regenerating || !card.active) && styles.regenerateBtnDisabled]}
+        onPress={onRegenerate}
+        disabled={regenerating || !card.active}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel={t('cards.regenerate')}
+        accessibilityState={{ disabled: regenerating || !card.active }}
+      >
+        {regenerating ? (
+          <ActivityIndicator size="small" color={lightColors.danger} />
+        ) : (
+          <Text style={styles.regenerateBtnText}>🔐 {t('cards.regenerate')}</Text>
+        )}
+      </TouchableOpacity>
+
+      {/* Aide : partage & révocation des cartes précédentes. */}
+      <Text style={styles.shareHelp}>{t('cards.shareHelp')}</Text>
     </ScrollView>
   );
 }
@@ -276,6 +338,11 @@ const buildPrintHtml = (
   const titleText = (t('cards.pdfTitle') || '')
     .replace('{{store}}', title)
     .replace(/</g, '&lt;');
+  // Sous-titre : nom de carte personnalisé par l'épicier s'il est renseigné,
+  // sinon libellé i18n générique « Carte de fidélité — <store> ».
+  const subtitleText = card.cardName && card.cardName.trim()
+    ? card.cardName.trim().replace(/</g, '&lt;')
+    : titleText;
   const footerText = (t('cards.pdfFooter') || '')
     .replace('{{store}}', title)
     .replace(/</g, '&lt;');
@@ -286,7 +353,7 @@ const buildPrintHtml = (
       <head><meta charset="utf-8"/><title>${titleText}</title></head>
       <body style="font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 32px; text-align: center;">
         <h1 style="font-size: 22px; margin: 0 0 8px;">${title}</h1>
-        <p style="font-size: 14px; color: #666; margin: 0 0 24px;">${titleText}</p>
+        <p style="font-size: 14px; color: #666; margin: 0 0 24px;">${subtitleText}</p>
         <img src="${qrDataUrl}" style="width: 320px; height: 320px;" alt="QR"/>
         <p style="font-size: 13px; color: #555; margin-top: 24px;">${footerText}</p>
       </body>
@@ -361,6 +428,32 @@ const styles = StyleSheet.create({
   },
   actionLabelDisabled: {
     color: '#999',
+  },
+  regenerateBtn: {
+    marginTop: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: lightColors.danger,
+    minHeight: 44,
+  },
+  regenerateBtnDisabled: {
+    opacity: 0.5,
+  },
+  regenerateBtnText: {
+    color: lightColors.danger,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  shareHelp: {
+    marginTop: 12,
+    fontSize: 12,
+    color: '#888',
+    textAlign: 'center',
+    lineHeight: 18,
   },
   errorText: {
     fontSize: 14,

@@ -19,7 +19,20 @@ export interface QuickReorderItem {
   productName: string;
   photoUrl?: string;
   unitLabel?: string;
+  /**
+   * Quantité à re-commander, en UNITÉ DE BASE du catalogue (kg / L / pièces) —
+   * « 500 g » vaut 0.5. Recopiée depuis `OrderItem.baseQuantity` côté backend.
+   * Peut donc être décimale : tout champ entier alimenté à partir d'elle
+   * (`OrderItemRequest.quantite`, `@Min(1)`) doit être arrondi au supérieur.
+   */
   quantity: number;
+  /**
+   * Total de la ligne aux prix du jour, déjà mis à l'échelle de la variante.
+   * Ne pas recalculer via `currentUnitPrice * quantity` : `quantity` est en
+   * unité de base alors que `currentUnitPrice` est le prix d'UN format.
+   */
+  lineTotal?: number;
+  /** Prix d'UN format de vente aujourd'hui (comparable à `previousUnitPrice`). */
   currentUnitPrice?: number;
   previousUnitPrice?: number;
   currentStock?: number;

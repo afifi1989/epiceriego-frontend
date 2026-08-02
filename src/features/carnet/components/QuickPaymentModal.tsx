@@ -25,10 +25,21 @@ export function QuickPaymentModal({ visible, onClose, onSuccess, epicerieId, cli
   const [saving, setSaving] = useState(false);
 
   const amountNum = parseFloat(amount.replace(',', '.')) || 0;
+  // Plafond : on ne peut encaisser que le montant dû (les impayés), jamais
+  // plus — pas de trop-perçu transformé en avance via cet écran. Tolérance
+  // de 0,005 pour absorber les arrondis d'affichage.
+  const exceedsDue = amountNum - balanceDue > 0.005;
 
   const handleSubmit = async () => {
     if (amountNum <= 0) {
       Alert.alert('Erreur', 'Entrez un montant valide');
+      return;
+    }
+    if (exceedsDue) {
+      Alert.alert(
+        'Montant trop élevé',
+        `Vous ne pouvez pas encaisser plus que le montant dû (${balanceDue.toFixed(2)} DH).`
+      );
       return;
     }
     setSaving(true);
@@ -88,11 +99,13 @@ export function QuickPaymentModal({ visible, onClose, onSuccess, epicerieId, cli
           />
 
           {amountNum > 0 && (
-            <View style={[styles.previewBox, amountNum >= balanceDue ? styles.previewBoxGreen : styles.previewBoxBlue]}>
+            <View style={[styles.previewBox, exceedsDue ? styles.previewBoxRed : (amountNum >= balanceDue ? styles.previewBoxGreen : styles.previewBoxBlue)]}>
               <Text style={styles.previewText}>
-                {amountNum >= balanceDue
-                  ? `Solde après paiement : 0.00 DH (excédent : ${(amountNum - balanceDue).toFixed(2)} DH)`
-                  : `Reste après paiement : ${(balanceDue - amountNum).toFixed(2)} DH`
+                {exceedsDue
+                  ? `Le montant dépasse le solde dû (${balanceDue.toFixed(2)} DH). Réduisez-le.`
+                  : (amountNum >= balanceDue
+                      ? `Solde après paiement : 0.00 DH`
+                      : `Reste après paiement : ${(balanceDue - amountNum).toFixed(2)} DH`)
                 }
               </Text>
             </View>
@@ -104,9 +117,9 @@ export function QuickPaymentModal({ visible, onClose, onSuccess, epicerieId, cli
             <Text style={styles.cancelText}>Annuler</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.submitBtn, (saving || amountNum <= 0) && styles.submitBtnDisabled]}
+            style={[styles.submitBtn, (saving || amountNum <= 0 || exceedsDue) && styles.submitBtnDisabled]}
             onPress={handleSubmit}
-            disabled={saving || amountNum <= 0}
+            disabled={saving || amountNum <= 0 || exceedsDue}
           >
             <Ionicons name="checkmark-circle" size={20} color="#fff" />
             <Text style={styles.submitText}>Encaisser {amountNum > 0 ? `${amountNum.toFixed(2)} DH` : ''}</Text>
@@ -132,6 +145,7 @@ const styles = StyleSheet.create({
   previewBox: { borderRadius: 10, padding: 12, marginTop: 4 },
   previewBoxGreen: { backgroundColor: '#e8f5e9' },
   previewBoxBlue: { backgroundColor: '#e3f2fd' },
+  previewBoxRed: { backgroundColor: '#ffebee' },
   previewText: { fontSize: 13, fontWeight: '600', color: '#333' },
   footer: { flexDirection: 'row', padding: 16, gap: 10, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0', marginTop: 'auto' },
   cancelBtn: { flex: 1, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#e0e0e0', alignItems: 'center' },

@@ -28,13 +28,50 @@ import {
   getExpiryLevel,
   stockService
 } from '../../../../services/stockService';
-import { LoginResponse, Product, ProductUnit } from '../../../../type';
+import { LoginResponse, Product, ProductUnit, UnitType } from '../../../../type';
 import { usePermissions } from '../../../../hooks/usePermissions';
 import SupplierAutocomplete from '../../../../components/epicier/SupplierAutocomplete';
 
 const HISTORY_PAGE_SIZE = 20;
 
 type Mode = 'ENTREE' | 'SORTIE';
+
+// ── R2 — Quantités décimales (vrac : poids / volume / longueur) ──────────
+// La quantité saisie est en unité de base (identique au backend). Le
+// caractère entier/décimal dépend du type de la variante : PIECE reste
+// entier (2,5 pièces n'a pas de sens), les autres autorisent 3 décimales.
+
+/** true si la variante autorise une quantité décimale (non-PIECE). */
+const allowsDecimal = (u: ProductUnit | null | undefined): boolean =>
+  !!u && u.unitType !== UnitType.PIECE;
+
+/** Libellé de l'unité de base à afficher (kg / L / m / pcs). */
+const baseUnitLabel = (u: ProductUnit | null | undefined): string => {
+  if (!u) return '';
+  if (u.baseUnit) return u.baseUnit;
+  switch (u.unitType) {
+    case UnitType.WEIGHT: return 'kg';
+    case UnitType.VOLUME: return 'L';
+    case UnitType.LENGTH: return 'm';
+    default: return 'pcs';
+  }
+};
+
+/**
+ * Parse robuste d'une quantité saisie : normalise la virgule FR en point
+ * puis parseFloat (ou parseInt pour les PIECE). NaN → 0.
+ */
+const parseQty = (raw: string, decimal: boolean): number => {
+  const norm = (raw ?? '').replace(',', '.').trim();
+  const n = decimal ? parseFloat(norm) : parseInt(norm, 10);
+  return isNaN(n) ? 0 : n;
+};
+
+/** Formatage d'affichage : 3 décimales max, zéros inutiles supprimés. */
+const fmtQty = (n: number): string => {
+  if (!isFinite(n)) return '0';
+  return String(Math.round(n * 1000) / 1000);
+};
 
 interface StockTabProps {
   product: Product;
@@ -165,7 +202,8 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
   };
 
   const saveReception = async () => {
-    const qty = parseInt(rcpQty, 10);
+    const rcpUnit = units.find(u => u.id === rcpUnitId) ?? null;
+    const qty = parseQty(rcpQty, allowsDecimal(rcpUnit));
     if (!rcpUnitId || !qty || qty <= 0) {
       Alert.alert('Erreur', 'Variante et quantité requises');
       return;
@@ -199,7 +237,7 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
         setSelectedUnit(prev => prev ? { ...prev, stock: prev.stock + qty } : null);
       }
       setReceptionVisible(false);
-      Alert.alert('✅ Réception enregistrée', `+${qty} ${getUnitLabel(rcpUnitId)}`);
+      Alert.alert('✅ Réception enregistrée', `+${fmtQty(qty)} ${getUnitLabel(rcpUnitId)}`);
       loadBatches();
       reloadHistory();
     } catch {
@@ -221,7 +259,8 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
 
   const confirmReduce = async () => {
     if (!reduceTarget) return;
-    const qty = parseInt(reduceQty, 10);
+    const reduceUnit = units.find(u => u.id === reduceTarget.productUnitId) ?? null;
+    const qty = parseQty(reduceQty, allowsDecimal(reduceUnit));
     if (!qty || qty <= 0 || qty > reduceTarget.quantityRemaining) {
       Alert.alert('Erreur', `Quantité invalide (max ${reduceTarget.quantityRemaining})`);
       return;
@@ -245,7 +284,7 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
         setBatches(prev => prev.filter(b => b.id !== updated.id));
       }
       setReduceTarget(null);
-      Alert.alert('✅ Lot ajusté', `-${qty} (${STOCK_REASON_LABELS[reduceReason]})`);
+      Alert.alert('✅ Lot ajusté', `-${fmtQty(qty)} (${STOCK_REASON_LABELS[reduceReason]})`);
       reloadHistory();
     } catch {
       Alert.alert('Erreur', 'Impossible de réduire le lot');
@@ -286,9 +325,10 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
     }
   };
 
-  const qty = parseInt(quantity) || 0;
+  const decimalQty = allowsDecimal(selectedUnit);
+  const qty = parseQty(quantity, decimalQty);
   const previewStock = selectedUnit
-    ? Math.max(0, selectedUnit.stock + (mode === 'ENTREE' ? qty : -qty))
+    ? Math.max(0, Math.round((selectedUnit.stock + (mode === 'ENTREE' ? qty : -qty)) * 1000) / 1000)
     : 0;
 
   const getStockColor = (s: number) => s <= 0 ? '#e53935' : s <= 5 ? '#f57c00' : '#388e3c';
@@ -307,7 +347,7 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
       setSelectedUnit(prev => prev ? { ...prev, stock: newStock } : null);
       setQuantity('1');
       setNotes('');
-      Alert.alert('✅ Stock mis à jour', `${selectedUnit.label} : ${selectedUnit.stock} → ${newStock}`);
+      Alert.alert('✅ Stock mis à jour', `${selectedUnit.label} : ${fmtQty(selectedUnit.stock)} → ${fmtQty(newStock)}`);
       // Recharge l'historique depuis le serveur (mouvement persisté)
       reloadHistory();
     } catch {
@@ -460,13 +500,15 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
           {/* Quantité + Raison */}
           <View style={styles.row}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Quantité</Text>
+              <Text style={styles.label}>
+                Quantité{selectedUnit ? ` (${baseUnitLabel(selectedUnit)})` : ''}
+              </Text>
               <TextInput
                 style={styles.input}
                 value={quantity}
                 onChangeText={setQuantity}
-                keyboardType="number-pad"
-                placeholder="1"
+                keyboardType={decimalQty ? 'decimal-pad' : 'number-pad'}
+                placeholder={decimalQty ? '0.001' : '1'}
                 placeholderTextColor="#bbb"
               />
             </View>
@@ -502,18 +544,18 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
             <View style={[styles.preview, mode === 'ENTREE' ? styles.previewEntree : styles.previewSortie]}>
               <View style={styles.previewRow}>
                 <Text style={styles.previewLabel}>Stock actuel</Text>
-                <Text style={styles.previewValue}>{selectedUnit.stock}</Text>
+                <Text style={styles.previewValue}>{fmtQty(selectedUnit.stock)} {baseUnitLabel(selectedUnit)}</Text>
               </View>
               <View style={styles.previewRow}>
                 <Text style={styles.previewLabel}>{mode === 'ENTREE' ? 'Entrée' : 'Sortie'}</Text>
                 <Text style={[styles.previewValue, { color: mode === 'ENTREE' ? '#2e7d32' : '#c62828' }]}>
-                  {mode === 'ENTREE' ? '+' : '-'}{qty}
+                  {mode === 'ENTREE' ? '+' : '-'}{fmtQty(qty)} {baseUnitLabel(selectedUnit)}
                 </Text>
               </View>
               <View style={[styles.previewRow, styles.previewTotal]}>
                 <Text style={[styles.previewLabel, { fontWeight: '700' }]}>Nouveau stock</Text>
                 <Text style={[styles.previewValue, { color: getStockColor(previewStock), fontSize: 20 }]}>
-                  {previewStock}
+                  {fmtQty(previewStock)} {baseUnitLabel(selectedUnit)}
                 </Text>
               </View>
               <Text style={[styles.previewLevel, { color: getStockColor(previewStock) }]}>
@@ -622,9 +664,20 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
               )}
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Quantité</Text>
-                  <TextInput style={styles.input} value={rcpQty} onChangeText={setRcpQty}
-                    keyboardType="number-pad" placeholder="1" placeholderTextColor="#bbb" />
+                  {(() => {
+                    const rcpUnit = units.find(u => u.id === rcpUnitId) ?? null;
+                    const rcpDecimal = allowsDecimal(rcpUnit);
+                    return (
+                      <>
+                        <Text style={styles.label}>
+                          Quantité{rcpUnit ? ` (${baseUnitLabel(rcpUnit)})` : ''}
+                        </Text>
+                        <TextInput style={styles.input} value={rcpQty} onChangeText={setRcpQty}
+                          keyboardType={rcpDecimal ? 'decimal-pad' : 'number-pad'}
+                          placeholder={rcpDecimal ? '0.001' : '1'} placeholderTextColor="#bbb" />
+                      </>
+                    );
+                  })()}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Prix d'achat (DH)</Text>
@@ -707,9 +760,20 @@ export const StockTab: React.FC<StockTabProps> = ({ product, user }) => {
                 </Text>
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>Quantité</Text>
-                    <TextInput style={styles.input} value={reduceQty} onChangeText={setReduceQty}
-                      keyboardType="number-pad" placeholder="1" placeholderTextColor="#bbb" />
+                    {(() => {
+                      const reduceUnit = units.find(u => u.id === reduceTarget.productUnitId) ?? null;
+                      const reduceDecimal = allowsDecimal(reduceUnit);
+                      return (
+                        <>
+                          <Text style={styles.label}>
+                            Quantité{reduceUnit ? ` (${baseUnitLabel(reduceUnit)})` : ''}
+                          </Text>
+                          <TextInput style={styles.input} value={reduceQty} onChangeText={setReduceQty}
+                            keyboardType={reduceDecimal ? 'decimal-pad' : 'number-pad'}
+                            placeholder={reduceDecimal ? '0.001' : '1'} placeholderTextColor="#bbb" />
+                        </>
+                      );
+                    })()}
                   </View>
                   <View style={{ flex: 2 }}>
                     <Text style={styles.label}>Raison</Text>

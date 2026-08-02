@@ -35,20 +35,32 @@ export function effectivePriceForUnit(
   return { display: unit.prix, original: null, hasDiscount: false };
 }
 
+/**
+ * Vérifie que la promo est bien dans sa fenêtre temporelle (dateDebut ≤ now ≤
+ * dateFin) et non annulée/expirée/désactivée, à l'instant `now` fourni.
+ *
+ * M-g : `activePromosForEpicerie` ne filtre les dates qu'au moment du fetch.
+ * Une promo qui expire pendant que l'écran reste ouvert resterait dans la liste
+ * `activePromos` en mémoire et continuerait d'être élue « meilleure promo » /
+ * remisée. On réutilise donc ce garde-fou dans `bestPromoForX` pour revérifier
+ * la fenêtre À CHAQUE RENDU (couplé à un tick `useNow` côté écran qui force le
+ * re-render à l'expiration).
+ */
+export function isPromoLiveNow(promo: Promotion, now: number = Date.now()): boolean {
+  if (promo.status === 'CANCELLED' || promo.status === 'EXPIRED') return false;
+  if (promo.isActive === false) return false;
+  const start = promo.dateDebut ? new Date(promo.dateDebut).getTime() : 0;
+  const end = promo.dateFin ? new Date(promo.dateFin).getTime() : Infinity;
+  return start <= now && end >= now;
+}
+
 export function activePromosForEpicerie(
   promos: Promotion[] | null | undefined,
   epicerieId: number | null | undefined,
 ): Promotion[] {
   if (!promos || epicerieId == null) return [];
   const now = Date.now();
-  return promos.filter((p) => {
-    if (p.epicerieId !== epicerieId) return false;
-    if (p.status === 'CANCELLED' || p.status === 'EXPIRED') return false;
-    if (p.isActive === false) return false;
-    const start = p.dateDebut ? new Date(p.dateDebut).getTime() : 0;
-    const end = p.dateFin ? new Date(p.dateFin).getTime() : Infinity;
-    return start <= now && end >= now;
-  });
+  return promos.filter((p) => p.epicerieId === epicerieId && isPromoLiveNow(p, now));
 }
 
 function toSummary(p: Promotion): ActivePromotionSummary {
@@ -94,7 +106,8 @@ export function bestPromoForProduct(
   promos: Promotion[],
   product: Product,
 ): ActivePromotionSummary | null {
-  const matching = promos.filter((p) => promoTouchesProduct(p, product));
+  const now = Date.now();
+  const matching = promos.filter((p) => isPromoLiveNow(p, now) && promoTouchesProduct(p, product));
   if (matching.length === 0) return null;
   matching.sort(comparePromos);
   return toSummary(matching[0]);
@@ -114,7 +127,8 @@ export function bestPromoForCategory(
   promos: Promotion[],
   categoryId: number,
 ): ActivePromotionSummary | null {
-  const matching = promos.filter((p) => promoTouchesCategory(p, categoryId));
+  const now = Date.now();
+  const matching = promos.filter((p) => isPromoLiveNow(p, now) && promoTouchesCategory(p, categoryId));
   if (matching.length === 0) return null;
   matching.sort(comparePromos);
   return toSummary(matching[0]);
@@ -148,7 +162,8 @@ export function bestPromoForUnit(
   product: Product,
   unitId: number,
 ): ActivePromotionSummary | null {
-  const matching = promos.filter((p) => promoTouchesUnit(p, product, unitId));
+  const now = Date.now();
+  const matching = promos.filter((p) => isPromoLiveNow(p, now) && promoTouchesUnit(p, product, unitId));
   if (matching.length === 0) return null;
   matching.sort(comparePromos);
   return toSummary(matching[0]);

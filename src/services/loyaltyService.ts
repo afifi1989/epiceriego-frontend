@@ -17,6 +17,10 @@ export interface LoyaltyProgram {
   minOrderAmount: number | null;
   pointsExpiryDays: number | null;
   earnOnCreditOrders: boolean;
+  /** Cashback : reverse un % du montant de commande en argent sur le carnet client. */
+  cashbackEnabled: boolean;
+  /** Pourcentage de cashback (0–100). */
+  cashbackPercent: number;
   isActive: boolean;
 }
 

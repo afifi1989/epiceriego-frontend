@@ -3,7 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,14 +21,49 @@ import {
   EpicerieDiscoverFiltersSheet,
   EpicerieDiscoverFiltersValue,
 } from '../../src/components/client/EpicerieDiscoverFiltersSheet';
+import { EpiceriesMapView } from '../../src/components/client/EpiceriesMapView';
 import { Skeleton, useToast } from '../../src/components/feedback';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { epicerieService } from '../../src/services/epicerieService';
 import { favoritesService } from '../../src/services/favoritesService';
+import { promotionService } from '../../src/services/promotionService';
 import { useTheme } from '../../src/theme';
 import { EPICERIE_TYPES, Epicerie, EpicerieType } from '../../src/type';
 
 const DEFAULT_RADIUS = 5;
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 250;
+
+type SortKey = 'distance' | 'rating' | 'products';
+
+/** Distance km : préfère le calcul backend, sinon haversine local. */
+function distanceForSort(
+  e: Epicerie,
+  loc: { latitude: number; longitude: number } | null,
+): number {
+  if (e.distanceKm != null && Number.isFinite(e.distanceKm)) return e.distanceKm;
+  if (!loc || e.latitude == null || e.longitude == null) return Number.POSITIVE_INFINITY;
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(e.latitude - loc.latitude);
+  const dLon = toRad(e.longitude - loc.longitude);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(loc.latitude)) * Math.cos(toRad(e.latitude)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+/** Déduplication par id en préservant l'ordre (fusion de pages). */
+function dedupById(list: Epicerie[]): Epicerie[] {
+  const seen = new Set<number>();
+  const out: Epicerie[] = [];
+  for (const e of list) {
+    if (e && e.id != null && !seen.has(e.id)) {
+      seen.add(e.id);
+      out.push(e);
+    }
+  }
+  return out;
+}
 
 /**
  * Écran de découverte des épiceries pour les clients.
@@ -48,7 +83,7 @@ export default function EpiceriesScreen() {
   const { t } = useLanguage();
   const toast = useToast();
   const theme = useTheme();
-  const params = useLocalSearchParams<{ search?: string }>();
+  const params = useLocalSearchParams<{ search?: string; categoryId?: string; category?: string }>();
 
   const [allEpiceries, setAllEpiceries] = useState<Epicerie[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,15 +97,51 @@ export default function EpiceriesScreen() {
 
   // ── Filtres ─────────────────────────────────────────────────────────
   const [searchText, setSearchText] = useState<string>(typeof params.search === 'string' ? params.search : '');
+  // B2 — Catégorie transmise depuis la home (categoryId + libellé). Avant, ces
+  // params étaient purement ignorés (seul `search` était lu) → la sélection de
+  // catégorie sur la home ouvrait une liste NON filtrée.
+  //
+  // Critère retenu : l'API épiceries n'expose AUCUN filtre par catégorie produit
+  // et le modèle Epicerie ne porte que `epicerieType` (pas ses rayons). Un vrai
+  // filtrage exigerait un endpoint dédié (ex. /epiceries/by-category) ou N appels
+  // getCategoriesByEpicerie (coûteux, une requête par boutique). On surface donc
+  // la sélection comme un chip actif, dismissable, compté dans les filtres et
+  // effaçable — et on CONSERVE categoryId en état pour un futur endpoint. La porte
+  // d'entrée de découverte n'est plus silencieusement perdue.
+  const [categoryId, setCategoryId] = useState<string | null>(
+    typeof params.categoryId === 'string' ? params.categoryId : null,
+  );
+  const [categoryLabel, setCategoryLabel] = useState<string | null>(
+    typeof params.category === 'string' ? params.category : null,
+  );
   const [openOnly, setOpenOnly] = useState(false);
   const [typeFilter, setTypeFilter] = useState<EpicerieType | null>(null);
   const [radius, setRadius] = useState<number>(DEFAULT_RADIUS);
   const [showFiltersSheet, setShowFiltersSheet] = useState(false);
 
-  // ── État de visibilité de la barre de recherche ─────────────────────
-  // L'utilisateur peut masquer la barre via un bouton dédié pour gagner
-  // en espace vertical (la pill ⚙ filtres reste accessible via les chips).
-  const [searchBarVisible, setSearchBarVisible] = useState(true);
+  // Recherche par nom débouncée → pilote l'appel backend (searchByName /
+  // searchByProximityAndName) au lieu de filtrer le tampon local.
+  const [debouncedSearch, setDebouncedSearch] = useState<string>(searchText);
+
+  // ── Tri (F2) + favoris en tête (F1) ─────────────────────────────────
+  const [sortKey, setSortKey] = useState<SortKey>('distance');
+  const [favoritesFirst, setFavoritesFirst] = useState(false);
+
+  // ── Mode d'affichage (Lot 4) : liste ou carte ───────────────────────
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+
+  // ── Promotions (E2/F-promo) ─────────────────────────────────────────
+  // Map epicerieId → réduction max (%) parmi les promos actives à proximité.
+  const [promoMap, setPromoMap] = useState<Map<number, number>>(new Map());
+  const [promoOnly, setPromoOnly] = useState(false);
+
+  // ── Pagination (scroll infini) ──────────────────────────────────────
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [locationReady, setLocationReady] = useState(false);
+  // Garde-fou anti-concurrence : évite deux chargements simultanés.
+  const inFlightRef = useRef(false);
 
   // ── Effects ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -79,31 +150,45 @@ export default function EpiceriesScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Quand on obtient la position OU que le rayon change → on refait l'appel API
+  // Débounce de la saisie → limite les appels réseau pendant la frappe.
   useEffect(() => {
-    if (userLocation) {
-      fetchEpiceries(userLocation, radius);
-    }
+    const id = setTimeout(() => setDebouncedSearch(searchText), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [searchText]);
+
+  // Recharge la page 0 dès que la requête effective change (position, rayon,
+  // texte débouncé). On attend que l'état de localisation soit résolu pour
+  // éviter un premier fetch « sans position » avant que le GPS réponde.
+  useEffect(() => {
+    if (!locationReady) return;
+    loadFirstPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationReady, userLocation, radius, debouncedSearch]);
+
+  // Promotions actives à proximité (nécessite une position).
+  useEffect(() => {
+    if (userLocation) loadNearbyPromotions(userLocation, radius);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userLocation, radius]);
 
   const initializeAutoSearch = async () => {
     try {
+      let granted = false;
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status === 'granted') {
-        await detectLocation();
+        granted = true;
       } else {
         const result = await Location.requestForegroundPermissionsAsync();
-        if (result.status === 'granted') {
-          await detectLocation();
-        } else {
-          // Sans GPS → on charge sans tri par proximité (searchByName vide)
-          await fetchEpiceriesNoLocation();
-        }
+        granted = result.status === 'granted';
+      }
+      if (granted) {
+        await detectLocation();
       }
     } catch (e) {
       console.error('[EpiceriesScreen] init failed', e);
-      await fetchEpiceriesNoLocation();
+    } finally {
+      // Débloque le chargement : avec ou sans position, la recherche démarre.
+      setLocationReady(true);
     }
   };
 
@@ -119,39 +204,93 @@ export default function EpiceriesScreen() {
       });
     } catch {
       toast.error(t('common.error'), t('epiceries.gpsError'));
-      await fetchEpiceriesNoLocation();
     } finally {
       setLocationLoading(false);
     }
   };
 
-  const fetchEpiceries = async (loc: { latitude: number; longitude: number }, r: number) => {
-    if (loading) return;
+  /**
+   * Appel backend unifié :
+   *  - position + texte → searchByProximityAndName
+   *  - position seule   → searchByProximity
+   *  - sans position    → searchByName (fallback)
+   */
+  const runSearch = async (
+    loc: { latitude: number; longitude: number } | null,
+    query: string,
+    pageNum: number,
+  ): Promise<Epicerie[]> => {
+    const q = query.trim();
+    if (loc) {
+      if (q) {
+        return epicerieService.searchByProximityAndName(
+          loc.latitude, loc.longitude, q, radius, pageNum, PAGE_SIZE,
+        );
+      }
+      return epicerieService.searchByProximity(loc.latitude, loc.longitude, radius, pageNum, PAGE_SIZE);
+    }
+    return epicerieService.searchByName(q, pageNum, PAGE_SIZE);
+  };
+
+  const loadFirstPage = async () => {
+    inFlightRef.current = true;
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await epicerieService.searchByProximity(loc.latitude, loc.longitude, r);
-      setAllEpiceries(data || []);
+      const data = await runSearch(userLocation, debouncedSearch, 0);
+      const list = data || [];
+      setAllEpiceries(dedupById(list));
+      setPage(0);
+      setHasMore(list.length >= PAGE_SIZE);
       setHasFetched(true);
     } catch (error) {
       toast.error(t('common.error'), String(error));
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const fetchEpiceriesNoLocation = async () => {
-    if (loading) return;
+  // Scroll infini — accumule les pages suivantes (dédupliquées).
+  const loadMore = useCallback(async () => {
+    if (inFlightRef.current || loading || loadingMore || !hasMore || !locationReady) return;
+    const next = page + 1;
+    inFlightRef.current = true;
+    setLoadingMore(true);
     try {
-      setLoading(true);
-      const data = await epicerieService.searchByName('');
-      setAllEpiceries(data || []);
-      setHasFetched(true);
+      const data = await runSearch(userLocation, debouncedSearch, next);
+      const list = data || [];
+      if (list.length === 0) {
+        setHasMore(false);
+      } else {
+        setAllEpiceries((prev) => dedupById([...prev, ...list]));
+        setPage(next);
+        setHasMore(list.length >= PAGE_SIZE);
+      }
     } catch (error) {
-      console.error('[EpiceriesScreen] fallback fetch failed:', error);
+      console.error('[EpiceriesScreen] loadMore failed', error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      inFlightRef.current = false;
+      setLoadingMore(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, loadingMore, hasMore, locationReady, page, userLocation, debouncedSearch, radius]);
+
+  const loadNearbyPromotions = async (
+    loc: { latitude: number; longitude: number },
+    r: number,
+  ) => {
+    try {
+      const promos = await promotionService.getNearbyPromotions(loc.latitude, loc.longitude, r);
+      const m = new Map<number, number>();
+      for (const p of promos || []) {
+        const cur = m.get(p.epicerieId) || 0;
+        m.set(p.epicerieId, Math.max(cur, p.reductionPercentage || 0));
+      }
+      setPromoMap(m);
+    } catch (error) {
+      // Échec silencieux : la découverte reste fonctionnelle sans promos.
+      console.warn('[EpiceriesScreen] nearby promotions failed', error);
     }
   };
 
@@ -167,46 +306,97 @@ export default function EpiceriesScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
-      userLocation ? fetchEpiceries(userLocation, radius) : fetchEpiceriesNoLocation(),
+      loadFirstPage(),
       loadFavoriteIds(),
+      userLocation ? loadNearbyPromotions(userLocation, radius) : Promise.resolve(),
     ]);
   };
 
   // ── Filtrage côté client ─────────────────────────────────────────────
+  // La recherche par nom passe désormais par le backend (débouncée). On ne
+  // conserve ici que les filtres purement locaux : ouvert, type, promo.
   const filteredEpiceries = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
     return allEpiceries
       .filter((e) => (openOnly ? e.isOpen === true : true))
       .filter((e) => (typeFilter ? e.epicerieType === typeFilter : true))
-      .filter((e) => {
-        if (!q) return true;
-        return (
-          e.nomEpicerie?.toLowerCase().includes(q) ||
-          e.adresse?.toLowerCase().includes(q) ||
-          e.epicerieTypeLabel?.toLowerCase().includes(q)
-        );
-      });
-  }, [allEpiceries, searchText, openOnly, typeFilter]);
+      .filter((e) => (promoOnly ? promoMap.has(e.id) : true));
+  }, [allEpiceries, openOnly, typeFilter, promoOnly, promoMap]);
 
-  const activeFiltersCount = (openOnly ? 1 : 0) + (typeFilter ? 1 : 0) + (radius !== DEFAULT_RADIUS ? 1 : 0);
+  // ── Tri (F2) + favoris en tête (F1) ──────────────────────────────────
+  const sortedEpiceries = useMemo(() => {
+    const favSet = new Set(favoriteIds);
+    const arr = filteredEpiceries.slice();
+    arr.sort((a, b) => {
+      switch (sortKey) {
+        case 'rating':
+          return (b.averageRating ?? 0) - (a.averageRating ?? 0);
+        case 'products':
+          return (b.nombreProducts ?? 0) - (a.nombreProducts ?? 0);
+        case 'distance':
+        default:
+          return distanceForSort(a, userLocation) - distanceForSort(b, userLocation);
+      }
+    });
+    // Array.sort est stable (Hermes) → on remonte les favoris sans casser
+    // l'ordre du tri principal à l'intérieur de chaque groupe.
+    if (favoritesFirst) {
+      arr.sort((a, b) => (favSet.has(b.id) ? 1 : 0) - (favSet.has(a.id) ? 1 : 0));
+    }
+    return arr;
+  }, [filteredEpiceries, sortKey, favoritesFirst, favoriteIds, userLocation]);
+
+  const activeFiltersCount =
+    (openOnly ? 1 : 0) + (typeFilter ? 1 : 0) + (radius !== DEFAULT_RADIUS ? 1 : 0)
+    + (categoryLabel ? 1 : 0) + (promoOnly ? 1 : 0);
+
+  // B2 — Efface le filtre catégorie (chip dismissable). categoryId est libéré
+  // en même temps que le libellé.
+  const clearCategory = () => {
+    setCategoryLabel(null);
+    setCategoryId(null);
+  };
 
   // ── Toggle favori (optimiste) ────────────────────────────────────────
-  const handleToggleFavorite = async (epicerieId: number, isCurrentlyFavorite: boolean) => {
+  // useCallback + mises à jour fonctionnelles → référence stable pour que
+  // React.memo sur la carte ne re-rende que les lignes concernées.
+  const handleToggleFavorite = useCallback(async (epicerieId: number, isCurrentlyFavorite: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    const snapshot = favoriteIds;
-    const optimistic = isCurrentlyFavorite
-      ? favoriteIds.filter((id) => id !== epicerieId)
-      : [...favoriteIds, epicerieId];
-    setFavoriteIds(optimistic);
+    setFavoriteIds((prev) =>
+      isCurrentlyFavorite ? prev.filter((id) => id !== epicerieId) : [...prev, epicerieId],
+    );
     try {
       const success = await favoritesService.toggleFavorite(epicerieId, isCurrentlyFavorite);
       if (!success) throw new Error('toggleFavorite returned false');
     } catch (error) {
       console.error('[EpiceriesScreen] toggleFavorite failed', error);
-      setFavoriteIds(snapshot);
+      // Revert : on rétablit l'état antérieur au toggle.
+      setFavoriteIds((prev) =>
+        isCurrentlyFavorite ? [...prev, epicerieId] : prev.filter((id) => id !== epicerieId),
+      );
       toast.error(t('common.error'), t('epiceries.favoritesError'));
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handlePressEpicerie = useCallback((e: Epicerie) => {
+    router.push(`/(client)/(epicerie)/${e.id}`);
+  }, [router]);
+
+  // Vue carte : navigation par id (même destination que le tap d'une carte).
+  const handleSelectEpicerieId = useCallback((id: number) => {
+    router.push(`/(client)/(epicerie)/${id}`);
+  }, [router]);
+
+  const renderItem = useCallback(({ item }: { item: Epicerie }) => (
+    <EpicerieDiscoverCard
+      epicerie={item}
+      isFavorite={favoriteIds.includes(item.id)}
+      onPress={handlePressEpicerie}
+      onToggleFavorite={handleToggleFavorite}
+      userLocation={userLocation}
+      promoPercent={promoMap.get(item.id)}
+    />
+  ), [favoriteIds, handlePressEpicerie, handleToggleFavorite, userLocation, promoMap]);
 
   // ── Filtres ──────────────────────────────────────────────────────────
   const applyFilters = (next: EpicerieDiscoverFiltersValue) => {
@@ -237,6 +427,24 @@ export default function EpiceriesScreen() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.chipsScrollContent}
       >
+        {/* B2 — Chip catégorie actif (issu de la home). Dismissable : un tap
+            l'efface. Placé en tête pour être immédiatement visible. */}
+        {categoryLabel && (
+          <TouchableOpacity
+            testID={`category-chip-${categoryId ?? ''}`}
+            style={[styles.chip, { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+            onPress={clearCategory}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={(t('epiceries.categoryFilter') || 'Catégorie : {{name}}').replace('{{name}}', categoryLabel)}
+          >
+            <Text style={[styles.chipText, { color: '#fff' }]} numberOfLines={1}>
+              {(t('epiceries.categoryFilter') || 'Catégorie : {{name}}').replace('{{name}}', categoryLabel)}
+            </Text>
+            <Ionicons name="close" size={14} color="#fff" />
+          </TouchableOpacity>
+        )}
+
         {/* Pill "Ouvert maintenant" */}
         <TouchableOpacity
           style={[styles.chip, openOnly && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
@@ -248,6 +456,20 @@ export default function EpiceriesScreen() {
             {t('epiceries.openNow') || 'Ouvert maintenant'}
           </Text>
         </TouchableOpacity>
+
+        {/* Pill "Promo en cours" — n'affiche que les épiceries en promo. */}
+        {promoMap.size > 0 && (
+          <TouchableOpacity
+            style={[styles.chip, promoOnly && { backgroundColor: '#DC2626', borderColor: '#DC2626' }]}
+            onPress={() => setPromoOnly((v) => !v)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.chipIcon}>🔥</Text>
+            <Text style={[styles.chipText, promoOnly && { color: '#fff' }]}>
+              {t('epiceries.promoFilter') || 'Promo'}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Pill "Type" avec dropdown indicator → ouvre le sheet */}
         <TouchableOpacity
@@ -284,6 +506,55 @@ export default function EpiceriesScreen() {
     </View>
   );
 
+  // ── Barre de tri (F2) + favoris en tête (F1) ─────────────────────────
+  const sortOptions: { key: SortKey; label: string; icon: string }[] = [
+    { key: 'distance', label: t('epiceries.sortDistance') || 'Distance', icon: '📍' },
+    { key: 'rating', label: t('epiceries.sortRating') || 'Mieux notées', icon: '⭐' },
+    { key: 'products', label: t('epiceries.sortProducts') || 'Plus de choix', icon: '🧺' },
+  ];
+
+  const renderSortBar = () => (
+    <View style={styles.sortBar}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.sortScrollContent}
+      >
+        <View style={styles.sortLabelWrap}>
+          <Ionicons name="swap-vertical" size={14} color="#777" />
+          <Text style={styles.sortLabelText}>{t('epiceries.sortBy') || 'Trier'}</Text>
+        </View>
+        {sortOptions.map((opt) => {
+          const active = sortKey === opt.key;
+          return (
+            <TouchableOpacity
+              key={opt.key}
+              style={[styles.sortChip, active && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+              onPress={() => setSortKey(opt.key)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.sortChipIcon}>{opt.icon}</Text>
+              <Text style={[styles.sortChipText, active && { color: '#fff' }]}>{opt.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+        {/* Favoris en tête — toggle appliqué par-dessus le tri courant. */}
+        <TouchableOpacity
+          style={[styles.sortChip, favoritesFirst && { backgroundColor: '#e11d48', borderColor: '#e11d48' }]}
+          onPress={() => setFavoritesFirst((v) => !v)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name={favoritesFirst ? 'heart' : 'heart-outline'} size={13} color={favoritesFirst ? '#fff' : '#e11d48'} />
+          <Text style={[styles.sortChipText, favoritesFirst && { color: '#fff' }]}>
+            {t('epiceries.favoritesFirst') || 'Favoris'}
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+
+  const currentSortLabel = sortOptions.find((o) => o.key === sortKey)?.label || '';
+
   const renderSkeletons = () => (
     <View>
       {[0, 1, 2].map((i) => (
@@ -296,28 +567,34 @@ export default function EpiceriesScreen() {
     </View>
   );
 
-  const renderHeader = () => (
-    <View>
-      {/* Compteur résultats */}
-      {hasFetched && !loading && (
-        <View style={styles.resultsHeader}>
-          <Text style={styles.resultsCount}>
-            {filteredEpiceries.length} {t('epiceries.epiceriesFound') || 'épiceries trouvées'}
-          </Text>
-          {!userLocation && (
-            <TouchableOpacity onPress={handleRetryLocation} style={styles.gpsRetry}>
-              <Ionicons name="location-outline" size={14} color={theme.colors.brand} />
-              <Text style={[styles.gpsRetryText, { color: theme.colors.brand }]}>
-                {t('epiceries.detectPosition') || 'Détecter ma position'}
-              </Text>
-            </TouchableOpacity>
-          )}
+  // Header/Empty en éléments mémoïsés (références stables passées à la
+  // FlatList, non invoqués à chaque rendu).
+  const listHeaderEl = useMemo(() => {
+    if (!hasFetched || loading) return null;
+    return (
+      <View style={styles.resultsHeader}>
+        <View style={styles.resultsHeaderLeft}>
+          {/* Le compteur est désormais porté par la barre de bascule Liste/Carte. */}
+          {currentSortLabel ? (
+            <Text style={styles.sortedByText}>
+              {(t('epiceries.sortedBy') || 'Trié par : {{name}}').replace('{{name}}', currentSortLabel)}
+            </Text>
+          ) : null}
         </View>
-      )}
-    </View>
-  );
+        {!userLocation && (
+          <TouchableOpacity onPress={handleRetryLocation} style={styles.gpsRetry}>
+            <Ionicons name="location-outline" size={14} color={theme.colors.brand} />
+            <Text style={[styles.gpsRetryText, { color: theme.colors.brand }]}>
+              {t('epiceries.detectPosition') || 'Détecter ma position'}
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasFetched, loading, sortedEpiceries.length, userLocation, currentSortLabel, locationLoading]);
 
-  const renderEmpty = () => {
+  const listEmptyEl = useMemo(() => {
     if (loading) return renderSkeletons();
     return (
       <View style={styles.emptyContainer}>
@@ -335,6 +612,8 @@ export default function EpiceriesScreen() {
               setTypeFilter(null);
               setRadius(DEFAULT_RADIUS);
               setSearchText('');
+              setPromoOnly(false);
+              clearCategory();
             }}
             style={[styles.clearFiltersBtn, { backgroundColor: theme.colors.brand }]}
           >
@@ -345,101 +624,128 @@ export default function EpiceriesScreen() {
         )}
       </View>
     );
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, activeFiltersCount, searchText]);
 
   return (
     <View style={styles.container}>
-      {/* Barre de recherche — peut être masquée par l'utilisateur */}
-      {searchBarVisible ? (
-        <View style={styles.searchHeader}>
-          <View style={styles.searchInputWrap}>
-            <Ionicons name="search" size={18} color="#999" />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t('epiceries.searchPlaceholder')}
-              placeholderTextColor="#999"
-              value={searchText}
-              onChangeText={setSearchText}
-              returnKeyType="search"
-            />
-            {searchText.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchText('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={18} color="#bbb" />
-              </TouchableOpacity>
-            )}
-          </View>
-          <TouchableOpacity
-            style={[styles.filterBtn, activeFiltersCount > 0 && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
-            onPress={() => setShowFiltersSheet(true)}
-            activeOpacity={0.8}
-            accessibilityLabel={t('epiceries.filters')}
-          >
-            <Ionicons name="options-outline" size={20} color={activeFiltersCount > 0 ? '#fff' : '#333'} />
-            {activeFiltersCount > 0 && (
-              <View style={styles.filterBadge}>
-                <Text style={styles.filterBadgeText}>{activeFiltersCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.hideSearchBtn}
-            onPress={() => setSearchBarVisible(false)}
-            hitSlop={6}
-            accessibilityLabel="Masquer la recherche"
-          >
-            <Ionicons name="chevron-up" size={18} color="#666" />
-          </TouchableOpacity>
+      {/* Barre de recherche + bouton filtres */}
+      <View style={styles.searchHeader}>
+        <View style={styles.searchInputWrap}>
+          <Ionicons name="search" size={18} color={theme.colors.brand} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder={t('epiceries.searchPlaceholder')}
+            placeholderTextColor="#999"
+            value={searchText}
+            onChangeText={setSearchText}
+            returnKeyType="search"
+          />
+          {searchText.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchText('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={18} color="#bbb" />
+            </TouchableOpacity>
+          )}
         </View>
-      ) : (
         <TouchableOpacity
-          style={styles.searchCollapsedBar}
-          onPress={() => setSearchBarVisible(true)}
+          style={[styles.filterBtn, activeFiltersCount > 0 && { backgroundColor: theme.colors.brand, borderColor: theme.colors.brand }]}
+          onPress={() => setShowFiltersSheet(true)}
           activeOpacity={0.8}
-          accessibilityLabel="Afficher la recherche"
+          accessibilityLabel={t('epiceries.filters')}
         >
-          <Ionicons name="search" size={16} color="#666" />
-          <Text style={styles.searchCollapsedText} numberOfLines={1}>
-            {searchText.trim() ? `"${searchText}"` : t('epiceries.searchPlaceholder')}
-          </Text>
-          <Ionicons name="chevron-down" size={16} color="#999" />
+          <Ionicons name="options-outline" size={20} color={activeFiltersCount > 0 ? '#fff' : '#333'} />
+          {activeFiltersCount > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={styles.filterBadgeText}>{activeFiltersCount}</Text>
+            </View>
+          )}
         </TouchableOpacity>
-      )}
+      </View>
 
       {/* Chips de filtres rapides (toujours visibles) */}
       <View style={styles.quickFiltersAnchor}>{renderQuickFilters()}</View>
 
-      {/* Liste */}
-      <FlatList
-        data={filteredEpiceries}
-        keyExtractor={(item) => item.id.toString()}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        ListHeaderComponent={renderHeader()}
-        ListEmptyComponent={renderEmpty()}
-        renderItem={({ item }) => (
-          <EpicerieDiscoverCard
-            epicerie={item}
-            isFavorite={favoriteIds.includes(item.id)}
-            onPress={(e) => router.push(`/(client)/(epicerie)/${e.id}`)}
-            onToggleFavorite={handleToggleFavorite}
+      {/* Barre de tri + favoris en tête */}
+      {renderSortBar()}
+
+      {/* Toggle Liste / Carte (Lot 4) — visible dans les deux modes */}
+      <View style={styles.viewToggleBar}>
+        <View style={styles.resultsHeaderLeft}>
+          <Text style={styles.resultsCount}>
+            {sortedEpiceries.length} {t('epiceries.epiceriesFound') || 'épiceries trouvées'}
+          </Text>
+        </View>
+        <View style={styles.viewToggle}>
+          <TouchableOpacity
+            style={[styles.viewToggleBtn, viewMode === 'list' && { backgroundColor: theme.colors.brand }]}
+            onPress={() => setViewMode('list')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityState={{ selected: viewMode === 'list' }}
+            accessibilityLabel={t('epiceries.viewList') || 'Liste'}
+          >
+            <Ionicons name="list" size={16} color={viewMode === 'list' ? '#fff' : '#555'} />
+            <Text style={[styles.viewToggleText, viewMode === 'list' && { color: '#fff' }]}>
+              {t('epiceries.viewList') || 'Liste'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.viewToggleBtn, viewMode === 'map' && { backgroundColor: theme.colors.brand }]}
+            onPress={() => setViewMode('map')}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityState={{ selected: viewMode === 'map' }}
+            accessibilityLabel={t('epiceries.viewMap') || 'Carte'}
+          >
+            <Ionicons name="map" size={16} color={viewMode === 'map' ? '#fff' : '#555'} />
+            <Text style={[styles.viewToggleText, viewMode === 'map' && { color: '#fff' }]}>
+              {t('epiceries.viewMap') || 'Carte'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Contenu : liste ou carte (mêmes données filtrées/triées) */}
+      {viewMode === 'map' ? (
+        <View style={styles.mapContainer}>
+          <EpiceriesMapView
+            epiceries={sortedEpiceries}
             userLocation={userLocation}
+            onSelectEpicerie={handleSelectEpicerieId}
+            promoMap={promoMap}
           />
-        )}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={theme.colors.brand}
-          />
-        }
-        ListFooterComponent={
-          loading && hasFetched ? (
-            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-              <ActivityIndicator size="small" color={theme.colors.brand} />
-            </View>
-          ) : null
-        }
-      />
+        </View>
+      ) : (
+        <FlatList
+          data={sortedEpiceries}
+          keyExtractor={(item) => item.id.toString()}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={listHeaderEl}
+          ListEmptyComponent={listEmptyEl}
+          renderItem={renderItem}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.5}
+          initialNumToRender={6}
+          maxToRenderPerBatch={8}
+          windowSize={9}
+          removeClippedSubviews
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.colors.brand}
+            />
+          }
+          ListFooterComponent={
+            (loadingMore || (loading && hasFetched)) ? (
+              <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={theme.colors.brand} />
+              </View>
+            ) : null
+          }
+        />
+      )}
 
       {/* Bottom-sheet filtres */}
       <EpicerieDiscoverFiltersSheet
@@ -489,8 +795,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
+    borderWidth: 1.5,
+    borderColor: '#E8F5E9',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -517,31 +823,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 2,
-  },
-  hideSearchBtn: {
-    width: 32,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  searchCollapsedBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 12,
-    marginTop: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#EAEAEA',
-  },
-  searchCollapsedText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '500',
   },
   filterBadge: {
     position: 'absolute',
@@ -594,6 +875,40 @@ const styles = StyleSheet.create({
     maxWidth: 130,
   },
 
+  // ── Toggle Liste / Carte (Lot 4) ────────────────────────────────────
+  viewToggleBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
+    padding: 3,
+    gap: 3,
+  },
+  viewToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  viewToggleText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#555',
+  },
+  mapContainer: {
+    flex: 1,
+  },
+
   // ── Results ─────────────────────────────────────────────────────────
   listContent: {
     paddingTop: 6,
@@ -606,10 +921,60 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+  resultsHeaderLeft: {
+    flexShrink: 1,
+  },
   resultsCount: {
     fontSize: 13,
     fontWeight: '700',
     color: '#555',
+  },
+  sortedByText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#999',
+    marginTop: 2,
+  },
+
+  // ── Barre de tri ────────────────────────────────────────────────────
+  sortBar: {
+    backgroundColor: '#F7F7F8',
+    paddingBottom: 4,
+  },
+  sortScrollContent: {
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+  sortLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingRight: 2,
+  },
+  sortLabelText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#777',
+  },
+  sortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EAEAEA',
+  },
+  sortChipIcon: {
+    fontSize: 12,
+  },
+  sortChipText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#444',
   },
   gpsRetry: {
     flexDirection: 'row',

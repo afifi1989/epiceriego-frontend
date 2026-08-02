@@ -30,11 +30,14 @@ import {
   XReportResponse,
   cashSessionService
 } from '../../src/services/cashSessionService';
+import { useActiveCaisse } from '../../src/services/activeCaisse';
+import { CaisseSelector } from '../../src/components/epicier/CaisseSelector';
 
 type Mode = 'loading' | 'open-form' | 'live' | 'close-form';
 
 export default function CashSessionScreen() {
   const router = useRouter();
+  const activeCaisseId = useActiveCaisse();
   const [mode, setMode] = useState<Mode>('loading');
   const [session, setSession] = useState<CashDrawerSessionResponse | null>(null);
   const [xReport, setXReport] = useState<XReportResponse | null>(null);
@@ -53,13 +56,13 @@ export default function CashSessionScreen() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      let current = await cashSessionService.getCurrent();
+      let current = await cashSessionService.getCurrent(activeCaisseId);
 
       // Fallback : si /current ne retourne rien, chercher via la liste
       // (cas où la session a été ouverte par un autre collaborateur/appareil)
       if (!current) {
         try {
-          const page = await cashSessionService.list('OPEN', 0, 1);
+          const page = await cashSessionService.list('OPEN', 0, 1, activeCaisseId);
           if (page.content && page.content.length > 0) {
             current = page.content[0];
           }
@@ -88,7 +91,7 @@ export default function CashSessionScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [activeCaisseId]);
 
   useFocusEffect(useCallback(() => {
     setMode('loading');
@@ -107,7 +110,7 @@ export default function CashSessionScreen() {
       const created = await cashSessionService.open({
         openingFloat: parsed,
         notes: openNotes.trim() || null
-      });
+      }, activeCaisseId);
       setSession(created);
       setOpeningFloat('');
       setOpenNotes('');
@@ -198,6 +201,7 @@ export default function CashSessionScreen() {
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Caisse</Text>
+        <CaisseSelector onChange={() => { setMode('loading'); refresh(); }} />
         {mode === 'live' && session && (
           <View style={styles.openBadge}>
             <View style={styles.openDot} />

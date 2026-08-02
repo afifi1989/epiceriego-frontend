@@ -1,11 +1,12 @@
 export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +26,13 @@ import { formatPrice, getStatusColor, getStatusLabel } from '../../../src/utils/
 
 const STEPS_DELIVERY = ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'IN_DELIVERY', 'DELIVERED'];
 const STEPS_PICKUP   = ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED'];
+
+/**
+ * B6 — Statuts terminaux : plus aucune évolution n'est attendue côté client, on
+ * arrête donc le polling. CANCELLED/REJECTED sont hors du flux normal (absents
+ * des STEPS) et sont eux aussi terminaux.
+ */
+const TERMINAL_STATUSES = ['DELIVERED', 'CANCELLED', 'REJECTED'];
 
 const STEP_ICONS: Record<string, string> = {
   PENDING:     '🕐',
@@ -54,6 +62,24 @@ function OrderProgressStepper({
 
   const steps = deliveryType === 'PICKUP' ? STEPS_PICKUP : STEPS_DELIVERY;
   const currentIndex = steps.indexOf(status);
+
+  // B6 — Statut hors flux (REJECTED, DELIVERY_FAILED, ou tout statut inconnu) :
+  // le stepper serait entièrement gris (indexOf === -1) et illisible. On affiche
+  // à la place un bandeau de repli explicite, coloré selon le statut — sur le
+  // même modèle que le cas CANCELLED.
+  if (currentIndex === -1) {
+    const label =
+      status === 'REJECTED' ? t('orderDetail.rejected')
+      : status === 'DELIVERY_FAILED' ? t('orderDetail.deliveryFailed')
+      : (t('orderDetail.statusOther') || 'Statut : {{status}}').replace('{{status}}', getStatusLabel(status));
+    return (
+      <View style={[stepperStyles.fallbackBox, { borderColor: getStatusColor(status) }]}>
+        <Text style={[stepperStyles.fallbackText, { color: getStatusColor(status) }]}>
+          ⚠️  {label}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={stepperStyles.wrapper}>
@@ -210,6 +236,22 @@ const stepperStyles = StyleSheet.create({
     color: '#DC143C',
     fontWeight: '700',
   },
+  // B6 — Bandeau de repli pour un statut hors flux (stepper impossible).
+  fallbackBox: {
+    backgroundColor: '#fff',
+    marginHorizontal: 15,
+    marginTop: -10,
+    marginBottom: 5,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1.5,
+  },
+  fallbackText: {
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });
 
 export default function OrderDetailsScreen() {
@@ -220,22 +262,24 @@ export default function OrderDetailsScreen() {
 
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [editingDeliveryInfo, setEditingDeliveryInfo] = useState(false);
   const [adresse, setAdresse] = useState('');
   const [telephone, setTelephone] = useState('');
   const [updating, setUpdating] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
 
-  useEffect(() => {
-    loadOrder();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchOrder = useCallback(async (): Promise<Order> => {
+    const idStr = Array.isArray(id) ? id[0] : id;
+    return orderService.getOrderById(parseInt(idStr as string));
   }, [id]);
 
-  const loadOrder = async () => {
+  // Chargement initial : affiche le skeleton et éjecte l'écran si la commande
+  // est introuvable (erreur bloquante au 1er accès).
+  const loadOrder = useCallback(async () => {
     try {
       setLoading(true);
-      const idStr = Array.isArray(id) ? id[0] : id;
-      const orderData = await orderService.getOrderById(parseInt(idStr as string));
+      const orderData = await fetchOrder();
       setOrder(orderData);
       setAdresse(orderData.adresseLivraison);
       setTelephone(orderData.telephoneLivraison || '');
@@ -245,7 +289,42 @@ export default function OrderDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchOrder]);
+
+  // B6 — Rafraîchissement silencieux (polling + pull-to-refresh) : ne remet pas
+  // le skeleton et n'éjecte JAMAIS l'écran sur une erreur transitoire (réseau),
+  // contrairement au chargement initial. Met simplement à jour la commande.
+  const refreshOrder = useCallback(async () => {
+    try {
+      const orderData = await fetchOrder();
+      setOrder(orderData);
+    } catch {
+      // Silencieux — une coupure réseau ne doit pas fermer l'écran de suivi.
+    }
+  }, [fetchOrder]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refreshOrder();
+    setRefreshing(false);
+  }, [refreshOrder]);
+
+  useEffect(() => {
+    loadOrder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // B6 — Polling léger (15 s) du statut tant que la commande n'est pas dans un
+  // état terminal. Se (re)crée à chaque changement de statut et s'arrête net une
+  // fois livrée/annulée/refusée. L'interval est nettoyé au unmount / changement
+  // de dépendance pour éviter les fuites.
+  useEffect(() => {
+    const status = order?.status;
+    if (!status || TERMINAL_STATUSES.includes(status)) return;
+    const interval = setInterval(() => { refreshOrder(); }, 15000);
+    return () => clearInterval(interval);
+  }, [order?.status, refreshOrder]);
 
   const handleUpdateDeliveryInfo = async () => {
     if (!adresse || !telephone) {
@@ -405,7 +484,12 @@ export default function OrderDetailsScreen() {
     : null;
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#4CAF50" />
+      }
+    >
       {/* En-tête avec numéro de commande et statut */}
       <View style={styles.header}>
         <Text style={styles.orderNumber}>{t('orders.orderNumber')} #{order.id}</Text>

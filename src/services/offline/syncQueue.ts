@@ -171,7 +171,11 @@ async function processAll(): Promise<SyncResult[]> {
         method: op.method,
         url: op.endpoint,
         data: op.payload,
-        headers: op.headers,
+        // Idempotence de bout en bout : on transmet l'`id` stable de
+        // l'opération comme clé d'idempotence. Un POST rejoué (réponse perdue,
+        // timeout, kill de l'app) porte la MÊME clé → le backend déduplique au
+        // lieu de créer un doublon. La clé reste identique sur tous les retries.
+        headers: { ...op.headers, 'Idempotency-Key': op.id },
       });
 
       // Succès → supprimer de la queue + invalider le cache

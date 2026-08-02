@@ -127,12 +127,15 @@ export const WIZARD_STEPS: WizardStepMeta[] = [
     estimatedSeconds: 30,
   },
   {
+    // CATALOGUE n'est plus obligatoire : l'épicier peut « Ignorer » pour
+    // démarrer sans aucun produit (import vide → flag posé côté backend) et
+    // bâtir son catalogue plus tard depuis l'écran Produits.
     id: 'CATALOGUE',
     kind: 'STRUCTURAL',
-    required: true,
+    required: false,
     title: 'Catalogue produits',
     icon: '📦',
-    subtitle: 'Importez un catalogue pré-rempli adapté à votre type',
+    subtitle: 'Importez un catalogue pré-rempli adapté à votre type — ou passez et ajoutez vos produits plus tard',
     estimatedSeconds: 30,
   },
   {

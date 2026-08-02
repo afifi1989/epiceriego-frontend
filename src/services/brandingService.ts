@@ -18,6 +18,8 @@ export interface BrandingPreset {
 export interface BrandingUpdateRequest {
   themePresetCode?: BrandingPreset['code'];
   brandStatement?: string;
+  /** Nom personnalisé de la carte de fidélité affiché côté client. */
+  cardName?: string;
 }
 
 /** Réponse PUT — récap branding effectif après application. */
@@ -28,6 +30,7 @@ export interface BrandingState {
   accentColor: string | null;
   onPrimaryColor: string | null;
   brandStatement: string | null;
+  cardName: string | null;
 }
 
 /**

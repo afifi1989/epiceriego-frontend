@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { MaterialIcons } from '@expo/vector-icons';
 import { epicerieService } from '../../src/services/epicerieService';
+import { GeocodingError, geocodingService } from '../../src/services/geocodingService';
 import { ProfilePhotoUpload } from '../../components/epicier/ProfilePhotoUpload';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -28,6 +29,7 @@ export default function ModifierInfosScreen() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
   const [epicerieId, setEpicerieId] = useState<number | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string>('');
   const [selectedPhotoUri, setSelectedPhotoUri] = useState<string | null>(null);
@@ -126,6 +128,42 @@ export default function ModifierInfosScreen() {
       );
     } finally {
       setLocating(false);
+    }
+  };
+
+  /**
+   * Géocode l'adresse tapée via le backend (POST /api/geocode — Google,
+   * biais Maroc). Alternative au GPS de l'appareil : les deux remplissent
+   * les mêmes champs latitude/longitude, exigés pour la livraison par zones.
+   */
+  const locateFromAddress = async () => {
+    const address = formData.adresse.trim();
+    if (!address) {
+      Alert.alert('Erreur', 'Saisissez d\'abord l\'adresse de votre épicerie.');
+      return;
+    }
+    try {
+      setGeocoding(true);
+      const result = await geocodingService.geocode(address);
+      setFormData(prev => ({
+        ...prev,
+        latitude: result.latitude.toFixed(8),
+        longitude: result.longitude.toFixed(8),
+      }));
+      Alert.alert(
+        '✅ Adresse localisée',
+        `${result.formattedAddress ?? address}\n\nLatitude: ${result.latitude.toFixed(6)}\nLongitude: ${result.longitude.toFixed(6)}`
+      );
+    } catch (error: any) {
+      const unavailable = error instanceof GeocodingError && error.code === 'UNAVAILABLE';
+      Alert.alert(
+        'Localisation impossible',
+        unavailable
+          ? 'Le service de localisation d\'adresse est indisponible — utilisez « Détecter » ou la saisie manuelle.'
+          : 'Adresse introuvable. Précisez la ville et le quartier, ou utilisez le bouton « Détecter ».'
+      );
+    } finally {
+      setGeocoding(false);
     }
   };
 
@@ -284,20 +322,36 @@ export default function ModifierInfosScreen() {
               <Text style={styles.label}>
                 Localisation <Text style={styles.required}>*</Text>
               </Text>
-              <TouchableOpacity
-                style={[styles.detectButton, locating && styles.detectButtonLoading]}
-                onPress={detectLocation}
-                disabled={locating || saving}
-              >
-                {locating ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <MaterialIcons name="location-on" size={18} color="#fff" />
-                    <Text style={styles.detectButtonText}>Détecter</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+              <View style={styles.locationActions}>
+                <TouchableOpacity
+                  style={[styles.detectButton, locating && styles.detectButtonLoading]}
+                  onPress={detectLocation}
+                  disabled={locating || geocoding || saving}
+                >
+                  {locating ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="location-on" size={18} color="#fff" />
+                      <Text style={styles.detectButtonText}>Détecter</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.detectButton, geocoding && styles.detectButtonLoading]}
+                  onPress={locateFromAddress}
+                  disabled={locating || geocoding || saving}
+                >
+                  {geocoding ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="travel-explore" size={18} color="#fff" />
+                      <Text style={styles.detectButtonText}>Via l'adresse</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.row}>
@@ -488,6 +542,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+  },
+  locationActions: {
+    flexDirection: 'row',
+    gap: 8,
   },
   detectButton: {
     flexDirection: 'row',

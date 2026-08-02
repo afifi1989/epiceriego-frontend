@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
+  Animated,
   Image,
   Pressable,
   StyleSheet,
@@ -39,6 +40,12 @@ export interface EpicerieHeroProps {
   onImagePress?: () => void;
   /** Hauteur du hero. Défaut 300 (immersif type Airbnb). */
   height?: number;
+  /**
+   * Position de scroll partagée (Animated.Value alimentée par le onScroll de la
+   * liste, useNativeDriver). Si fournie, l'image du hero applique un léger
+   * parallax (translateY + zoom au pull-to-refresh) pour un effet immersif.
+   */
+  scrollY?: Animated.Value;
   style?: ViewStyle;
 }
 
@@ -53,11 +60,52 @@ export const EpicerieHero: React.FC<EpicerieHeroProps> = ({
   onMore,
   onImagePress,
   height = 300,
+  scrollY,
   style,
 }) => {
   const insets = useSafeAreaInsets();
   const [imgFailed, setImgFailed] = React.useState(false);
   const showImage = !!photoUrl && !imgFailed;
+
+  // ── Pop animé du cœur favori ──────────────────────────────────────────
+  // Petite impulsion scale au tap pour donner du "poids" au geste. Native
+  // driver : transform pris en charge sans passer par le JS thread.
+  const heartScale = React.useRef(new Animated.Value(1)).current;
+  const handleFavoritePress = React.useCallback(() => {
+    heartScale.setValue(0.8);
+    Animated.spring(heartScale, {
+      toValue: 1,
+      friction: 3,
+      tension: 140,
+      useNativeDriver: true,
+    }).start();
+    onFavorite?.();
+  }, [heartScale, onFavorite]);
+
+  // ── Parallax de l'image ───────────────────────────────────────────────
+  // translateY suit le scroll à vitesse réduite (effet de profondeur), scale
+  // agrandit l'image en overscroll haut (pull). Bornes subtiles + wrapper
+  // débordant (top/bottom -height*0.4) pour ne jamais révéler de vide.
+  const parallaxTransform = scrollY
+    ? {
+        transform: [
+          {
+            translateY: scrollY.interpolate({
+              inputRange: [-height, 0, height],
+              outputRange: [-height * 0.3, 0, height * 0.28],
+              extrapolateRight: 'clamp' as const,
+            }),
+          },
+          {
+            scale: scrollY.interpolate({
+              inputRange: [-height, 0],
+              outputRange: [1.6, 1],
+              extrapolateRight: 'clamp' as const,
+            }),
+          },
+        ],
+      }
+    : undefined;
 
   return (
     <View style={[{ height }, styles.container, style]}>
@@ -67,20 +115,28 @@ export const EpicerieHero: React.FC<EpicerieHeroProps> = ({
         disabled={!onImagePress || !showImage}
         style={StyleSheet.absoluteFill}
       >
-        {showImage ? (
-          <Image
-            source={{ uri: photoUrl as string }}
-            style={StyleSheet.absoluteFill as any}
-            resizeMode="cover"
-            onError={() => setImgFailed(true)}
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: brandPrimary }]}>
-            <View style={styles.fallbackEmojiWrap}>
-              <Text style={styles.fallbackEmoji}>🏪</Text>
+        <Animated.View
+          style={[
+            styles.parallaxLayer,
+            { top: -height * 0.4, bottom: -height * 0.4 },
+            parallaxTransform,
+          ]}
+        >
+          {showImage ? (
+            <Image
+              source={{ uri: photoUrl as string }}
+              style={StyleSheet.absoluteFill as any}
+              resizeMode="cover"
+              onError={() => setImgFailed(true)}
+            />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: brandPrimary }]}>
+              <View style={styles.fallbackEmojiWrap}>
+                <Text style={styles.fallbackEmoji}>🏪</Text>
+              </View>
             </View>
-          </View>
-        )}
+          )}
+        </Animated.View>
       </Pressable>
 
       {/* Dégradé bas — assure la lisibilité des éléments qui suivent sans
@@ -106,8 +162,10 @@ export const EpicerieHero: React.FC<EpicerieHeroProps> = ({
 
         <View style={styles.actionsRight}>
           {onFavorite && (
-            <FloatingAction onPress={onFavorite} iconColor={iconColor} accessibilityLabel="Favori">
-              <Text style={styles.heartEmoji}>{isFavorite ? '❤️' : '🤍'}</Text>
+            <FloatingAction onPress={handleFavoritePress} iconColor={iconColor} accessibilityLabel="Favori">
+              <Animated.Text style={[styles.heartEmoji, { transform: [{ scale: heartScale }] }]}>
+                {isFavorite ? '❤️' : '🤍'}
+              </Animated.Text>
             </FloatingAction>
           )}
           <FloatingAction onPress={onSearch} iconColor={iconColor} accessibilityLabel="Rechercher">
@@ -148,6 +206,11 @@ const styles = StyleSheet.create({
     width: '100%',
     overflow: 'hidden',
     backgroundColor: '#E0E0E0',
+  },
+  parallaxLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
   fallbackEmojiWrap: {
     flex: 1,

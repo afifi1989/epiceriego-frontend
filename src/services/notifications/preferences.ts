@@ -57,11 +57,16 @@ export const notificationPreferencesService = {
     try {
       const response = await api.get<Partial<NotificationPreferences>>('/users/me/notification-preferences');
       // Merge with defaults so missing keys (e.g. backend hasn't deployed
-      // a new family yet) don't break the UI.
+      // a new family yet) don't break the UI. DEFAULT_PREFERENCES sert ici
+      // uniquement de socle d'initialisation pour les clés absentes d'une
+      // réponse *réussie* — PAS de masque en cas d'erreur réseau.
       return { ...DEFAULT_PREFERENCES, ...response.data };
     } catch (error: any) {
+      // On ne renvoie plus silencieusement DEFAULT_PREFERENCES : cela ferait
+      // croire à l'utilisateur que "tout est activé" alors que le chargement
+      // a échoué. On propage pour que l'écran affiche l'erreur + "Réessayer".
       console.error('[NotificationPreferences] GET failed:', error?.message);
-      return DEFAULT_PREFERENCES;
+      throw error;
     }
   },
 

@@ -487,6 +487,43 @@ function StepSchedule({
           </TouchableOpacity>
         </View>
       </View>
+
+      <View style={{ marginTop: 14 }}>
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.switchLabel}>🏆 {t('promotions.wizard.priority')}</Text>
+            <Text style={styles.switchHint}>{t('promotions.wizard.priorityHint')}</Text>
+          </View>
+          <View style={styles.stepperRow}>
+            <TouchableOpacity
+              style={styles.stepperBtn}
+              onPress={() => setState(s => ({ ...s, priority: Math.max(0, (s.priority ?? 0) - 1) }))}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.stepperBtnText}>−</Text>
+            </TouchableOpacity>
+            <TextInput
+              style={styles.stepperInput}
+              value={String(state.priority ?? 0)}
+              onChangeText={v => {
+                const digits = v.replace(/[^0-9]/g, '');
+                const n = parseInt(digits, 10);
+                setState(s => ({ ...s, priority: Number.isNaN(n) ? 0 : n }));
+              }}
+              keyboardType="number-pad"
+              maxLength={4}
+              textAlign="center"
+            />
+            <TouchableOpacity
+              style={styles.stepperBtn}
+              onPress={() => setState(s => ({ ...s, priority: (s.priority ?? 0) + 1 }))}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.stepperBtnText}>＋</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
     </View>
   );
 }
@@ -766,6 +803,34 @@ const styles = StyleSheet.create({
   },
   toggleKnobOn: {
     transform: [{ translateX: 18 }],
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stepperBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#ECEFF1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperBtnText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  stepperInput: {
+    minWidth: 44,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#F5F5F5',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+    paddingHorizontal: 8,
   },
   retryMini: {
     marginTop: 12,

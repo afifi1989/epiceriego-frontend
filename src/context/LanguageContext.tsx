@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { translations, type Language } from '../i18n/translations';
+import { translate, type Language } from '../i18n/translations';
 import { profileService } from '../services/profileService';
 import { categoryService } from '../services/categoryService';
 import type { SupportedLanguage } from '../type';
@@ -8,9 +8,31 @@ import type { SupportedLanguage } from '../type';
 interface LanguageContextType {
   language: Language;
   setLanguage: (lang: Language) => Promise<void>;
-  t: (key: string) => string;
+  /**
+   * Traduit une clé pointée. Délègue à `translate()` : interpolation
+   * `{{param}}` + fallback FR puis clé brute. `params` optionnel, la
+   * signature reste rétro-compatible avec les appels `t('a.b')`.
+   */
+  t: (key: string, params?: Record<string, string | number>) => string;
 }
 
+/**
+ * NOTE — direction de mise en page (RTL/LTR).
+ *
+ * Ce contexte ne touche PLUS à `I18nManager`. L'app est verrouillée en LTR pour
+ * toutes les langues par `src/i18n/layoutDirection.ts` (effet de bord importé en
+ * premier dans `app/_layout.tsx`).
+ *
+ * Raison : `I18nManager` est un flag natif GLOBAL, PERSISTANT et à effet DIFFÉRÉ
+ * (redémarrage natif requis). Le piloter ici faisait fuiter le RTL de l'arabe sur
+ * toutes les autres langues : une fois `forceRTL(true)` posé, le retour au
+ * français ne pouvait pas s'appliquer sans redémarrage — et aucun mécanisme de
+ * reload n'existe (`expo-updates` absent). Le changement de langue est donc
+ * désormais instantané et sans redémarrage.
+ *
+ * Le texte arabe reste correctement rendu de droite à gauche (algorithme bidi
+ * d'Unicode) : seul le miroir de la mise en page est abandonné.
+ */
 export const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
@@ -22,13 +44,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const loadLanguage = async () => {
       try {
         const saved = await AsyncStorage.getItem('app_language');
-        if (saved && (saved === 'fr' || saved === 'ar' || saved === 'en' || saved === 'tz')) {
-          console.log('[LanguageContext] ✅ Langue chargée:', saved);
-          setLanguageState(saved as Language);
-        } else {
-          console.log('[LanguageContext] 📝 Langue par défaut: fr');
-          setLanguageState('fr');
-        }
+        const initial: Language =
+          saved === 'fr' || saved === 'ar' || saved === 'en' || saved === 'tz'
+            ? (saved as Language)
+            : 'fr';
+        console.log(
+          saved ? '[LanguageContext] ✅ Langue chargée:' : '[LanguageContext] 📝 Langue par défaut:',
+          initial,
+        );
+        setLanguageState(initial);
       } catch (error) {
         console.error('[LanguageContext] ❌ Erreur chargement langue:', error);
         setLanguageState('fr');
@@ -40,25 +64,14 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     loadLanguage();
   }, []);
 
-  // Fonction de traduction
-  const t = useCallback((key: string): string => {
-    const keys = key.split('.');
-    let value: any = translations[language];
-
-    for (const k of keys) {
-      value = value?.[k];
-    }
-
-    // Une chaine vide est une traduction LEGITIME (ex: en.common.daysAgoPrefix=''
-    // car l'anglais n'a pas de prefixe : "3 days ago"). On ne considere comme
-    // "manquante" que les vraies valeurs absentes ou non-string.
-    if (typeof value !== 'string') {
-      console.warn(`[LanguageContext] ⚠️ Clé de traduction non trouvée: ${key} (${language})`);
-      return key;
-    }
-
-    return value;
-  }, [language]);
+  // Fonction de traduction — délègue à `translate()` (source unique) :
+  // interpolation `{{param}}`, fallback FR puis clé brute. Une chaîne vide
+  // reste une traduction LEGITIME (ex: en.common.daysAgoPrefix='').
+  const t = useCallback(
+    (key: string, params?: Record<string, string | number>): string =>
+      translate(language, key, params),
+    [language],
+  );
 
   // Changer la langue, la persister localement et synchroniser avec le backend
   const setLanguage = async (lang: Language) => {

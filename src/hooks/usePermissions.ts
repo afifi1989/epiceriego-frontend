@@ -23,7 +23,8 @@ export type Feature =
   | 'promotions:manage'
   | 'promoCodes:manage'
   | 'suppliers:manage'
-  | 'synonyms:manage';
+  | 'synonyms:manage'
+  | 'bundles:manage';
 
 export type UserProfile = 'owner' | 'manager' | 'gestionnaire' | 'caissier';
 
@@ -45,6 +46,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'promoCodes:manage',
     'suppliers:manage',
     'synonyms:manage',
+    'bundles:manage',
   ],
   manager: [
     'products:view', 'products:create', 'products:edit', 'products:delete',
@@ -63,6 +65,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'promoCodes:manage',
     'suppliers:manage',
     'synonyms:manage',
+    'bundles:manage',
   ],
   gestionnaire: [
     'products:view', 'products:create', 'products:edit',
@@ -78,6 +81,7 @@ export const PROFILE_PERMISSIONS: Record<UserProfile, Feature[]> = {
     'promoCodes:manage',
     'suppliers:manage',
     'synonyms:manage',
+    'bundles:manage',
   ],
   caissier: [
     'products:view',
@@ -126,6 +130,9 @@ export const FEATURE_TO_BACKEND: Record<Feature, string> = {
   'promoCodes:manage':     'PROMO_CODE_MANAGE',
   'suppliers:manage':      'SUPPLIER_MANAGE',
   'synonyms:manage':       'SYNONYM_MANAGE',
+  // Pas de permission backend dédiée aux bundles : on réutilise PRODUCT_EDIT
+  // (aligné avec le web). Le gating abonnement est appliqué en plus côté backend.
+  'bundles:manage':        'PRODUCT_EDIT',
 };
 
 /** Dérive le profil de permissions à partir des données utilisateur stockées */

@@ -30,13 +30,18 @@ import {
   brandingService,
   BrandingPreset,
 } from '../../src/services/brandingService';
+import { useLanguage } from '../../src/context/LanguageContext';
+
+const CARD_NAME_MAX = 60;
 
 export default function PersonnalisationEpicerieScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
 
   const [presets, setPresets] = useState<BrandingPreset[]>([]);
   const [selectedCode, setSelectedCode] = useState<BrandingPreset['code']>('DEFAULT');
   const [brandStatement, setBrandStatement] = useState('');
+  const [cardName, setCardName] = useState('');
   const [epicerieName, setEpicerieName] = useState('Ma boutique');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -51,6 +56,7 @@ export default function PersonnalisationEpicerieScreen() {
         setPresets(presetList);
         if (epicerie?.nomEpicerie) setEpicerieName(epicerie.nomEpicerie);
         if (epicerie?.brandStatement) setBrandStatement(epicerie.brandStatement);
+        if (epicerie?.cardName) setCardName(epicerie.cardName);
         // Aligner la sélection visuelle sur le preset déjà sauvegardé.
         const currentCode = (epicerie?.themePreset as BrandingPreset['code']) ?? 'DEFAULT';
         const found = presetList.find(p => p.code === currentCode);
@@ -72,6 +78,7 @@ export default function PersonnalisationEpicerieScreen() {
       await brandingService.updateBranding({
         themePresetCode: selectedCode,
         brandStatement: brandStatement.trim() || undefined,
+        cardName: cardName.trim() || undefined,
       });
       Alert.alert(
         'Personnalisation enregistrée',
@@ -166,6 +173,21 @@ export default function PersonnalisationEpicerieScreen() {
         <Text style={styles.hint}>
           Affiché sous le nom de votre boutique dans l'app cliente.
         </Text>
+
+        {/* ── Nom de la carte de fidélité ── */}
+        <Text style={styles.sectionTitle}>{t('cards.settingLabel')}</Text>
+        <View style={styles.statementBox}>
+          <TextInput
+            style={styles.cardNameInput}
+            value={cardName}
+            onChangeText={setCardName}
+            placeholder={t('cards.settingPlaceholder')}
+            placeholderTextColor="#9ca3af"
+            maxLength={CARD_NAME_MAX}
+          />
+          <Text style={styles.charCount}>{cardName.length}/{CARD_NAME_MAX}</Text>
+        </View>
+        <Text style={styles.hint}>{t('cards.settingHint')}</Text>
 
         {/* ── Aperçu compact ── */}
         {selected && (
@@ -313,6 +335,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1a1a1a',
     minHeight: 48,
+  },
+  cardNameInput: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    minHeight: 24,
   },
   charCount: { fontSize: 11, color: '#9ca3af', textAlign: 'right', marginTop: 4 },
   hint: { fontSize: 12, color: '#9ca3af', marginBottom: 8, paddingHorizontal: 4 },

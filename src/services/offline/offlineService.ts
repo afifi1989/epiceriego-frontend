@@ -237,6 +237,16 @@ async function fetchWithCache<T>(options: FetchOptions<T>): Promise<T | null> {
 // ---------------------------------------------------------------------------
 
 /**
+ * ⚠️ NON BRANCHÉ (dead code au 2026-07) — À NE PAS UTILISER TEL QUEL.
+ * TODO(offline-writes): aucun service métier n'appelle `writeOrQueue`
+ * aujourd'hui. L'infrastructure (syncQueue.enqueue, mise à jour optimiste) est
+ * présente mais N'A PAS été validée sur les flux critiques. En particulier, ne
+ * PAS l'utiliser pour le checkout / paiement : une mise en queue silencieuse
+ * d'une commande en mode offline ferait croire à un succès sans garantie de
+ * synchronisation (double vente, incohérence stock). Avant tout branchement,
+ * définir explicitement quels domaines sont sûrs (idempotents, non financiers)
+ * et tester la reprise réseau de bout en bout.
+ *
  * Écriture intelligente : API si online, sinon queue pour sync ultérieure.
  *
  * Usage dans un service métier :

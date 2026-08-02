@@ -58,14 +58,16 @@ export function ProGate({ feature, children, hideWhenLocked }: ProGateProps) {
   );
 }
 
-/** Petit badge "PRO" affichable à côté d'un texte. Pas de gating ici —
- * c'est purement informatif, pour les éléments de menu/liste. */
+/** Petit badge "PRO 🔒" affichable à côté d'un texte. S'auto-masque si la
+ * feature est incluse dans le plan (ou pendant le chargement). Purement
+ * informatif : le blocage réel + la redirection upsell sont gérés par le
+ * parent (au tap sur l'entrée de menu). */
 export function ProBadgeInline({ feature }: { feature: SubscriptionFeature }) {
   const { hasFeature, loading } = useSubscription();
   if (loading || hasFeature(feature)) return null;
   return (
     <View style={styles.inlineBadge}>
-      <Text style={styles.inlineBadgeText}>PRO</Text>
+      <Text style={styles.inlineBadgeText}>PRO 🔒</Text>
     </View>
   );
 }

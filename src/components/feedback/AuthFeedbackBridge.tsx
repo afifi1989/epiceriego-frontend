@@ -67,17 +67,6 @@ export function AuthFeedbackBridge() {
         // Confirmation breve apres re-login reussi via le modal.
         toast.success('Reconnecte', 'Vous pouvez reprendre votre activite.');
       }),
-
-      authFeedbackBus.on('network:offline', () => {
-        toast.warning(
-          'Mode hors ligne',
-          'Les donnees affichees peuvent etre obsoletes.',
-        );
-      }),
-
-      authFeedbackBus.on('network:online', () => {
-        toast.success('Connexion retablie', 'Synchronisation en cours.');
-      }),
     ];
 
     return () => subs.forEach(s => s.remove());

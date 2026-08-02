@@ -18,6 +18,7 @@ export {
 export { DATE_SHORTCUTS, type DateShortcut } from './dateShortcuts';
 export {
   activePromosForEpicerie,
+  isPromoLiveNow,
   bestPromoForProduct,
   bestPromoForCategory,
   bestPromoForUnit,

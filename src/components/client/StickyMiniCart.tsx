@@ -66,6 +66,33 @@ export const StickyMiniCart: React.FC<StickyMiniCartProps> = ({
   const translateY = useRef(new Animated.Value(visible ? 0 : 120)).current;
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
+  // Pulse du badge compteur : dès que le nombre d'articles AUGMENTE, on fait
+  // un scale 1 → 1.3 → 1 (spring) pour matérialiser l'ajout (délice à l'ajout,
+  // pairé avec le haptic déclenché côté écran). On compare la valeur précédente
+  // via un ref pour ne pas rejouer l'anim à la baisse (retrait d'article).
+  const badgeScale = useRef(new Animated.Value(1)).current;
+  const prevCountRef = useRef(itemCount);
+  useEffect(() => {
+    if (itemCount > prevCountRef.current) {
+      badgeScale.setValue(1);
+      Animated.sequence([
+        Animated.spring(badgeScale, {
+          toValue: 1.3,
+          useNativeDriver: true,
+          friction: 4,
+          tension: 140,
+        }),
+        Animated.spring(badgeScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 5,
+          tension: 140,
+        }),
+      ]).start();
+    }
+    prevCountRef.current = itemCount;
+  }, [itemCount, badgeScale]);
+
   useEffect(() => {
     Animated.parallel([
       Animated.spring(translateY, {
@@ -109,11 +136,16 @@ export const StickyMiniCart: React.FC<StickyMiniCartProps> = ({
         {/* Pastille icône + compteur — design "badge" inspiré Glovo/Deliveroo */}
         <View style={styles.iconWrap}>
           <Text style={styles.iconEmoji}>🛒</Text>
-          <View style={[styles.countBadge, { backgroundColor: textColor }]}>
+          <Animated.View
+            style={[
+              styles.countBadge,
+              { backgroundColor: textColor, transform: [{ scale: badgeScale }] },
+            ]}
+          >
             <Text style={[styles.countBadgeText, { color: backgroundColor }]}>
               {itemCount > 99 ? '99+' : itemCount}
             </Text>
-          </View>
+          </Animated.View>
         </View>
 
         {/* Bloc central : label articles + total */}

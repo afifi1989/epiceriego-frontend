@@ -16,6 +16,7 @@ import {
 import * as Sharing from 'expo-sharing';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/constants/config';
 import { orderService, OrderAuditLog } from '../../src/services/orderService';
@@ -25,12 +26,13 @@ import {
   epicierLivreurService,
   AssignedLivreur,
 } from '../../src/services/epicierLivreurService';
-import { Order } from '../../src/type';
+import { Order, WhatsAppOutboundLog } from '../../src/type';
 import { formatPrice, getStatusLabel, getStatusColor } from '../../src/utils/helpers';
 import { useCurrency } from '../../src/context/CurrencyContext';
 import { OrderLivreurAssignmentSection } from '../../src/components/epicier/OrderLivreurAssignmentSection';
 import { LivreurAssignmentModal } from '../../src/components/epicier/LivreurAssignmentModal';
 import { PermissionGate } from '../../src/components/shared/PermissionGate';
+import { useLanguage } from '../../src/context/LanguageContext';
 
 function getAuditLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -77,8 +79,25 @@ function getAuditColor(action: string): string {
   return colors[action] ?? '#757575';
 }
 
+/**
+ * WhatsApp — couleur du badge d'état de livraison d'un message sortant.
+ * Vert pour les états de succès (SENT/DELIVERED/READ), rouge pour FAILED,
+ * gris neutre pour UNKNOWN.
+ */
+function getWaDeliveryColor(status: string): string {
+  const colors: Record<string, string> = {
+    SENT: '#2E7D32',
+    DELIVERED: '#2E7D32',
+    READ: '#2E7D32',
+    FAILED: '#C62828',
+    UNKNOWN: '#9E9E9E',
+  };
+  return colors[status] ?? '#9E9E9E';
+}
+
 export default function DetailsCommandeScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   /** Garde anti double-tap pour les boutons de NAVIGATION : un 2e tap pendant
    *  la transition (~600ms) empilerait l'écran deux fois. Ref = synchrone. */
   const lastNavRef = useRef(0);
@@ -104,6 +123,12 @@ export default function DetailsCommandeScreen() {
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundReference, setRefundReference] = useState('');
   const [refundProcessing, setRefundProcessing] = useState(false);
+  // WhatsApp — Journal des envois sortants, chargé à la demande (bouton) et
+  // uniquement pour les commandes WhatsApp. `waLogLoaded` empêche un rechargement.
+  const [whatsappLog, setWhatsappLog] = useState<WhatsAppOutboundLog[]>([]);
+  const [waLogLoading, setWaLogLoading] = useState(false);
+  const [waLogLoaded, setWaLogLoaded] = useState(false);
+  const [waLogError, setWaLogError] = useState<string | null>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -300,6 +325,50 @@ export default function DetailsCommandeScreen() {
       Alert.alert('Erreur', typeof error === 'string' ? error : error?.message || 'Remboursement impossible');
     } finally {
       setRefundProcessing(false);
+    }
+  };
+
+  /**
+   * WhatsApp — Charge le journal des envois À LA DEMANDE (tap sur le bouton).
+   * Ne recharge pas si déjà chargé (`waLogLoaded`). Gère loading / erreur
+   * (403/404 → message, pas de crash) / vide côté rendu.
+   */
+  const handleLoadWhatsAppLog = async () => {
+    if (!order || waLogLoading || waLogLoaded) return;
+    setWaLogLoading(true);
+    setWaLogError(null);
+    try {
+      const log = await orderService.getWhatsAppLog(order.id);
+      setWhatsappLog(log);
+      setWaLogLoaded(true);
+    } catch (error: any) {
+      setWaLogError(
+        typeof error === 'string' ? error : error?.message || t('orderDetail.waLogError'),
+      );
+    } finally {
+      setWaLogLoading(false);
+    }
+  };
+
+  /** WhatsApp — libellé d'une entrée du journal selon son `purpose`. */
+  const getWaPurposeLabel = (entry: WhatsAppOutboundLog): string => {
+    if (entry.purpose === 'ORDER_STATUS') {
+      return t('orderDetail.waLogPurposeOrderStatus', {
+        status: entry.statusType ? getStatusLabel(entry.statusType) : '—',
+      });
+    }
+    if (entry.purpose === 'CONVERSATION_REPLY') return t('orderDetail.waLogPurposeReply');
+    return t('orderDetail.waLogPurposeTemplate');
+  };
+
+  /** WhatsApp — libellé du badge d'état de livraison ('—' pour UNKNOWN). */
+  const getWaDeliveryLabel = (status: string): string => {
+    switch (status) {
+      case 'SENT': return t('orderDetail.waLogDeliverySent');
+      case 'DELIVERED': return t('orderDetail.waLogDeliveryDelivered');
+      case 'READ': return t('orderDetail.waLogDeliveryRead');
+      case 'FAILED': return t('orderDetail.waLogDeliveryFailed');
+      default: return '—';
     }
   };
 
@@ -547,7 +616,82 @@ export default function DetailsCommandeScreen() {
                 <Text style={styles.infoValue}>{order.telephoneLivraison}</Text>
               </View>
             )}
+            {/* Canal de la commande (WhatsApp / App / Web / Vente directe) */}
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>{t('orderDetail.channelLabel')}:</Text>
+              <View style={styles.channelValueRow}>
+                {order.source === 'WHATSAPP' && (
+                  <MaterialCommunityIcons name="whatsapp" size={16} color="#25D366" />
+                )}
+                <Text
+                  style={[
+                    styles.infoValue,
+                    order.source === 'WHATSAPP' && styles.channelValueWhatsapp,
+                  ]}
+                >
+                  {order.source === 'WHATSAPP'
+                    ? t('orderDetail.channelWhatsapp')
+                    : order.source === 'DIRECT_SALE'
+                      ? t('orderDetail.channelDirectSale')
+                      : order.source === 'WEB'
+                        ? t('orderDetail.channelWeb')
+                        : t('orderDetail.channelApp')}
+                </Text>
+              </View>
+            </View>
           </View>
+
+          {/* Alerte : notification WhatsApp non délivrée au client */}
+          {order.whatsappNotificationFailed && (
+            <View style={styles.notifAlertBox}>
+              <View style={styles.notifAlertHeader}>
+                <MaterialIcons name="error-outline" size={20} color="#C62828" />
+                <Text style={styles.notifAlertTitle}>{t('orderDetail.notifFailedTitle')}</Text>
+              </View>
+              {order.notificationStatusType && (
+                <Text style={styles.notifAlertLine}>
+                  {t('orderDetail.notifFailedStatus', { status: order.notificationStatusType })}
+                </Text>
+              )}
+              {(order.notificationErrorTitle ||
+                order.notificationErrorDetail ||
+                order.notificationErrorCode) && (
+                <Text style={styles.notifAlertLine}>
+                  {t('orderDetail.notifFailedReason', {
+                    reason:
+                      [order.notificationErrorTitle, order.notificationErrorDetail]
+                        .filter(Boolean)
+                        .join(' — ') +
+                      (order.notificationErrorCode ? ` (${order.notificationErrorCode})` : '') +
+                      (order.notificationErrorCode === '131047'
+                        ? ` — ${t('orderDetail.notifFailedOutsideWindow')}`
+                        : ''),
+                  })}
+                </Text>
+              )}
+              <Text style={styles.notifAlertAction}>{t('orderDetail.notifFailedAction')}</Text>
+            </View>
+          )}
+
+          {/* Accès direct au carnet digital du client (crédit, factures,
+              historique). Uniquement si un client inscrit est rattaché
+              (clientId > 0 ; les ventes de passage n'en ont pas). */}
+          {order.clientId > 0 && (
+            <TouchableOpacity
+              style={styles.clientFileBtn}
+              onPress={() =>
+                pushOnce(
+                  `/(epicier)/carnet-client?id=${order.clientId}` +
+                    (order.clientNom ? `&clientName=${encodeURIComponent(order.clientNom)}` : ''),
+                )
+              }
+              activeOpacity={0.8}
+            >
+              <MaterialIcons name="folder-shared" size={18} color={Colors.primary} />
+              <Text style={styles.clientFileBtnText}>{t('orderDetail.viewClientFile')}</Text>
+              <MaterialIcons name="chevron-right" size={20} color={Colors.primary} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Infos Livraison */}
@@ -770,6 +914,93 @@ export default function DetailsCommandeScreen() {
             )}
           </View>
         )}
+
+        {/* WhatsApp — Journal des envois sortants (à la demande). Uniquement
+            pour les commandes WhatsApp. */}
+        {order.source === 'WHATSAPP' && (
+          <View style={styles.section}>
+            <View style={styles.waLogHeaderRow}>
+              <MaterialCommunityIcons name="whatsapp" size={18} color="#25D366" />
+              <Text style={[styles.sectionTitle, styles.waLogTitle]}>
+                {t('orderDetail.waLogTitle')}
+              </Text>
+            </View>
+
+            {!waLogLoaded && (
+              <TouchableOpacity
+                style={styles.waLogButton}
+                onPress={handleLoadWhatsAppLog}
+                disabled={waLogLoading}
+                activeOpacity={0.8}
+              >
+                {waLogLoading ? (
+                  <ActivityIndicator size="small" color="#128C4B" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="history" size={18} color="#128C4B" />
+                    <Text style={styles.waLogButtonText}>{t('orderDetail.waLogButton')}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {!!waLogError && (
+              <View style={styles.waLogErrorBox}>
+                <MaterialIcons name="error-outline" size={18} color="#C62828" />
+                <Text style={styles.waLogErrorText}>{waLogError}</Text>
+              </View>
+            )}
+
+            {waLogLoaded && !waLogError && whatsappLog.length === 0 && (
+              <Text style={styles.waLogEmpty}>{t('orderDetail.waLogEmpty')}</Text>
+            )}
+
+            {waLogLoaded && whatsappLog.length > 0 && (
+              <View style={styles.waLogList}>
+                {whatsappLog.map((entry, index) => (
+                  <View key={entry.waMessageId ?? `${entry.createdAt}-${index}`} style={styles.waLogItem}>
+                    <View style={styles.waLogItemHeader}>
+                      <Text style={styles.waLogItemLabel}>{getWaPurposeLabel(entry)}</Text>
+                      <View
+                        style={[
+                          styles.waLogBadge,
+                          { backgroundColor: getWaDeliveryColor(entry.deliveryStatus) },
+                        ]}
+                      >
+                        <Text style={styles.waLogBadgeText}>
+                          {getWaDeliveryLabel(entry.deliveryStatus)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.waLogMetaRow}>
+                      <MaterialIcons name="access-time" size={13} color="#999" />
+                      <Text style={styles.waLogMeta}>
+                        {new Date(entry.createdAt).toLocaleString('fr-FR', {
+                          day: '2-digit', month: '2-digit', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit',
+                        })}
+                      </Text>
+                    </View>
+
+                    {entry.deliveryStatus === 'FAILED' && !!entry.reasonExplanation && (
+                      <Text style={styles.waLogFailedReason}>
+                        {entry.reasonExplanation}
+                        {entry.errorCode ? ` (${entry.errorCode})` : ''}
+                      </Text>
+                    )}
+
+                    {!!entry.recipientPhone && (
+                      <Text style={styles.waLogRecipient}>
+                        {t('orderDetail.waLogRecipient')} : {entry.recipientPhone}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
 
       {/* Boutons d'action */}
@@ -972,6 +1203,66 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     flex: 1,
     textAlign: 'right',
+  },
+  channelValueRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+  },
+  channelValueWhatsapp: {
+    flex: 0,
+    color: '#128C4B',
+    fontWeight: '700',
+  },
+  notifAlertBox: {
+    marginTop: 12,
+    backgroundColor: '#FDECEA',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#C62828',
+  },
+  notifAlertHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  notifAlertTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#C62828',
+    flex: 1,
+  },
+  notifAlertLine: {
+    fontSize: 13,
+    color: '#7f1d1d',
+    marginBottom: 4,
+  },
+  notifAlertAction: {
+    fontSize: 13,
+    color: '#7f1d1d',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  clientFileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+  },
+  clientFileBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.primary,
   },
   itemsList: {
     gap: 12,
@@ -1285,4 +1576,107 @@ const styles = StyleSheet.create({
     backgroundColor: '#E65100',
   },
   refundConfirmText: { color: '#fff', fontWeight: '700' },
+
+  // ── WhatsApp — Journal des envois ──────────────────────────
+  waLogHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  waLogTitle: {
+    marginBottom: 0,
+    flex: 1,
+  },
+  waLogButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  waLogButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#128C4B',
+  },
+  waLogErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    backgroundColor: '#FDECEA',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#C62828',
+  },
+  waLogErrorText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#7f1d1d',
+  },
+  waLogEmpty: {
+    marginTop: 12,
+    fontSize: 13,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  waLogList: {
+    marginTop: 12,
+    gap: 10,
+  },
+  waLogItem: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#25D366',
+  },
+  waLogItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 6,
+  },
+  waLogItemLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+  },
+  waLogBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  waLogBadgeText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  waLogMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  waLogMeta: {
+    fontSize: 12,
+    color: '#999',
+  },
+  waLogFailedReason: {
+    fontSize: 13,
+    color: '#C62828',
+    marginTop: 6,
+  },
+  waLogRecipient: {
+    fontSize: 11,
+    color: '#999',
+    marginTop: 6,
+  },
 });

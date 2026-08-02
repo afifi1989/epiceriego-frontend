@@ -1,5 +1,5 @@
 export { ClientErrorBoundary as ErrorBoundary } from "@/src/components/errorBoundaries";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 // Rouge "danger" unifié sur la palette du design system (était #d32f2f).
 import { lightColors } from '../../../src/theme/colors';
 import {
@@ -10,7 +10,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ratingService, RatingNotificationInfo } from '../../../src/services/ratingService';
 import { useLanguage } from '../../../src/context/LanguageContext';
+import { useToast } from '../../../src/components/feedback';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../../src/constants/config';
 
@@ -27,6 +27,7 @@ export default function RatingScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
   const { t } = useLanguage();
+  const toast = useToast();
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -34,6 +35,10 @@ export default function RatingScreen() {
   const [selectedRating, setSelectedRating] = useState<number>(0);
   const [comment, setComment] = useState('');
   const [clientId, setClientId] = useState<number | null>(null);
+  /** Verrou synchrone anti double-envoi — cohérent avec le panier. Le state
+   *  `submitting` est asynchrone : un double-tap rapide peut passer avant le
+   *  re-render. Le ref bloque dès le 1er appel. */
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     loadUserAndRatingInfo();
@@ -85,9 +90,9 @@ export default function RatingScreen() {
       }
     } catch (error) {
       console.error('[RatingScreen] Erreur:', error);
-      Alert.alert(
+      toast.error(
         t('common.error'),
-        typeof error === 'string' ? error : 'Une erreur est survenue'
+        typeof error === 'string' ? error : t('ratingScreen.genericError')
       );
     } finally {
       setLoading(false);
@@ -103,15 +108,19 @@ export default function RatingScreen() {
     });
 
     if (!selectedRating) {
-      Alert.alert(t('common.warning'), 'Veuillez sélectionner une note');
+      toast.warning(t('common.warning'), t('ratingScreen.selectRating'));
       return;
     }
 
     if (!ratingInfo || !clientId) {
       console.error('[RatingScreen] Informations manquantes:', { ratingInfo: !!ratingInfo, clientId });
-      Alert.alert(t('common.error'), 'Informations manquantes');
+      toast.error(t('common.error'), t('ratingScreen.missingInfo'));
       return;
     }
+
+    // Verrou synchrone : bloque un 2e envoi avant que setSubmitting ne prenne effet.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
 
     try {
       setSubmitting(true);
@@ -125,24 +134,22 @@ export default function RatingScreen() {
 
       await ratingService.addOrUpdateRating(ratingData);
 
-      Alert.alert(
+      toast.success(
         t('common.success'),
-        ratingInfo.hasRated ? 'Votre notation a été modifiée avec succès' : 'Merci pour votre notation !',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
+        ratingInfo.hasRated ? t('ratingScreen.updateSuccess') : t('ratingScreen.submitSuccess')
       );
+      // Le ToastProvider est monté à la racine : le toast persiste après le
+      // retour, l'utilisateur le voit sur l'écran précédent.
+      router.back();
     } catch (error) {
       console.error('[RatingScreen] Erreur soumission:', error);
-      Alert.alert(
+      toast.error(
         t('common.error'),
-        typeof error === 'string' ? error : 'Erreur lors de l\'enregistrement'
+        typeof error === 'string' ? error : t('ratingScreen.saveError')
       );
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
@@ -157,12 +164,12 @@ export default function RatingScreen() {
   if (!ratingInfo) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Impossible de charger les informations</Text>
+        <Text style={styles.errorText}>{t('ratingScreen.loadError')}</Text>
         <TouchableOpacity
           style={styles.button}
           onPress={() => router.back()}
         >
-          <Text style={styles.buttonText}>Retour</Text>
+          <Text style={styles.buttonText}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -208,7 +215,7 @@ export default function RatingScreen() {
         {/* Stats actuelles */}
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Note moyenne</Text>
+            <Text style={styles.statLabel}>{t('ratingScreen.averageRating')}</Text>
             <View style={styles.statValue}>
               <Text style={styles.statNumber}>{ratingInfo.stats.averageRating.toFixed(1)}</Text>
               <Text style={styles.stars}>{'⭐'}</Text>
@@ -216,14 +223,14 @@ export default function RatingScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statLabel}>Nombre d'avis</Text>
+            <Text style={styles.statLabel}>{t('ratingScreen.totalReviews')}</Text>
             <Text style={styles.statNumber}>{ratingInfo.stats.totalRatings}</Text>
           </View>
         </View>
 
         {/* Sélecteur d'étoiles */}
         <View style={styles.ratingSection}>
-          <Text style={styles.sectionTitle}>Votre avis</Text>
+          <Text style={styles.sectionTitle}>{t('ratingScreen.yourReview')}</Text>
           <View style={styles.starsContainer}>
             {[1, 2, 3, 4, 5].map((star) => (
               <TouchableOpacity
@@ -240,21 +247,21 @@ export default function RatingScreen() {
           </View>
           {selectedRating > 0 && (
             <Text style={styles.ratingLabel}>
-              {selectedRating === 1 && 'Très mauvais'}
-              {selectedRating === 2 && 'Mauvais'}
-              {selectedRating === 3 && 'Correct'}
-              {selectedRating === 4 && 'Bon'}
-              {selectedRating === 5 && 'Excellent'}
+              {selectedRating === 1 && t('ratingScreen.star1')}
+              {selectedRating === 2 && t('ratingScreen.star2')}
+              {selectedRating === 3 && t('ratingScreen.star3')}
+              {selectedRating === 4 && t('ratingScreen.star4')}
+              {selectedRating === 5 && t('ratingScreen.star5')}
             </Text>
           )}
         </View>
 
         {/* Commentaire */}
         <View style={styles.commentSection}>
-          <Text style={styles.sectionTitle}>Commentaire (optionnel)</Text>
+          <Text style={styles.sectionTitle}>{t('ratingScreen.commentLabel')}</Text>
           <TextInput
             style={styles.commentInput}
-            placeholder="Partagez votre expérience..."
+            placeholder={t('ratingScreen.commentPlaceholder')}
             placeholderTextColor="#999"
             multiline
             numberOfLines={4}
@@ -270,7 +277,7 @@ export default function RatingScreen() {
 
         {/* Décomposition des votes */}
         <View style={styles.breakdownSection}>
-          <Text style={styles.sectionTitle}>Répartition des votes</Text>
+          <Text style={styles.sectionTitle}>{t('ratingScreen.breakdownTitle')}</Text>
           {[5, 4, 3, 2, 1].map((star) => (
             <View key={star} style={styles.breakdownRow}>
               <Text style={styles.breakdownLabel}>{star} ⭐</Text>
@@ -300,7 +307,7 @@ export default function RatingScreen() {
             </View>
           ))}
           <Text style={styles.recommendationText}>
-            💡 {ratingInfo.stats.recommendationPercentage.toFixed(0)}% des clients recommandent cette épicerie
+            💡 {t('ratingScreen.recommendation', { percent: ratingInfo.stats.recommendationPercentage.toFixed(0) })}
           </Text>
         </View>
 
@@ -311,7 +318,7 @@ export default function RatingScreen() {
             onPress={() => router.back()}
             disabled={submitting}
           >
-            <Text style={styles.cancelButtonText}>Annuler</Text>
+            <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.submitButton, !selectedRating && styles.submitButtonDisabled]}
@@ -322,7 +329,7 @@ export default function RatingScreen() {
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.submitButtonText}>
-                {ratingInfo.hasRated ? 'Modifier ma notation' : 'Envoyer mon avis'}
+                {ratingInfo.hasRated ? t('ratingScreen.updateButton') : t('ratingScreen.submitButton')}
               </Text>
             )}
           </TouchableOpacity>

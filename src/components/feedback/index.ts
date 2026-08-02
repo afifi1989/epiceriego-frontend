@@ -4,4 +4,3 @@ export { Toast } from './Toast';
 export type { ToastConfig, ToastVariant } from './Toast';
 export { ToastProvider, useToast } from './ToastProvider';
 export { AuthFeedbackBridge } from './AuthFeedbackBridge';
-export { NetworkBanner } from './NetworkBanner';

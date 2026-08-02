@@ -3,42 +3,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
-import { cacheService, CacheNamespace } from './offline/cacheService';
 import { authFeedbackBus } from './auth/authFeedbackBus';
+import { subscriptionUpsellBus } from './subscriptionUpsellBus';
+import { translate, type Language } from '../i18n/translations';
 
-// ---------------------------------------------------------------------------
-// Helpers pour le cache automatique des réponses GET
-// ---------------------------------------------------------------------------
+/**
+ * Langue courante mise en cache (mise à jour à chaque requête via l'intercepteur,
+ * qui lit déjà `app_language`). Permet aux Alert des intercepteurs de réponse —
+ * qui n'ont pas de contexte React — de se traduire dans les 4 langues.
+ */
+let currentLang: Language = 'fr';
 
-/** Détermine le namespace de cache à partir de l'URL */
-function resolveNamespace(url: string): CacheNamespace | null {
-  // Position temps réel du livreur : volatile par nature — ni mise en cache,
-  // ni fallback hors-ligne (une position périmée passerait pour fraîche).
-  if (url.includes('/tracking') || url.includes('/livreurs/location')) return null;
-  if (url.includes('/pos-sessions') || url.includes('/cash-sessions')) return 'pos';
-  if (url.includes('/products') || url.includes('/produits')) return 'products';
-  if (url.includes('/orders')) return 'orders';
-  if (url.includes('/clients')) return 'clients';
-  if (url.includes('/invoices')) return 'invoices';
-  if (url.includes('/epiceries')) return 'epicerie';
-  if (url.includes('/categories')) return 'categories';
-  if (url.includes('/tags')) return 'tags';
-  if (url.includes('/livreurs')) return 'livreurs';
-  if (url.includes('/collaborat')) return 'collaborateurs';
-  if (url.includes('/stats')) return 'stats';
-  if (url.includes('/notifications')) return 'notifications';
-  if (url.includes('/geo/') || url.includes('/currencies')) return 'geo';
-  return null;
-}
-
-/** Génère une clé de cache stable à partir de la config de requête.
- *  La langue est préfixée pour isoler les caches i18n (catégories, produits, tags…) :
- *  un changement de langue n'écrase pas le cache de l'autre langue. */
-function buildCacheKey(url: string, params?: Record<string, unknown>, lang?: string): string {
-  const paramStr = params ? JSON.stringify(params) : '';
-  const langPrefix = lang ? `${lang}:` : '';
-  return `${langPrefix}${url}${paramStr ? ':' + paramStr : ''}`;
-}
+/**
+ * Rôle courant mis en cache (mis à jour à chaque requête via l'intercepteur,
+ * qui lit déjà `@abridgo_role`). Permet aux intercepteurs de réponse — sans
+ * contexte React — de savoir si l'utilisateur est un EPICIER avant de déclencher
+ * une modal/redirection propre à l'espace épicier (cf gate abonnement 402).
+ */
+let currentRole: string | null = null;
 
 /** URLs d'auth où on ne tente pas de refresh ni de clear storage sur 401. */
 function isAuthUrl(url?: string): boolean {
@@ -67,17 +49,6 @@ console.log('========================================');
 let lastBackendErrorAt = 0;
 const BACKEND_ERROR_THROTTLE_MS = 5000;
 
-/** Libelle humain des codes plan (mirror FeaturePlanMappingService.humanPlanName). */
-function planHumanName(planCode: string): string {
-  switch (planCode) {
-    case 'DECOUVERTE': return 'Découverte';
-    case 'ESSENTIEL':  return 'Essentiel';
-    case 'PRO':        return 'Pro';
-    case 'PREMIUM':    return 'Premium';
-    default:           return planCode;
-  }
-}
-
 function showBackendErrorOnce(kind: 'network' | 'timeout' | 'server'): void {
   const now = Date.now();
   if (now - lastBackendErrorAt < BACKEND_ERROR_THROTTLE_MS) return;
@@ -87,14 +58,14 @@ function showBackendErrorOnce(kind: 'network' | 'timeout' | 'server'): void {
     let title: string;
     let message: string;
     if (kind === 'network') {
-      title = 'Pas de connexion';
-      message = "Verifiez votre connexion Internet (Wi-Fi ou donnees mobiles) puis reessayez.";
+      title = translate(currentLang, 'apiErrors.networkTitle');
+      message = translate(currentLang, 'apiErrors.networkMessage');
     } else if (kind === 'timeout') {
-      title = 'Le serveur est lent';
-      message = 'Le serveur met du temps a repondre. Reessayez dans quelques instants.';
+      title = translate(currentLang, 'apiErrors.timeoutTitle');
+      message = translate(currentLang, 'apiErrors.timeoutMessage');
     } else {
-      title = 'Service indisponible';
-      message = 'Le serveur rencontre un probleme. Reessayez dans quelques instants — nous travaillons a remettre tout en ordre.';
+      title = translate(currentLang, 'apiErrors.serverTitle');
+      message = translate(currentLang, 'apiErrors.serverMessage');
     }
     Alert.alert(title, message);
   } catch (e) {
@@ -253,6 +224,10 @@ api.interceptors.request.use(
     const isFormData = config.data instanceof FormData;
     // L'épicier gère toujours en français
     const resolvedLang = role === 'EPICIER' ? 'fr' : (lang ?? 'fr');
+    // Mémorise la langue pour les Alert des intercepteurs de réponse (M10).
+    currentLang = resolvedLang as Language;
+    // Mémorise le rôle pour la garde du gate abonnement 402 (M11).
+    currentRole = role;
 
     console.log('[API] Requête vers:', config.url, {
       method: config.method,
@@ -290,40 +265,11 @@ api.interceptors.response.use(
       dataKeys: Object.keys(response.data || {})
     });
 
-    // Cache automatique des réponses GET réussies
-    if (response.config.method?.toUpperCase() === 'GET' && response.config.url) {
-      const namespace = resolveNamespace(response.config.url);
-      if (namespace) {
-        const lang = (response.config.headers?.['Accept-Language'] as string | undefined) ?? undefined;
-        const key = buildCacheKey(response.config.url, response.config.params, lang);
-        cacheService.set(namespace, key, response.data).catch(() => {});
-      }
-    }
-
     return response;
   },
   async (error: AxiosError) => {
     const originalConfig = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
     console.error('[API] ❌ ERREUR:', originalConfig?.url, error.code, error.response?.status);
-
-    // ── Fallback cache pour GET hors-ligne ─────────────────────────────
-    if (
-      (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED') &&
-      originalConfig?.method?.toUpperCase() === 'GET' &&
-      originalConfig?.url
-    ) {
-      const namespace = resolveNamespace(originalConfig.url);
-      if (namespace) {
-        const lang = (originalConfig.headers?.['Accept-Language'] as string | undefined) ?? undefined;
-        const key = buildCacheKey(originalConfig.url, originalConfig.params, lang);
-        const cached = await cacheService.get(namespace, key, { ignoreExpiry: true });
-        if (cached !== null) {
-          console.log(`[API] 📦 Fallback cache pour ${originalConfig.url}`);
-          return { data: cached, status: 200, config: originalConfig, headers: {}, statusText: 'OK (cache)' } as any;
-        }
-      }
-      console.error('[API] 🔴 Hors-ligne, pas de cache disponible pour:', originalConfig?.url);
-    }
 
     // ── 401 : tentative de refresh ──────────────────────────────────────
     // - Jamais sur les endpoints /auth/* (login/refresh eux-mêmes)
@@ -419,33 +365,34 @@ api.interceptors.response.use(
     // page Mon abonnement pour que l'epicier puisse upgrade en un tap.
     // Throttle implicite : l'epicier doit dismiss le precedent Alert avant
     // qu'un nouveau s'affiche, donc pas besoin de gestion specifique.
-    if (error.response?.status === 402) {
+    // Garde (M11) : la modal + redirection vers /(epicier)/mon-abonnement ne
+    // concernent QUE l'espace épicier. On ne la déclenche donc que si :
+    //   - l'utilisateur est un EPICIER (rôle mémorisé dans l'intercepteur), et
+    //   - la requête n'est PAS un polling de fond (un poll toutes les ~10 s
+    //     empilerait sinon les Alert et redirigerait l'épicier en boucle).
+    //     Les appels de fond peuvent s'exclure via `config.__backgroundPoll = true`
+    //     ou l'en-tête `X-Background-Poll`.
+    // Pour un CLIENT, l'erreur 402 est simplement propagée sans redirection.
+    const isBackgroundPoll =
+      (originalConfig as any)?.__backgroundPoll === true ||
+      (originalConfig?.headers as any)?.['X-Background-Poll'] != null;
+    if (error.response?.status === 402 && currentRole === 'EPICIER' && !isBackgroundPoll) {
       const data: any = error.response.data;
-      const message: string | undefined = data?.message;
-      const requiredPlan: string | undefined = data?.requiredPlan;
+      // On délègue l'affichage à la modal riche UpsellModal (montée au niveau
+      // racine sous LanguageProvider) via un event bus — l'intercepteur n'est
+      // pas un composant React et ne peut pas afficher une modal contextuelle.
+      // On transmet le SubscriptionGateResponse tel quel (feature, currentPlan,
+      // requiredPlan, message) ; le libellé du plan et l'i18n sont résolus
+      // côté composant.
       try {
-        const { Alert } = require('react-native');
-        const { router } = require('expo-router');
-        const planLabel = requiredPlan ? planHumanName(requiredPlan) : 'supérieur';
-        const body = message
-          ?? `Cette fonctionnalité nécessite le plan ${planLabel} ou supérieur. Souhaitez-vous voir les offres ?`;
-        Alert.alert(
-          '🔒 Fonctionnalité bloquée',
-          body,
-          [
-            { text: 'Plus tard', style: 'cancel' },
-            {
-              text: 'Voir les offres',
-              onPress: () => {
-                try { router.push('/(epicier)/mon-abonnement'); } catch (e) {
-                  console.warn('[API] redirect mon-abonnement failed:', e);
-                }
-              },
-            },
-          ],
-        );
+        subscriptionUpsellBus.emit({
+          feature: data?.feature,
+          currentPlan: data?.currentPlan,
+          requiredPlan: data?.requiredPlan,
+          message: data?.message,
+        });
       } catch (e) {
-        console.warn('[API] 402 modal impossible:', e);
+        console.warn('[API] 402 upsell emit impossible:', e);
       }
       // Tagger l'erreur pour que les ecrans en aval (catch + Alert.alert
       // generique "Sauvegarde impossible") puissent l'ignorer.
@@ -473,9 +420,9 @@ api.interceptors.response.use(
             : null;
           const featureLabel = labelForPermission(requiredPermission);
           const detail = roleLabel
-            ? `L'action « ${featureLabel} » n'est pas disponible pour le rôle ${roleLabel}.`
-            : `L'action « ${featureLabel} » n'est pas autorisée.`;
-          Alert.alert('Accès refusé', detail);
+            ? translate(currentLang, 'apiErrors.actionNotAvailableForRole', { feature: featureLabel, role: roleLabel })
+            : translate(currentLang, 'apiErrors.actionNotAllowed', { feature: featureLabel });
+          Alert.alert(translate(currentLang, 'apiErrors.accessDeniedTitle'), detail);
         } catch (e) {
           console.warn('[API] 403 toast impossible:', e);
         }

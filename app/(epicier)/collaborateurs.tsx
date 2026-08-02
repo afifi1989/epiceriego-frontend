@@ -14,7 +14,8 @@ import {
 } from '../../src/type';
 import { collaborateurService } from '../../src/services/collaborateurService';
 import { PermissionsMatrixModal } from '../../src/components/epicier/PermissionsMatrixModal';
-import { UserProfile } from '../../src/hooks/usePermissions';
+import { UserProfile, usePermissions } from '../../src/hooks/usePermissions';
+import { useCurrentUser } from '../../src/hooks/useCurrentUser';
 
 const ROLES: { value: CollaboratorRole; label: string; desc: string }[] = [
   { value: 'MANAGER',      label: 'Manager',      desc: 'Accès complet (sauf suppression)' },
@@ -24,6 +25,13 @@ const ROLES: { value: CollaboratorRole; label: string; desc: string }[] = [
 
 export default function CollaborateursScreen() {
   const ready = useRequirePermission('collaborateurs:view');
+  // Actions de gestion (créer, changer rôle, suspendre, révoquer) réservées
+  // aux profils ayant 'collaborateurs:manage' (propriétaire). Un Manager a
+  // seulement 'collaborateurs:view' → il consulte mais ne modifie pas.
+  const currentUser = useCurrentUser();
+  const { can } = usePermissions(currentUser);
+  const canManage = can('collaborateurs:manage');
+
   const [collaborateurs, setCollaborateurs] = useState<Collaborateur[]>([]);
   const [loading, setLoading]               = useState(true);
   const [refreshing, setRefreshing]         = useState(false);
@@ -57,6 +65,10 @@ export default function CollaborateursScreen() {
   const [showDetail, setShowDetail]     = useState(false);
   const [suspendReason, setSuspendReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  // ── Changement de rôle ─────────────────────────────────────────────────────
+  const [changingRole, setChangingRole] = useState(false);
+  const [newRole, setNewRole] = useState<CollaboratorRole>('GESTIONNAIRE');
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -111,7 +123,26 @@ export default function CollaborateursScreen() {
   const openDetail = (collab: Collaborateur) => {
     setSelected(collab);
     setSuspendReason('');
+    setChangingRole(false);
+    setNewRole(collab.collaboratorRole);
     setShowDetail(true);
+  };
+
+  const doUpdateRole = async () => {
+    if (!selected || newRole === selected.collaboratorRole) return;
+    setActionLoading(true);
+    try {
+      const updated = await collaborateurService.updateRole(selected.id, newRole);
+      setShowDetail(false);
+      loadData(true);
+      Alert.alert('Rôle modifié', `Nouveau rôle : ${COLLABORATOR_ROLE_CONFIG[updated.collaboratorRole].label}`);
+    } catch (e: any) {
+      if (!e?.__subscriptionGateHandled) {
+        Alert.alert('Erreur', e?.response?.data?.message || 'Impossible de modifier le rôle');
+      }
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const doSuspend = () => {
@@ -283,10 +314,12 @@ export default function CollaborateursScreen() {
         />
       )}
 
-      {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={openCreate}>
-        <Text style={styles.fabText}>+ Créer</Text>
-      </TouchableOpacity>
+      {/* FAB — réservé aux profils pouvant gérer l'équipe */}
+      {canManage && (
+        <TouchableOpacity style={styles.fab} onPress={openCreate}>
+          <Text style={styles.fabText}>+ Créer</Text>
+        </TouchableOpacity>
+      )}
 
       {/* ── Modal création ──────────────────────────────────────────────── */}
       <Modal visible={showCreate} animationType="slide" transparent>
@@ -451,8 +484,58 @@ export default function CollaborateursScreen() {
                       <Text style={detailMatrixStyles.chev}>›</Text>
                     </TouchableOpacity>
 
-                    {/* Actions */}
-                    {selected.status === 'ACTIVE' && (
+                    {/* Changer le rôle (ACTIVE + droit de gestion) */}
+                    {canManage && selected.status === 'ACTIVE' && (
+                      <>
+                        <Text style={styles.fieldLabel}>Rôle</Text>
+                        {!changingRole ? (
+                          <TouchableOpacity
+                            style={[styles.actionBtn, { backgroundColor: Colors.primary }]}
+                            onPress={() => { setNewRole(selected.collaboratorRole); setChangingRole(true); }}
+                            disabled={actionLoading}
+                          >
+                            <Text style={styles.actionBtnText}>✎ Modifier le rôle ({roleConf.label})</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <>
+                            {ROLES.map(r => (
+                              <TouchableOpacity
+                                key={r.value}
+                                style={[styles.roleOption, newRole === r.value && styles.roleOptionActive]}
+                                onPress={() => setNewRole(r.value)}
+                              >
+                                <Text style={[styles.roleOptionLabel, newRole === r.value && { color: Colors.primary }]}>
+                                  {COLLABORATOR_ROLE_CONFIG[r.value].icon} {r.label}
+                                </Text>
+                                <Text style={styles.roleOptionDesc}>{r.desc}</Text>
+                              </TouchableOpacity>
+                            ))}
+                            <View style={{ flexDirection: 'row', gap: 8 }}>
+                              <TouchableOpacity
+                                style={[styles.actionBtn, { backgroundColor: '#9e9e9e', flex: 1 }]}
+                                onPress={() => setChangingRole(false)}
+                                disabled={actionLoading}
+                              >
+                                <Text style={styles.actionBtnText}>Annuler</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={[
+                                  styles.actionBtn,
+                                  { backgroundColor: Colors.primary, flex: 1, opacity: newRole === selected.collaboratorRole ? 0.5 : 1 },
+                                ]}
+                                onPress={doUpdateRole}
+                                disabled={actionLoading || newRole === selected.collaboratorRole}
+                              >
+                                <Text style={styles.actionBtnText}>Enregistrer</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {/* Actions — réservées aux profils pouvant gérer l'équipe */}
+                    {canManage && selected.status === 'ACTIVE' && (
                       <>
                         <Text style={styles.fieldLabel}>Motif de suspension (optionnel)</Text>
                         <TextInput
@@ -472,7 +555,7 @@ export default function CollaborateursScreen() {
                       </>
                     )}
 
-                    {selected.status === 'SUSPENDED' && (
+                    {canManage && selected.status === 'SUSPENDED' && (
                       <TouchableOpacity
                         style={[styles.actionBtn, { backgroundColor: '#43A047' }]}
                         onPress={doReactivate}
@@ -482,7 +565,7 @@ export default function CollaborateursScreen() {
                       </TouchableOpacity>
                     )}
 
-                    {selected.status !== 'REVOKED' && (
+                    {canManage && selected.status !== 'REVOKED' && (
                       <TouchableOpacity
                         style={[styles.actionBtn, { backgroundColor: '#e53935', marginTop: 8 }]}
                         onPress={doRevoke}

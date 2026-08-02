@@ -1,5 +1,5 @@
-export { ThemeProvider, useTheme } from './ThemeProvider';
-export type { Theme } from './ThemeProvider';
+export { ThemeProvider, useTheme, useThemeControl, DARK_MODE_STORAGE_KEY } from './ThemeProvider';
+export type { Theme, ThemeControl } from './ThemeProvider';
 export type { ColorPalette, ColorScheme } from './colors';
 export { spacing } from './spacing';
 export type { SpacingToken } from './spacing';

@@ -14,6 +14,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback } from 'react';
 import { clientManagementService } from '../../src/services/clientManagementService';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { ClientInvitation } from '../../src/type';
 import { Colors, FontSizes, Spacing } from '../../src/constants/colors';
 import { useLanguage } from '../../src/context/LanguageContext';
@@ -24,6 +25,7 @@ export default function ClientInvitationsScreen() {
   const { t, language } = useLanguage();
   const [invitations, setInvitations] = useState<ClientInvitation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
@@ -61,11 +63,12 @@ export default function ClientInvitationsScreen() {
   const loadInvitations = async () => {
     try {
       setLoading(true);
+      setError(false);
       const data = await clientManagementService.getMyInvitations();
       setInvitations(data);
     } catch (error: any) {
       console.error('Error loading invitations:', error);
-      Alert.alert(t('common.error'), t('invitations.loadError'));
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -255,6 +258,10 @@ export default function ClientInvitationsScreen() {
         <Text style={styles.loadingText}>{t('invitations.loading')}</Text>
       </View>
     );
+  }
+
+  if (error && invitations.length === 0) {
+    return <ScreenState variant="error" onRetry={loadInvitations} />;
   }
 
   return (

@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import { Skeleton, useToast } from '../../src/components/feedback';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { authService } from '../../src/services/authService';
 import { clientManagementService } from '../../src/services/clientManagementService';
@@ -42,6 +43,7 @@ export default function NotificationsScreen() {
   const toast = useToast();
   const [notifications, setNotifications] = useState<GroupedNotifications>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [processedInvitations, setProcessedInvitations] = useState<Set<number>>(new Set());
   const [showRatingModal, setShowRatingModal] = useState(false);
@@ -53,26 +55,30 @@ export default function NotificationsScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadNotifications();
+      // On ne marque PLUS tout comme lu au focus : les non-lues restent
+      // visuellement distinctes pendant la consultation. On les marque lues
+      // à la sortie de l'écran (cleanup), pour ne pas effacer l'état "non lu"
+      // dès l'affichage.
+      return () => {
+        notificationService.markAllAsRead().catch(() => {});
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
   const loadNotifications = async () => {
     try {
       setLoading(true);
+      setError(false);
       console.log('[NotificationsScreen] Chargement des notifications...');
 
       const grouped = await notificationService.getNotificationsGroupedByDate();
       setNotifications(grouped);
 
-      // Marquer les non lues comme lues après affichage
-      const unread = await notificationService.getUnreadNotifications();
-      if (unread.length > 0) {
-        await notificationService.markAllAsRead();
-      }
-
       console.log('[NotificationsScreen] Notifications chargées:', Object.keys(grouped).length, 'dates');
     } catch (error) {
       console.error('[NotificationsScreen] Erreur chargement:', error);
+      setError(true);
       toast.error(t('common.error'), t('notifications.loadError'));
     } finally {
       setLoading(false);
@@ -310,9 +316,13 @@ export default function NotificationsScreen() {
         // Alert conservée: l'info est multi-ligne et structurée (note +
         // commentaire libre). Un toast la tronquerait.
         Alert.alert(
-          'Déjà noté',
-          `Vous avez déjà noté ${info.epicerieName} avec ${info.existingRating.rating} étoile(s).\n\nVotre commentaire: "${info.existingRating.comment || 'Aucun commentaire'}"`,
-          [{ text: 'OK' }]
+          t('notifications.alreadyRated'),
+          t('notifications.alreadyRatedMessage', {
+            name: info.epicerieName,
+            stars: String(info.existingRating.rating),
+            comment: info.existingRating.comment || t('notifications.noComment'),
+          }),
+          [{ text: t('common.ok') }]
         );
         return;
       }
@@ -324,7 +334,7 @@ export default function NotificationsScreen() {
       setShowRatingModal(true);
     } catch (error: any) {
       console.error('[RateEpicier] Erreur complète:', error);
-      toast.error(t('common.error'), error.message || 'Impossible de charger les informations de notation');
+      toast.error(t('common.error'), error.message || t('notifications.ratingInfoError'));
     }
   };
 
@@ -332,7 +342,7 @@ export default function NotificationsScreen() {
     if (!ratingInfo) return;
 
     if (selectedRating === 0) {
-      toast.warning(t('common.error'), 'Veuillez sélectionner une note');
+      toast.warning(t('common.error'), t('notifications.selectRatingWarning'));
       return;
     }
 
@@ -357,10 +367,10 @@ export default function NotificationsScreen() {
       setSelectedRating(0);
       setRatingComment('');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      toast.success('Merci !', 'Votre avis a été enregistré.');
+      toast.success(t('notifications.ratingThanks'), t('notifications.ratingSaved'));
     } catch (error: any) {
       console.error('Erreur soumission notation:', error);
-      toast.error(t('common.error'), error.message || 'Erreur lors de l\'enregistrement de la note');
+      toast.error(t('common.error'), error.message || t('notifications.ratingSubmitError'));
     } finally {
       setSubmittingRating(false);
     }
@@ -435,15 +445,20 @@ export default function NotificationsScreen() {
       }
     }
 
+    const isUnread = !notification.isRead;
+
     return (
-      <View key={notification.id} style={styles.notificationCard}>
+      <View key={notification.id} style={[styles.notificationCard, isUnread && styles.notificationCardUnread]}>
         <View style={styles.notificationContent}>
           <View style={styles.notificationHeader}>
             <View style={styles.notificationIconContainer}>
               <Text style={styles.notificationIcon}>{visuals.icon}</Text>
             </View>
             <View style={styles.notificationTextContainer}>
-              <Text style={styles.notificationTitle}>{notification.titre}</Text>
+              <View style={styles.notificationTitleRow}>
+                {isUnread && <View style={styles.unreadDot} />}
+                <Text style={[styles.notificationTitle, isUnread && styles.notificationTitleUnread]}>{notification.titre}</Text>
+              </View>
               <Text style={styles.notificationMessage}>{notification.message}</Text>
               <Text style={styles.notificationTime}>
                 {formatTime(notification.dateCreated, language)}
@@ -608,7 +623,9 @@ export default function NotificationsScreen() {
         </Text>
       </View>
 
-      {notificationCount === 0 ? (
+      {error && notificationCount === 0 ? (
+        <ScreenState variant="error" onRetry={onRefresh} />
+      ) : notificationCount === 0 ? (
         <ScrollView
           style={styles.scrollView}
           refreshControl={
@@ -653,7 +670,7 @@ export default function NotificationsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.ratingModalContent}>
             <View style={styles.ratingModalHeader}>
-              <Text style={styles.ratingModalTitle}>Noter l'épicier</Text>
+              <Text style={styles.ratingModalTitle}>{t('notifications.rateEpicierTitle')}</Text>
               <TouchableOpacity onPress={() => setShowRatingModal(false)}>
                 <Text style={styles.ratingModalClose}>✕</Text>
               </TouchableOpacity>
@@ -697,7 +714,7 @@ export default function NotificationsScreen() {
                     onPress={() => setShowRatingModal(false)}
                     disabled={submittingRating}
                   >
-                    <Text style={styles.ratingCancelButtonText}>Annuler</Text>
+                    <Text style={styles.ratingCancelButtonText}>{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.ratingSubmitButton, submittingRating && styles.ratingSubmitButtonDisabled]}
@@ -707,7 +724,7 @@ export default function NotificationsScreen() {
                     {submittingRating ? (
                       <ActivityIndicator color="#fff" size="small" />
                     ) : (
-                      <Text style={styles.ratingSubmitButtonText}>Envoyer</Text>
+                      <Text style={styles.ratingSubmitButtonText}>{t('notifications.send')}</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -770,8 +787,28 @@ const styles = StyleSheet.create({
     elevation: 3,
     overflow: 'hidden',
   },
+  notificationCardUnread: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+    backgroundColor: '#f1f8f4',
+  },
   notificationContent: {
     padding: 15,
+  },
+  notificationTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4CAF50',
+  },
+  notificationTitleUnread: {
+    fontWeight: '800',
   },
   notificationHeader: {
     flexDirection: 'row',

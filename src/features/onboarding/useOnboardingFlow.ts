@@ -147,6 +147,12 @@ export function useOnboardingFlow(): OnboardingFlowState & OnboardingFlowActions
       } else if (meta.id === 'CLIENTS') {
         const next = await onboardingService.skipStepClients(epicerie.id);
         setStatus(next);
+      } else if (meta.id === 'CATALOGUE') {
+        // « Passer » le catalogue = import d'une sélection vide : aucun produit
+        // créé, mais importCatalogue pose quand même stepCatalogueCompleted côté
+        // backend (même avec 0 seed) → l'onboarding peut se terminer.
+        const next = await onboardingService.importCatalogue(epicerie.id, []);
+        setStatus(next);
       }
       goNext();
     } catch (err) {

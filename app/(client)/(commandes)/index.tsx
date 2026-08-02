@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Skeleton, useToast } from '../../../src/components/feedback';
+import { ScreenState } from '../../../src/components/shared/ScreenState';
 import { useLanguage } from '../../../src/context/LanguageContext';
 import { orderService } from '../../../src/services/orderService';
 import { reorderService } from '../../../src/services/reorderService';
@@ -31,6 +32,9 @@ export default function OrdersScreen() {
    *  laissent la liste affichée. */
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /** Erreur de chargement : bascule la liste vide sur l'état <ScreenState error>
+   *  avec bouton Réessayer, au lieu de laisser l'écran vide silencieux. */
+  const [loadError, setLoadError] = useState(false);
 
   /**
    * Source unique de chargement des commandes. Le flag `silent` désactive le
@@ -41,8 +45,10 @@ export default function OrdersScreen() {
     try {
       const data = await orderService.getMyOrders();
       setOrders(data || []);
+      setLoadError(false);
     } catch (error) {
       console.error('[OrdersScreen] fetchOrders failed:', error);
+      setLoadError(true);
       if (!silent) {
         toast.error(t('common.error'), t('orders.loadError') || 'Impossible de charger vos commandes');
       }
@@ -60,6 +66,12 @@ export default function OrdersScreen() {
     setRefreshing(true);
     await fetchOrders(true);
     setRefreshing(false);
+  }, [fetchOrders]);
+
+  /** Réessayer depuis l'état d'erreur : réaffiche le skeleton puis recharge. */
+  const onRetry = useCallback(() => {
+    setInitialLoading(true);
+    fetchOrders().finally(() => setInitialLoading(false));
   }, [fetchOrders]);
 
   /**
@@ -171,19 +183,26 @@ export default function OrdersScreen() {
     );
   };
 
-  const emptyComponent = (
-    <View style={styles.emptyContainer}>
-      <Text style={styles.emptyTitle}>{t('orders.empty')}</Text>
-      <Text style={styles.emptyDescription}>
-        {t('orders.emptyDescription')}
-      </Text>
+  const emptyComponent = loadError ? (
+    <ScreenState
+      variant="error"
+      title={t('orders.loadErrorTitle')}
+      message={t('orders.loadErrorMessage')}
+      onRetry={onRetry}
+    />
+  ) : (
+    <ScreenState
+      variant="empty"
+      title={t('orders.empty')}
+      message={t('orders.emptyDescription')}
+    >
       <TouchableOpacity
         style={styles.browseButton}
         onPress={() => router.replace('/(client)/epiceries')}
       >
         <Text style={styles.browseButtonText}>{t('epiceries.browse')}</Text>
       </TouchableOpacity>
-    </View>
+    </ScreenState>
   );
 
   if (initialLoading) {

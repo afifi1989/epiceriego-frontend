@@ -4,9 +4,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Text, TouchableOpacity, View } from 'react-native';
-import { OfflineBanner } from '../../src/components/shared/OfflineBanner';
 import { STORAGE_KEYS } from '../../src/constants/config';
-import { NetworkProvider } from '../../src/context/NetworkContext';
 import { authService } from '../../src/services/authService';
 import { pushNotificationService } from '../../src/services/pushNotificationService';
 
@@ -215,15 +213,9 @@ export default function LivreurLayout() {
   }
 
   // ✅ Afficher le contenu authentifié.
-  // NetworkProvider + OfflineBanner (partagés avec client/épicier) : un
-  // livreur est mobile par définition — le réseau instable est garanti, la
-  // bannière persistante remplace l'Alert throttlée invisible de l'API.
   return (
-    <NetworkProvider>
-      <View style={{ flex: 1 }}>
-        <OfflineBanner />
-        <LivreurTabsContent />
-      </View>
-    </NetworkProvider>
+    <View style={{ flex: 1 }}>
+      <LivreurTabsContent />
+    </View>
   );
 }

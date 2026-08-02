@@ -31,6 +31,15 @@ export interface PrecartItem {
   unitId?: number | null;
   productName?: string;
   unitLabel?: string;
+  /**
+   * Quantite en UNITE DE BASE du catalogue (kg / L / pieces), jamais en nombre
+   * de formats de vente : « 2 x 500 g » vaut 1.0, pas 2. C'est l'unite du panier
+   * JSON WhatsApp cote backend (PrecartItemDTO#quantity), consommee telle quelle
+   * par le recap, le calcul de prix et le decrement de stock.
+   *
+   * Depuis un CartItem, envoyer `requestedQuantity` (repli sur `quantity`), pas
+   * `quantity`.
+   */
   quantity: number;
   price?: number;
 }

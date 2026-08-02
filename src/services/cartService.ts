@@ -60,6 +60,36 @@ export function computeItemTotal(item: Pick<CartItem, 'pricePerUnit' | 'quantity
 }
 
 /**
+ * H7 — Recalcule {@code requestedQuantity} (quantité en unité de base : L, kg,
+ * pcs) pour une nouvelle {@code quantity} (nombre de formats), en conservant le
+ * ratio d'origine {@code unit.quantity}.
+ *
+ * <p>À l'ajout, {@code requestedQuantity = quantity × unit.quantity}. Le ratio
+ * est donc déductible des valeurs stockées : {@code ratio = requestedQuantity /
+ * quantity}. Les +/- du panier ne modifiant que {@code quantity}, sans ce
+ * recalcul le {@code requestedQuantity} restait figé → le backend recevait une
+ * quantité de base fausse pour le vrac (WEIGHT/VOLUME).</p>
+ *
+ * <p>Retourne {@code undefined} (donc laissé inchangé côté caller) si aucun
+ * ratio exploitable — item pièce sans {@code requestedQuantity}, ou données
+ * incohérentes. Arrondi à 3 décimales pour absorber les artefacts IEEE-754
+ * sans perdre la précision du vrac (ex. 0.25 kg).</p>
+ */
+export function computeRequestedQuantity(
+  item: Pick<CartItem, 'requestedQuantity' | 'quantity'>,
+  newQuantity: number,
+): number | undefined {
+  const prevReq = Number(item?.requestedQuantity);
+  const prevQty = Number(item?.quantity);
+  const nextQty = Number(newQuantity);
+  if (!Number.isFinite(prevReq) || prevReq <= 0) return undefined;
+  if (!Number.isFinite(prevQty) || prevQty <= 0) return undefined;
+  if (!Number.isFinite(nextQty) || nextQty <= 0) return undefined;
+  const ratio = prevReq / prevQty;
+  return Math.round(nextQty * ratio * 1000) / 1000;
+}
+
+/**
  * Sanitise une liste de CartItem :
  * <ul>
  *   <li>Recalcule {@code totalPrice} à partir de {@code pricePerUnit × quantity}.
@@ -194,11 +224,19 @@ export const cartService = {
       );
 
       if (existingIndex >= 0) {
+        const mergedQuantity = cart[existingIndex].quantity + product.quantity;
         const merged = {
           ...cart[existingIndex],
-          quantity: cart[existingIndex].quantity + product.quantity,
+          quantity: mergedQuantity,
         };
         merged.totalPrice = computeItemTotal(merged);
+        // H7 — Recalcule requestedQuantity pour la quantité cumulée (même ratio
+        // unit.quantity). On dérive le ratio depuis l'item existant, avec repli
+        // sur l'item entrant si l'existant n'en portait pas.
+        const nextReq =
+          computeRequestedQuantity(cart[existingIndex], mergedQuantity)
+          ?? computeRequestedQuantity(product, mergedQuantity);
+        if (nextReq !== undefined) merged.requestedQuantity = nextReq;
         cart[existingIndex] = merged;
       } else {
         cart.push({
@@ -231,6 +269,11 @@ export const cartService = {
           if (newQuantity > 0) {
             const next = { ...item, quantity: newQuantity };
             next.totalPrice = computeItemTotal(next);
+            // H7 — Recalcule requestedQuantity (unité de base) pour la nouvelle
+            // quantité, sinon le vrac (WEIGHT/VOLUME) garderait une quantité de
+            // base figée et le backend recevrait une valeur fausse.
+            const nextReq = computeRequestedQuantity(item, newQuantity);
+            if (nextReq !== undefined) next.requestedQuantity = nextReq;
             return next;
           }
           return null;

@@ -22,6 +22,10 @@ export function formatCurrency(amount: number, currency?: Currency | null): stri
   const decimals = currency?.decimals ?? 2;
   const position = currency?.symbolPosition ?? 'AFTER';
 
+  // Fallback propre : un montant undefined/null/NaN ne doit jamais produire
+  // la chaîne « NaN » à l'écran — on retombe sur 0.
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+
   // Intl.NumberFormat gère séparateurs milliers/décimaux selon la locale.
   // On force fr-* pour rester cohérent avec le reste du formatage de
   // l'app (dates, etc.). Quand l'utilisateur change de langue, on
@@ -29,7 +33,7 @@ export function formatCurrency(amount: number, currency?: Currency | null): stri
   const formatted = new Intl.NumberFormat('fr-FR', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(amount);
+  }).format(safeAmount);
 
   return position === 'BEFORE' ? `${symbol} ${formatted}` : `${formatted} ${symbol}`;
 }
@@ -43,10 +47,12 @@ export function formatCurrencyCompact(amount: number, currency?: Currency | null
   const decimals = currency?.decimals ?? 2;
   const position = currency?.symbolPosition ?? 'AFTER';
 
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+
   const formatted = new Intl.NumberFormat('fr-FR', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(amount);
+  }).format(safeAmount);
 
   return position === 'BEFORE' ? `${symbol}${formatted}` : `${formatted}${symbol}`;
 }

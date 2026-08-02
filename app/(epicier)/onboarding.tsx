@@ -126,6 +126,23 @@ export default function OnboardingWizardScreen() {
   // ── Handler "Ignorer" : skip côté backend + avance ─────────────
   const handleSkip = async () => {
     if (meta.required) return;
+    // Cas catalogue : on confirme explicitement car « passer » signifie
+    // démarrer sans aucun produit (le skip déclenche un import vide).
+    if (meta.id === 'CATALOGUE') {
+      Alert.alert(
+        'Passer le catalogue ?',
+        'Vous démarrerez sans aucun produit. Vous pourrez importer le catalogue ou créer vos produits plus tard depuis l\'écran Produits.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Passer',
+            style: 'destructive',
+            onPress: () => { flow.skipCurrent().catch(() => {}); },
+          },
+        ],
+      );
+      return;
+    }
     try {
       await flow.skipCurrent();
     } catch {
@@ -141,7 +158,10 @@ export default function OnboardingWizardScreen() {
     let n = 0;
     for (let i = flow.currentIndex; i < WIZARD_STEPS.length; i++) {
       const s = WIZARD_STEPS[i];
-      if (s.required) break;
+      // Le catalogue, bien qu'optionnel, n'est pas auto-sauté par le mode
+      // Express (le sauter = démarrer sans produit → choix explicite) : on
+      // s'arrête dessus comme sur une étape obligatoire.
+      if (s.required || s.id === 'CATALOGUE') break;
       if (s.kind === 'CONFIGURABLE' && s.apiKey
           && !isOptionalStepResolved(flow.status!, s.apiKey)) {
         n++;
@@ -169,7 +189,9 @@ export default function OnboardingWizardScreen() {
             let safety = WIZARD_STEPS.length + 1;
             while (safety-- > 0) {
               const currentMeta = WIZARD_STEPS[flow.currentIndex];
-              if (currentMeta.required) break;
+              // S'arrêter avant le catalogue : il ne doit pas être sauté
+              // automatiquement (démarrer sans produit reste un choix explicite).
+              if (currentMeta.required || currentMeta.id === 'CATALOGUE') break;
               try {
                 await flow.skipCurrent();
               } catch {

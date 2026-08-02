@@ -33,6 +33,32 @@ export interface LoyaltyCard {
   epicerieId: number;
   epicerieName: string;
   epicerieLogoUrl?: string | null;
+  /**
+   * Nom personnalisé de la carte défini par l'épicier (ex. « Carte Fidélité »).
+   * Nullable : fallback sur le libellé i18n générique quand absent.
+   */
+  cardName?: string | null;
+  /**
+   * Couleur primaire du branding de l'épicerie (#RRGGBB). Nullable : quand
+   * absente on retombe sur la teinte déterministe dérivée de l'epicerieId.
+   */
+  primaryColor?: string | null;
+  /**
+   * Couleur d'accent du branding (#RRGGBB) — utilisée pour les éléments
+   * secondaires (bordure QR, hint). Nullable : fallback sur la teinte primaire.
+   */
+  accentColor?: string | null;
+  /**
+   * Couleur de contraste à poser SUR {@code primaryColor} (texte de l'en-tête,
+   * QR). Nullable : fallback sur blanc/noir selon la luminance de la primaire.
+   */
+  onPrimaryColor?: string | null;
+  /**
+   * Numéro de version de la carte (versioning des QR). Incrémenté à chaque
+   * {@code regenerateCard} : un scan portant une version périmée renvoie
+   * {@code CARD_SUPERSEDED}. Purement informatif côté client.
+   */
+  cardVersion?: number | null;
   /** ISO-8601 string from LocalDateTime — render with locale-aware formatter. */
   issuedAt: string;
   active: boolean;
@@ -84,6 +110,26 @@ export const loyaltyCardService = {
       return response.data;
     } catch (error: any) {
       console.error('[loyaltyCard] refreshQr failed', error);
+      throw wrapError(error, 'LOYALTY_CARD_ERROR');
+    }
+  },
+
+  /**
+   * Régénère la carte de fidélité pour une épicerie donnée : le backend émet
+   * un NOUVEAU QR (nouvelle {@code cardVersion}) et invalide toutes les cartes
+   * précédemment partagées. Sert au client à révoquer d'anciens QR diffusés
+   * (proches / famille) et à reprendre le contrôle du crédit associé.
+   *
+   * <p>Le scan d'une ancienne carte renverra ensuite {@code CARD_SUPERSEDED}.
+   */
+  regenerateCard: async (epicerieId: number): Promise<LoyaltyCard> => {
+    try {
+      const response = await api.post<LoyaltyCard>(
+        `/me/loyalty-cards/${epicerieId}/regenerate`,
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[loyaltyCard] regenerate failed', error);
       throw wrapError(error, 'LOYALTY_CARD_ERROR');
     }
   },

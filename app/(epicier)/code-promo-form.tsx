@@ -23,6 +23,7 @@ import {
   promoCodeEpicierService,
 } from '../../src/services/promoCodeService';
 import { useRequirePermission } from '../../src/hooks/useRequirePermission';
+import { useLanguage } from '../../src/context/LanguageContext';
 
 /**
  * Formulaire unifie creation / edition d'un code promo.
@@ -37,6 +38,7 @@ export default function CodePromoFormScreen() {
   const ready = useRequirePermission('promoCodes:manage');
   const router = useRouter();
   const toast = useToast();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{ id?: string }>();
   const editId = params.id ? Number(params.id) : null;
   const isEdit = editId != null;
@@ -59,6 +61,9 @@ export default function CodePromoFormScreen() {
   const [maxUses, setMaxUses] = useState('');
   const [maxUsesPerUser, setMaxUsesPerUser] = useState('');
   const [firstOrderOnly, setFirstOrderOnly] = useState(false);
+  // Défaut activé = true, cohérent avec le backend (un code se cumule aux
+  // promotions produit sauf si l'épicier le désactive explicitement).
+  const [stackableWithPromotions, setStackableWithPromotions] = useState(true);
   const [channel, setChannel] = useState<PromoCodeChannel>('BOTH');
   const [isActive, setIsActive] = useState(true);
 
@@ -87,6 +92,7 @@ export default function CodePromoFormScreen() {
         setMaxUses(p.maxUses != null ? String(p.maxUses) : '');
         setMaxUsesPerUser(p.maxUsesPerUser != null ? String(p.maxUsesPerUser) : '');
         setFirstOrderOnly(p.firstOrderOnly);
+        setStackableWithPromotions(p.stackableWithPromotions ?? true);
         setChannel(p.channel);
         setIsActive(p.isActive);
       } catch (err: any) {
@@ -162,6 +168,7 @@ export default function CodePromoFormScreen() {
       maxUses: maxUses ? parseInt(maxUses, 10) : null,
       maxUsesPerUser: maxUsesPerUser ? parseInt(maxUsesPerUser, 10) : null,
       firstOrderOnly,
+      stackableWithPromotions,
       channel,
       isActive,
     };
@@ -185,8 +192,8 @@ export default function CodePromoFormScreen() {
     }
   }, [
     validate, code, description, discountType, discountValue, maxDiscount, minOrderAmount,
-    startAt, endAt, maxUses, maxUsesPerUser, firstOrderOnly, channel, isActive,
-    isEdit, editId, router, toast,
+    startAt, endAt, maxUses, maxUsesPerUser, firstOrderOnly, stackableWithPromotions,
+    channel, isActive, isEdit, editId, router, toast,
   ]);
 
   if (!ready) return null;
@@ -347,6 +354,22 @@ export default function CodePromoFormScreen() {
           <Switch
             value={firstOrderOnly}
             onValueChange={setFirstOrderOnly}
+            disabled={saving}
+          />
+        </View>
+
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.switchLabel}>
+              {t('promoCodes.stackableWithPromotionsLabel')}
+            </Text>
+            <Text style={styles.switchHint}>
+              {t('promoCodes.stackableWithPromotionsHint')}
+            </Text>
+          </View>
+          <Switch
+            value={stackableWithPromotions}
+            onValueChange={setStackableWithPromotions}
             disabled={saving}
           />
         </View>

@@ -12,6 +12,7 @@ import {
   View
 } from 'react-native';
 import { Skeleton, useToast } from '../../src/components/feedback';
+import { ScreenState } from '../../src/components/shared/ScreenState';
 import { useLanguage } from '../../src/context/LanguageContext';
 import { authService } from '../../src/services/authService';
 import { profileService } from '../../src/services/profileService';
@@ -44,6 +45,7 @@ export default function ProfilScreen() {
   const { t } = useLanguage();
   const toast = useToast();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   // Controle la modal d'edition du telephone (flow OTP en 2 etapes).
   const [showEditPhone, setShowEditPhone] = useState(false);
@@ -56,10 +58,13 @@ export default function ProfilScreen() {
 
   const loadUserData = async () => {
     try {
+      setLoading(true);
+      setError(false);
       const userData = await profileService.getMyProfile();
       setUser(userData);
     } catch (error) {
       console.error('Erreur chargement profil:', error);
+      setError(true);
       toast.error(t('common.error'), t('profile.loadError'));
     } finally {
       setLoading(false);
@@ -127,6 +132,11 @@ export default function ProfilScreen() {
         </View>
       </ScrollView>
     );
+  }
+
+  // Erreur réseau au chargement du profil: écran dédié avec « Réessayer ».
+  if (error && !user) {
+    return <ScreenState variant="error" onRetry={loadUserData} />;
   }
 
   return (

@@ -10,6 +10,7 @@ import {
   UpdateDeliveryInfoRequest,
   QrTokenResponse,
   QrValidateResponse,
+  WhatsAppOutboundLog,
 } from '../type';
 import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -152,9 +153,14 @@ export const orderService = {
    * Liste plate, non paginée (ensemble borné par nature). Polling 15s
    * côté écran.
    */
-  getActiveEpicerieOrders: async (): Promise<OrderListItem[]> => {
+  getActiveEpicerieOrders: async (backgroundPoll = false): Promise<OrderListItem[]> => {
     try {
-      const response = await api.get<OrderListItem[]>('/orders/epicerie/my-orders/active');
+      // backgroundPoll : tague la requête pour que l'intercepteur 402 (api.ts)
+      // n'ouvre PAS de modal d'upsell sur un poll de fond (sinon empilement).
+      const response = await api.get<OrderListItem[]>(
+        '/orders/epicerie/my-orders/active',
+        backgroundPoll ? ({ __backgroundPoll: true } as any) : undefined,
+      );
       return response.data;
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur';
@@ -190,10 +196,53 @@ export const orderService = {
   },
 
   /** V96 — Compteurs pour les badges des tabs. */
-  getEpicerieOrdersCounts: async (): Promise<OrderCounts> => {
+  getEpicerieOrdersCounts: async (backgroundPoll = false): Promise<OrderCounts> => {
     try {
-      const response = await api.get<OrderCounts>('/orders/epicerie/my-orders/counts');
+      const response = await api.get<OrderCounts>(
+        '/orders/epicerie/my-orders/counts',
+        backgroundPoll ? ({ __backgroundPoll: true } as any) : undefined,
+      );
       return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur';
+    }
+  },
+
+  /**
+   * Historique paginé des commandes d'un client dans l'épicerie courante
+   * (épicerie dérivée du token). Même forme paginée `{content: Order[]}`
+   * que les autres endpoints `/orders/epicerie/*`. Gardé par ORDER_VIEW.
+   *
+   * GET /orders/epicerie/clients/{clientId}
+   */
+  getEpicerieClientOrders: async (
+    clientId: number,
+    opts?: { page?: number; size?: number }
+  ): Promise<SpringPage<Order>> => {
+    try {
+      const params = { page: opts?.page ?? 0, size: opts?.size ?? 20 };
+      const response = await api.get<SpringPage<Order>>(
+        `/orders/epicerie/clients/${clientId}`,
+        { params }
+      );
+      return response.data;
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Erreur';
+    }
+  },
+
+  /**
+   * Commandes EN COURS (statuts actifs) d'un client dans l'épicerie courante.
+   * Liste plate, non paginée (ensemble borné). Gardé par ORDER_VIEW.
+   *
+   * GET /orders/epicerie/clients/{clientId}/active
+   */
+  getEpicerieClientActiveOrders: async (clientId: number): Promise<Order[]> => {
+    try {
+      const response = await api.get<Order[]>(
+        `/orders/epicerie/clients/${clientId}/active`
+      );
+      return response.data ?? [];
     } catch (error: any) {
       throw error.response?.data?.message || 'Erreur';
     }
@@ -372,6 +421,27 @@ export const orderService = {
       return response.data ?? [];
     } catch {
       return [];
+    }
+  },
+
+  /**
+   * WhatsApp — Journal des messages sortants d'une commande (chargé à la
+   * demande depuis l'écran de détail, uniquement pour les commandes WHATSAPP).
+   *
+   * <p>Renvoie la liste chronologique des envois (notifications de statut,
+   * réponses conversationnelles, modèles) avec leur état de livraison. Le
+   * tableau peut être vide si aucun message n'a été envoyé. L'autorisation
+   * (épicier propriétaire) est vérifiée côté serveur : 403/404 possibles —
+   * le message d'erreur est propagé au caller pour affichage.</p>
+   *
+   * GET /orders/{orderId}/whatsapp-log
+   */
+  getWhatsAppLog: async (orderId: number): Promise<WhatsAppOutboundLog[]> => {
+    try {
+      const response = await api.get<WhatsAppOutboundLog[]>(`/orders/${orderId}/whatsapp-log`);
+      return response.data ?? [];
+    } catch (error: any) {
+      throw error.response?.data?.message || 'Impossible de charger le journal WhatsApp';
     }
   },
 };

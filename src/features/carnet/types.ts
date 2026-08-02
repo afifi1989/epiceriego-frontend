@@ -48,6 +48,13 @@ export interface CarnetResponse {
    * "Modifier" et de cacher certaines actions impossibles pour ce statut.
    */
   clientIsVirtual?: boolean;
+  /**
+   * Statut de la relation épicier ↔ client renvoyé par le backend
+   * (PENDING / ACCEPTED / REJECTED / ARCHIVED). Permet de basculer le
+   * carnet en lecture seule quand le client est archivé, quel que soit
+   * le chemin d'accès (scan QR, détail commande, liste archivés…).
+   */
+  relationStatus?: string;
 
   // Résumé financier
   totalDebt: number;

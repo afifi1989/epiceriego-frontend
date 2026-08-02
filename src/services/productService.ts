@@ -1,11 +1,28 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_CONFIG, STORAGE_KEYS } from '../constants/config';
-import { BarcodeProductResult, Product } from '../type';
+import { BarcodeProductResult, CatalogueImportResult, CatalogueItem, Product } from '../type';
 import api from './api';
 
 // Cache mémoire pour les produits par épicerie (TTL : 5 minutes) — utilisé par l'ancien endpoint liste
 const PRODUCTS_CACHE_TTL = 5 * 60 * 1000;
 const productsCache = new Map<number, { data: Product[]; ts: number }>();
+
+// Historique local des produits consultés (côté client). Simple liste d'IDs
+// persistée dans AsyncStorage, la plus récente en tête, plafonnée pour ne pas
+// grossir indéfiniment.
+const RECENTLY_VIEWED_KEY = '@abridgo_recently_viewed';
+const RECENTLY_VIEWED_MAX = 20;
+
+async function readRecentlyViewedIds(): Promise<number[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RECENTLY_VIEWED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((n) => typeof n === 'number') : [];
+  } catch {
+    return [];
+  }
+}
 
 export interface ProductPage {
   content: Product[];
@@ -298,16 +315,19 @@ export const productService = {
   },
 
   /**
-   * Récupère les produits tendance
-   * TODO: Implémenter la logique côté backend
+   * Récupère les produits « tendance » via l'endpoint dédié.
+   * Endpoint : GET /products/trending?limit={n}
+   *
+   * NB : côté backend, « trending » est actuellement défini comme « les plus
+   * récents » (cf ProductController#getTrendingProducts). Le mobile ne fait que
+   * relayer ce que le serveur expose — aucune logique de tri locale trompeuse.
    */
   getTrendingProducts: async (limit: number = 6): Promise<Product[]> => {
     try {
-      // Pour l'instant, retourne les produits les plus récents
-      const response = await api.get<Product[]>('/products', {
-        params: { limit }
+      const response = await api.get<Product[]>('/products/trending', {
+        params: { limit },
       });
-      return response.data.slice(0, limit);
+      return (response.data || []).slice(0, limit);
     } catch (error: any) {
       console.log('Erreur getTrendingProducts:', error);
       return [];
@@ -315,14 +335,37 @@ export const productService = {
   },
 
   /**
-   * Récupère les produits récemment consultés
-   * TODO: Implémenter avec AsyncStorage
+   * Enregistre un produit dans l'historique local « récemment consultés ».
+   * À appeler (best-effort, fire-and-forget) à l'ouverture d'une fiche produit.
+   * Déplace l'ID en tête, déduplique et plafonne la liste.
+   */
+  addRecentlyViewedProduct: async (productId: number): Promise<void> => {
+    if (!productId || Number.isNaN(productId)) return;
+    try {
+      const ids = await readRecentlyViewedIds();
+      const next = [productId, ...ids.filter((id) => id !== productId)].slice(0, RECENTLY_VIEWED_MAX);
+      await AsyncStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(next));
+    } catch (error: any) {
+      console.log('Erreur addRecentlyViewedProduct:', error);
+    }
+  },
+
+  /**
+   * Récupère les produits récemment consultés, lus depuis l'historique local
+   * (AsyncStorage) puis résolus en produits via /products/{id}. Les IDs dont le
+   * produit n'existe plus (404/410, erreur réseau) sont simplement ignorés.
+   * L'ordre « plus récent d'abord » est préservé.
    */
   getRecentlyViewedProducts: async (limit: number = 4): Promise<Product[]> => {
     try {
-      // Pour l'instant, retourne un tableau vide
-      // TODO: Implémenter la logique de récupération depuis AsyncStorage
-      return [];
+      const ids = (await readRecentlyViewedIds()).slice(0, limit);
+      if (ids.length === 0) return [];
+      const results = await Promise.allSettled(ids.map((id) => productService.getProductById(id)));
+      const products: Product[] = [];
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value) products.push(result.value);
+      });
+      return products;
     } catch (error: any) {
       console.log('Erreur getRecentlyViewedProducts:', error);
       return [];
@@ -365,5 +408,52 @@ export const productService = {
     } catch (error: any) {
       throw error.response?.data?.message || 'Produit non trouvé pour ce code-barre';
     }
+  },
+
+  /**
+   * Recherche GLOBALE de produits par nom, toutes épiceries confondues.
+   * Alimente la barre de recherche de la home (onglet « Produits »).
+   * Endpoint backend : GET /products/search?q={term}
+   *
+   * Chaque ProductDTO renvoyé porte déjà epicerieId / epicerieNom / prix /
+   * photoUrl — assez pour afficher un résultat riche sans appel supplémentaire.
+   * Retourne [] pour une requête vide ou en cas d'erreur (recherche = action
+   * non bloquante : on n'affiche pas d'erreur dure si l'endpoint tousse).
+   */
+  searchProducts: async (query: string): Promise<Product[]> => {
+    const q = (query || '').trim();
+    if (!q) return [];
+    try {
+      const response = await api.get<Product[]>('/products/search', {
+        params: { q },
+      });
+      return response.data || [];
+    } catch (error: any) {
+      console.log('[ProductService] searchProducts error:', error?.message || error);
+      return [];
+    }
+  },
+
+  /**
+   * Catalogue seed pour l'import « Ajouter depuis le catalogue » (hors onboarding).
+   * L'épicerie est dérivée du token — aucun param. Chaque item porte
+   * `alreadyImported` pour griser les produits déjà présents.
+   * Endpoint : GET /products/catalogue (permission PRODUCT_VIEW).
+   */
+  getCatalogue: async (): Promise<CatalogueItem[]> => {
+    const response = await api.get<CatalogueItem[]>('/products/catalogue');
+    return response.data || [];
+  },
+
+  /**
+   * Importe la sélection du catalogue seed dans le catalogue de l'épicerie du
+   * token (dédup côté backend). Endpoint : POST /products/catalogue/import
+   * (permission PRODUCT_CREATE).
+   */
+  importFromCatalogue: async (seedIds: string[]): Promise<CatalogueImportResult> => {
+    const response = await api.post<CatalogueImportResult>('/products/catalogue/import', {
+      seedIds,
+    });
+    return response.data;
   },
 };
