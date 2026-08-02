@@ -208,7 +208,9 @@ export default function SettingsScreen() {
           'Suppression impossible',
           `Vous avez ${invoices.length} facture${invoices.length > 1 ? 's' : ''} impayee${invoices.length > 1 ? 's' : ''} pour un total de ${totalDebt.toFixed(2)} DH :\n\n${storeLines}\n\nVeuillez regulariser votre situation aupres de ${byStore.size > 1 ? 'ces epiceries' : 'cette epicerie'} avant de supprimer votre compte.`,
           [
-            { text: 'Voir mes factures', onPress: () => router.push('/(client)/factures-paiements' as any) },
+            // L'écran « Factures & Paiements » a été retiré : le carnet est
+            // désormais l'unique vue du compte (dette, relevé, échéances).
+            { text: 'Voir mon carnet', onPress: () => router.push('/(client)/mon-carnet' as any) },
             { text: 'Fermer', style: 'cancel' },
           ],
         );

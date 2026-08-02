@@ -46,6 +46,13 @@ export interface StatementEntry {
   orderId?: number | null;
   invoiceId?: number | null;
   status?: string | null;
+  /**
+   * Échéance (format yyyy-MM-dd) — renseignée uniquement pour les écritures
+   * INVOICE. Permet d'afficher « à régler avant le… » / « en retard de X j »
+   * sur les achats encore impayés. Absente sur les anciens backends : le
+   * front doit rester tolérant (champ optionnel).
+   */
+  dueDate?: string | null;
 }
 
 /** Relevé complet (miroir de CarnetResponseDTO, champs utiles côté client). */

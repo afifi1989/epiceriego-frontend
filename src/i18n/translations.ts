@@ -1409,6 +1409,9 @@ export const translations = {
       loadMore: 'Charger plus',
       emptyStatement: 'Aucune écriture pour le moment',
       totalPurchases: 'Total achats',
+      // Échéance des achats impayés (l'encaissement se fait chez l'épicier)
+      dueBy: 'À régler avant le {{date}}',
+      overdueBy: 'En retard de {{days}} j',
     },
 
     // Section « Commandes » du carnet client (côté épicier)
@@ -2996,6 +2999,9 @@ export const translations = {
       loadMore: 'تحميل المزيد',
       emptyStatement: 'لا توجد عمليات بعد',
       totalPurchases: 'إجمالي المشتريات',
+      // Échéance des achats impayés (l'encaissement se fait chez l'épicier)
+      dueBy: 'يُسدَّد قبل {{date}}',
+      overdueBy: 'متأخر بـ {{days}} يوم',
     },
 
     // قسم «الطلبات» في كرني الزبون (جهة البقال)
@@ -4579,6 +4585,9 @@ export const translations = {
       loadMore: 'Load more',
       emptyStatement: 'No entries yet',
       totalPurchases: 'Total purchases',
+      // Due date of unpaid purchases (payment is collected by the grocer)
+      dueBy: 'Due by {{date}}',
+      overdueBy: '{{days}} day(s) overdue',
     },
 
     // "Orders" section of the client credit book (shop-owner side)
@@ -6085,6 +6094,9 @@ export const translations = {
       loadMore: 'Sali ugar',
       emptyStatement: 'Ulac tira ar tura',
       totalPurchases: 'Asemday n tiɣin',
+      // Échéance des achats impayés (fallback FR assuré par translate())
+      dueBy: 'Xelleṣ send {{date}}',
+      overdueBy: '{{days}} n wussan n tuɛeṭṭilt',
     },
 
     // Tigezmi «Tiɣawsiwin» deg ukersan n umsaɣ (tama n ubqal)

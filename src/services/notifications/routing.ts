@@ -39,9 +39,12 @@ const ROUTE_RESOLVERS: Partial<Record<NotificationTypeValue, RouteResolver>> = {
   [NotificationType.PROMOTION]: (d) =>
     d?.epicerieId ? `/(client)/(epicerie)/${d.epicerieId}` : FALLBACK_ROUTE,
 
-  [NotificationType.PAYMENT_RECEIVED]: () => '/(client)/factures-paiements',
-  [NotificationType.INVOICE_DUE]: () => '/(client)/factures-paiements',
-  [NotificationType.CREDIT_UPDATED]: () => '/(client)/factures-paiements',
+  // « Factures & Paiements » a été fusionné dans le carnet : toutes les
+  // notifications financières mènent au carnet (la route factures-paiements
+  // ne subsiste que comme redirection de compatibilité).
+  [NotificationType.PAYMENT_RECEIVED]: () => '/(client)/mon-carnet',
+  [NotificationType.INVOICE_DUE]: () => '/(client)/mon-carnet',
+  [NotificationType.CREDIT_UPDATED]: () => '/(client)/mon-carnet',
 
   [NotificationType.LOYALTY_POINTS_EARNED]: () => '/(client)/fidelite',
   [NotificationType.LOYALTY_TIER_REACHED]: () => '/(client)/fidelite',

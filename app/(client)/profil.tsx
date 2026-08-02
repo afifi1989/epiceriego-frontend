@@ -21,7 +21,7 @@ import { EditAddressModal } from '../../src/components/client/EditAddressModal';
 import { User } from '../../src/type';
 
 /**
- * Ligne d'action du profil — factorise les 9 entrées (icône + libellé +
+ * Ligne d'action du profil — factorise les 8 entrées (icône + libellé +
  * chevron) et porte l'accessibilité en un seul endroit (role bouton, label =
  * libellé traduit, sans lire l'emoji décoratif).
  */
@@ -202,8 +202,9 @@ export default function ProfilScreen() {
 
         <ActionRow icon="🛍️" label={t('profile.myOrders')} onPress={() => router.push('/(client)/(commandes)')} />
         <ActionRow icon="❤️" label={t('profile.myFavorites')} onPress={() => router.push('/(client)/favoris')} />
+        {/* « Mes factures » a été fusionné dans le carnet : la consultation
+            vit dans le relevé, et l'encaissement est géré par l'épicier. */}
         <ActionRow icon="📒" label={t('profile.myCarnet')} onPress={() => router.push('/(client)/mon-carnet')} />
-        <ActionRow icon="💳" label={t('profile.myInvoices')} onPress={() => router.push('/(client)/factures-paiements')} />
         <ActionRow icon="⭐" label={t('profile.myLoyalty')} onPress={() => router.push('/(client)/fidelite' as any)} />
         <ActionRow icon="✉️" label={t('profile.myInvitations')} onPress={() => router.push('/(client)/invitations')} />
         <ActionRow icon="📢" label={t('profile.myNotifications')} onPress={() => router.push('/(client)/notifications')} />

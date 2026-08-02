@@ -213,10 +213,26 @@ const ENTRY_VISUALS: Record<
   CASHBACK: { icon: 'gift-outline', color: '#9333ea', labelKey: 'carnet.cashbackEntry' },
 };
 
+/**
+ * Retard d'un achat impayé, en jours entiers (0 = pas en retard).
+ * Ne concerne que les écritures INVOICE au statut UNPAID munies d'une
+ * échéance — retourne null pour toute autre écriture (tolérant aux
+ * backends qui n'exposent pas encore `dueDate`).
+ */
+function getUnpaidDueInfo(entry: StatementEntry): { dueDate: Date; daysOverdue: number } | null {
+  if (entry.type !== 'INVOICE' || entry.status !== 'UNPAID' || !entry.dueDate) {
+    return null;
+  }
+  const dueDate = new Date(entry.dueDate);
+  if (Number.isNaN(dueDate.getTime())) return null;
+  const msLate = Date.now() - dueDate.getTime();
+  return { dueDate, daysOverdue: Math.max(0, Math.floor(msLate / 86_400_000)) };
+}
+
 const EntryRow: React.FC<{
   entry: StatementEntry;
   theme: Theme;
-  t: (key: string) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
 }> = ({ entry, theme, t }) => {
   const styles = makeStyles(theme);
   const visual = ENTRY_VISUALS[entry.type] ?? {
@@ -234,6 +250,10 @@ const EntryRow: React.FC<{
     ? `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : '';
 
+  // Achat impayé : afficher l'échéance (ou le retard) pour que le client
+  // sache quand passer régler — l'encaissement se fait chez l'épicier.
+  const dueInfo = getUnpaidDueInfo(entry);
+
   return (
     <View style={styles.entryRow}>
       <View style={[styles.entryIcon, { backgroundColor: visual.color + '18' }]}>
@@ -247,6 +267,30 @@ const EntryRow: React.FC<{
           {entry.description}
         </Text>
         <Text style={styles.entryDate}>{dateLabel}</Text>
+        {dueInfo ? (
+          <View
+            style={[
+              styles.duePill,
+              { backgroundColor: dueInfo.daysOverdue > 0 ? '#dc262618' : '#f59e0b18' },
+            ]}
+          >
+            <Ionicons
+              name={dueInfo.daysOverdue > 0 ? 'alert-circle-outline' : 'time-outline'}
+              size={12}
+              color={dueInfo.daysOverdue > 0 ? '#dc2626' : '#b45309'}
+            />
+            <Text
+              style={[
+                styles.duePillText,
+                { color: dueInfo.daysOverdue > 0 ? '#dc2626' : '#b45309' },
+              ]}
+            >
+              {dueInfo.daysOverdue > 0
+                ? t('carnet.overdueBy', { days: dueInfo.daysOverdue })
+                : t('carnet.dueBy', { date: dueInfo.dueDate.toLocaleDateString() })}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.entryAmounts}>
         <Text style={[styles.entryAmount, { color: isDebit ? '#dc2626' : '#16a34a' }]}>
@@ -397,6 +441,21 @@ const makeStyles = (theme: Theme) =>
       fontSize: 10.5,
       color: '#a1a1aa',
       marginTop: 2,
+    },
+    // ── Échéance d'un achat impayé ───────────────────────
+    duePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 6,
+      marginTop: 4,
+    },
+    duePillText: {
+      fontSize: 10.5,
+      fontWeight: '700',
     },
     entryAmounts: {
       alignItems: 'flex-end',

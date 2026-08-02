@@ -222,12 +222,15 @@ function ClientTabsContent() {
         }}
       />
 
+      {/* Route de compatibilité : l'écran « Factures & Paiements » a été
+          retiré (fusion dans le carnet, encaissement côté épicier). Le
+          fichier ne fait que rediriger vers mon-carnet ; on le garde caché
+          de la tab bar. */}
       <Tabs.Screen
         name="factures-paiements"
         options={{
           href: null,
-          headerTitle: t('client.headers.invoices') || 'Factures & Paiements',
-          headerRight: () => <NotificationBadge />,
+          headerShown: false,
         }}
       />
 
